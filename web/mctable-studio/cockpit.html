@@ -68,9 +68,9 @@
 
     .page {
       position: relative;
-      width: min(1320px, calc(100vw - 32px));
+      width: min(1400px, calc(100vw - 32px));
       margin: 0 auto;
-      padding: 18px 0 36px;
+      padding: 22px 0 40px;
     }
 
     .topbar {
@@ -162,8 +162,8 @@
 
     .hero {
       display: grid;
-      grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
-      gap: 22px;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 20px;
       align-items: stretch;
       margin-top: 22px;
     }
@@ -183,7 +183,7 @@
     }
 
     .hero-copy {
-      padding: 34px;
+      padding: 36px 36px 32px;
       position: relative;
       overflow: hidden;
     }
@@ -357,10 +357,10 @@
     }
 
     .hero-visual {
-      padding: 16px;
+      padding: 18px;
       overflow: hidden;
       position: relative;
-      min-height: 700px;
+      min-height: 760px;
     }
 
     .hero-visual::before {
@@ -379,9 +379,9 @@
       border-radius: 24px;
       border: 1px solid rgba(145, 175, 223, 0.18);
       background:
-        linear-gradient(180deg, rgba(16, 28, 48, 0.92), rgba(11, 18, 31, 0.92)),
-        radial-gradient(circle at top, rgba(125,176,255,0.12), transparent 42%);
-      overflow: hidden;
+      linear-gradient(180deg, rgba(16, 28, 48, 0.92), rgba(11, 18, 31, 0.92)),
+      radial-gradient(circle at top, rgba(125,176,255,0.12), transparent 42%);
+      overflow: visible;
       display: grid;
       grid-template-rows: auto 1fr;
     }
@@ -391,7 +391,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      padding: 18px 18px 14px;
+      padding: 20px 22px 16px;
       border-bottom: 1px solid rgba(150, 182, 229, 0.12);
       background: rgba(255,255,255,0.02);
     }
@@ -413,16 +413,18 @@
 
     .cockpit-grid {
       display: grid;
-      grid-template-columns: 220px minmax(0, 1fr) 220px;
+      grid-template-columns: minmax(260px, 300px) minmax(0, 1fr) minmax(260px, 300px);
+      gap: 0;
       min-height: 0;
     }
 
     .rail {
-      padding: 16px;
+      padding: 18px;
       display: grid;
       gap: 12px;
       border-right: 1px solid rgba(150, 182, 229, 0.10);
       background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+      min-width: 0;
     }
 
     .rail.right {
@@ -434,7 +436,7 @@
       border-radius: 18px;
       border: 1px solid rgba(150, 182, 229, 0.12);
       background: rgba(255,255,255,0.03);
-      padding: 14px;
+      padding: 16px;
       display: grid;
       gap: 9px;
     }
@@ -461,6 +463,7 @@
       border: 1px solid rgba(150, 182, 229, 0.10);
       border-radius: 14px;
       background: rgba(255,255,255,0.02);
+      min-width: 0;
     }
 
     .kv strong {
@@ -468,13 +471,15 @@
       font-family: var(--mono);
       font-size: 0.82rem;
       text-align: right;
+      overflow-wrap: anywhere;
     }
 
     .timeline {
-      padding: 16px;
+      padding: 18px;
       display: grid;
       gap: 14px;
       align-content: start;
+      min-width: 0;
     }
 
     .timeline-header {
@@ -501,6 +506,7 @@
     .timeline-list {
       display: grid;
       gap: 12px;
+      min-width: 0;
     }
 
     .timeline-item {
@@ -508,10 +514,11 @@
       grid-template-columns: 12px minmax(0, 1fr);
       gap: 12px;
       align-items: start;
-      padding: 14px;
+      padding: 16px;
       border-radius: 18px;
       background: rgba(255,255,255,0.03);
       border: 1px solid rgba(150, 182, 229, 0.12);
+      min-width: 0;
     }
 
     .timeline-dot {
@@ -534,6 +541,7 @@
       color: var(--muted);
       line-height: 1.55;
       font-size: 0.88rem;
+      overflow-wrap: anywhere;
     }
 
     .timeline-meta {
@@ -675,7 +683,7 @@
       border-radius: 20px;
       min-height: 150px;
       position: relative;
-      overflow: hidden;
+      overflow: visible;
     }
 
     .flow-step::before {
@@ -817,7 +825,6 @@
     }
 
     @media (max-width: 1160px) {
-      .hero,
       .safety-grid {
         grid-template-columns: 1fr;
       }
