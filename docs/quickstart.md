@@ -19,6 +19,8 @@ PYTHONPATH=. uvicorn src.marius_desktop.app:app --reload
 
 ## 3. Open the cockpit
 
+The canonical public demo is `https://mctable.team` and does not require login.
+
 ```text
 http://127.0.0.1:8000/web/mctable-studio/cockpit.html
 ```
@@ -38,4 +40,3 @@ cargo run --manifest-path src-tauri/Cargo.toml
 - `fake-worker-sleep`
 
 Anything else must be rejected.
-

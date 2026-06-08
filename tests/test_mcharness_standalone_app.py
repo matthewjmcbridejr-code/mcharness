@@ -31,8 +31,10 @@ def test_branding_and_readme_are_public():
     branding = json.loads((ROOT / "branding.json").read_text(encoding="utf-8"))
     assert branding["product_name"] == "McHarness"
     assert branding["repo_name"] == "mcharness"
+    assert branding["public_url"] == "https://mctable.team"
     assert PRODUCT_NAME == "McHarness"
     assert "McHarness" in (ROOT / "README.md").read_text(encoding="utf-8")
+    assert standalone_app.state.branding["public_url"] == "https://mctable.team"
 
 
 def test_tauri_icon_is_real_square_placeholder():

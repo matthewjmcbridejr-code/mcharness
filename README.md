@@ -2,6 +2,8 @@
 
 McHarness is a local-first agentic harness for supervised AI work.
 
+Public demo: [https://mctable.team](https://mctable.team). It is a no-login public view of the same operator workspace.
+
 ## What it is
 
 McHarness is a local control surface for creating tasks, reviewing worker output, approving or rejecting outcomes, and inspecting persisted logs and checkpoints. The backend truth stays in the FastAPI API, LangGraph workflow, SQLite checkpoint store, fake-worker-only runner, and local MCP layer.
@@ -44,6 +46,8 @@ Open the cockpit at:
 ```text
 http://127.0.0.1:8000/web/mctable-studio/cockpit.html
 ```
+
+For the canonical public demo, use `https://mctable.team`.
 
 ## Showcase cockpit
 

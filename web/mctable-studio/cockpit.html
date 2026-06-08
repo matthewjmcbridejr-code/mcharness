@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>McHarness Cockpit</title>
   <meta name="description" content="McHarness agentic harness cockpit for supervised AI work." />
+  <link rel="canonical" href="https://mctable.team" />
   <style>
     :root {
       color-scheme: light;
@@ -94,6 +95,14 @@
     .brand-title span {
       color: var(--muted);
       font-size: 0.82rem;
+    }
+    .brand-title .public-link {
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.78rem;
+    }
+    .brand-title .public-link:hover {
+      text-decoration: underline;
     }
     .top-actions {
       display: flex;
@@ -455,6 +464,7 @@
         <div class="brand-title">
           <strong>McHarness</strong>
           <span>Local-first agentic harness for supervised AI work</span>
+          <a class="public-link" href="https://mctable.team" rel="noopener noreferrer">Public demo: mctable.team</a>
         </div>
       </div>
       <div class="top-actions">

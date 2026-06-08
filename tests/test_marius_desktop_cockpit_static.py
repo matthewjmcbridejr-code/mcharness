@@ -89,6 +89,8 @@ def test_cockpit_shows_hermes_workspace_language_and_safety():
     required_snippets = [
         "McHarness",
         "agentic harness",
+        "Public demo: mctable.team",
+        "https://mctable.team",
         "Workbench Core",
         "Captain Mode state machine",
         "workbench-status-note",

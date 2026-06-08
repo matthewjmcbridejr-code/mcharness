@@ -1,6 +1,7 @@
 {
   "product_name": "McHarness",
   "repo_name": "mcharness",
+  "public_url": "https://mctable.team",
   "tagline": "A local-first agentic harness for supervised AI work.",
   "category": "AI agentic harness",
   "internal_module": "src.marius_desktop",

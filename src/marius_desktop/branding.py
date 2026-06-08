@@ -8,6 +8,7 @@ _BRANDING_PATH = _ROOT / "branding.json"
 _DEFAULTS = {
     "product_name": "McHarness",
     "repo_name": "mcharness",
+    "public_url": "https://mctable.team",
     "tagline": "A local-first agentic harness for supervised AI work.",
     "category": "AI agentic harness",
     "legacy_codename": "Marius Desktop",
@@ -29,6 +30,7 @@ _BRANDING = _load_branding()
 
 PRODUCT_NAME = _BRANDING["product_name"]
 REPO_NAME = _BRANDING["repo_name"]
+PUBLIC_URL = _BRANDING["public_url"]
 TAGLINE = _BRANDING["tagline"]
 CATEGORY = _BRANDING["category"]
 LEGACY_CODENAME = _BRANDING["legacy_codename"]
