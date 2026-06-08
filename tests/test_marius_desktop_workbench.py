@@ -34,6 +34,8 @@ def test_workbench_status_and_catalogs_are_local_only():
     assert status["real_agent_launch_disabled"] is True
     assert status["arbitrary_command_execution_disabled"] is True
     assert status["workbench_root"].endswith("_mctable/workbench")
+    assert status["runs"] == 0
+    assert status["run_proof_gates"] == 0
 
     tools_response = client.get("/api/marius/workbench/tools")
     assert tools_response.status_code == 200
@@ -213,6 +215,183 @@ def test_workbench_friendly_thread_and_message_contracts():
     detail = thread_detail.json()
     assert len(detail["messages"]) == 2
     assert any(message["kind"] == "planning" for message in detail["messages"])
+
+
+def test_workbench_run_ledger_friendly_flow():
+    client = TestClient(app)
+
+    client.post(
+        "/api/marius/workbench/agents",
+        json={
+            "agent_id": "agent_delta",
+            "name": "Agent Delta",
+            "role": "planner",
+            "status": "active",
+            "safety_profile_id": "operator_local",
+            "allowed_threads": [],
+            "notes": None,
+        },
+    )
+    client.post(
+        "/api/marius/workbench/threads",
+        json={
+            "thread_id": "thread_run_ledger",
+            "agent_id": "agent_delta",
+            "title": "Run ledger thread",
+            "objective": "Exercise run ledger, evidence, and proof gates.",
+            "status": "open",
+            "next_action": "inspect",
+            "prompt_queue": [],
+            "minion_tasks": [],
+            "evidence_records": [],
+            "hard_gates": [],
+            "planned_acceptance_commands": [],
+            "recovery_hint": None,
+            "notes": None,
+        },
+    )
+
+    raw_run = client.post(
+        "/api/marius/workbench/threads/thread_run_ledger/runs",
+        json={"run_id": "run_raw_ledger", "title": "Raw run", "current_step": "plan"},
+    )
+    assert raw_run.status_code == 200
+    assert raw_run.json()["run_id"] == "run_raw_ledger"
+    assert raw_run.json()["status"] == "queued"
+
+    friendly_run = client.post(
+        "/api/marius/workbench/threads/thread_run_ledger/runs",
+        json={"title": "Friendly run", "current_step": "plan"},
+    )
+    assert friendly_run.status_code == 200
+    run = friendly_run.json()
+    assert run["run_id"].startswith("run_")
+    assert run["title"] == "Friendly run"
+    assert run["current_step"] == "plan"
+
+    run_id = run["run_id"]
+
+    event_response = client.post(
+        f"/api/marius/workbench/runs/{run_id}/events",
+        json={
+            "event_type": "plan",
+            "title": "Captain plan",
+            "detail": "Break the work into bounded checks.",
+            "severity": "info",
+        },
+    )
+    assert event_response.status_code == 200
+    event_run = event_response.json()
+    assert len(event_run["events"]) == 1
+    assert event_run["events"][0]["event_type"] == "plan"
+    assert event_run["events"][0]["event_id"].startswith("event_")
+
+    evidence_response = client.post(
+        f"/api/marius/workbench/runs/{run_id}/evidence",
+        json={
+            "title": "Static tests passed",
+            "summary": "Cockpit static tests passed.",
+            "source_type": "test",
+            "verdict": "passed",
+        },
+    )
+    assert evidence_response.status_code == 200
+    evidence_run = evidence_response.json()
+    assert len(evidence_run["evidence_records"]) == 1
+    assert evidence_run["evidence_records"][0]["source_type"] == "test"
+    assert evidence_run["evidence_records"][0]["verdict"] == "passed"
+
+    gate_response = client.post(
+        f"/api/marius/workbench/runs/{run_id}/proof-gates",
+        json={
+            "title": "Human approval before screenshot update",
+            "reason": "Screenshot docs should not update until operator approves.",
+        },
+    )
+    assert gate_response.status_code == 200
+    gated_run = gate_response.json()
+    assert gated_run["status"] == "blocked"
+    assert len(gated_run["proof_gates"]) == 1
+    gate_id = gated_run["proof_gates"][0]["gate_id"]
+    assert gate_id.startswith("gate_")
+
+    blocked_continue = client.post(f"/api/marius/workbench/runs/{run_id}/continue")
+    assert blocked_continue.status_code == 200
+    blocked_payload = blocked_continue.json()
+    assert blocked_payload["status"] == "blocked"
+    assert "Approve/reject" in blocked_payload["recovery_hint"]
+
+
+@pytest.mark.parametrize(
+    ("decision", "expected_gate_status", "expected_continue_status"),
+    [
+        ("approved", "approved", "safe_noop"),
+        ("rejected", "rejected", "blocked"),
+        ("edit_requested", "blocked", "blocked"),
+    ],
+)
+def test_workbench_run_gate_decisions_control_continuation(decision, expected_gate_status, expected_continue_status):
+    client = TestClient(app)
+
+    client.post(
+        "/api/marius/workbench/agents",
+        json={
+            "agent_id": "agent_epsilon",
+            "name": "Agent Epsilon",
+            "role": "planner",
+            "status": "active",
+            "safety_profile_id": "operator_local",
+            "allowed_threads": [],
+            "notes": None,
+        },
+    )
+    client.post(
+        "/api/marius/workbench/threads",
+        json={
+            "thread_id": "thread_gate_decisions",
+            "agent_id": "agent_epsilon",
+            "title": "Gate decisions",
+            "objective": "Exercise the proof gate decision flow.",
+            "status": "open",
+            "next_action": "inspect",
+            "prompt_queue": [],
+            "minion_tasks": [],
+            "evidence_records": [],
+            "hard_gates": [],
+            "planned_acceptance_commands": [],
+            "recovery_hint": None,
+            "notes": None,
+        },
+    )
+
+    run_response = client.post(
+        "/api/marius/workbench/threads/thread_gate_decisions/runs",
+        json={"title": "Decision run", "current_step": "plan"},
+    )
+    run_id = run_response.json()["run_id"]
+
+    gate_response = client.post(
+        f"/api/marius/workbench/runs/{run_id}/proof-gates",
+        json={
+            "title": "Proof gate",
+            "reason": "Decision required before continuation.",
+        },
+    )
+    gate_id = gate_response.json()["proof_gates"][0]["gate_id"]
+
+    decision_response = client.post(
+        f"/api/marius/workbench/proof-gates/{gate_id}/decision",
+        json={"actor": "matt", "decision": decision, "note": "Recorded for audit."},
+    )
+    assert decision_response.status_code == 200
+    decided = decision_response.json()
+    assert decided["approval_decisions"][0]["decision"] == decision
+    assert decided["proof_gates"][0]["status"] == expected_gate_status
+
+    continue_response = client.post(f"/api/marius/workbench/runs/{run_id}/continue")
+    assert continue_response.status_code == 200
+    payload = continue_response.json()
+    assert payload["status"] == expected_continue_status
 
 
 def test_workbench_rejects_command_request_messages_and_persists_registry_records():

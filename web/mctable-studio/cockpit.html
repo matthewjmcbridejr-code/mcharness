@@ -733,6 +733,161 @@
         <section class="panel section">
           <div class="section-head">
             <div>
+              <h2>Run Ledger</h2>
+              <small>Runs, events, evidence, proof gates, and continuation safety.</small>
+            </div>
+            <button class="btn" id="refresh-run-ledger" type="button">Refresh runs</button>
+          </div>
+          <div class="section-note" id="run-ledger-note">Create a run from the selected workbench thread.</div>
+          <div class="form-grid" style="margin-top: 12px;">
+            <div class="field">
+              <label for="workbench-run-title">Run title</label>
+              <input id="workbench-run-title" type="text" placeholder="Polish cockpit UI" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="workbench-run-current-step">Current step</label>
+              <input id="workbench-run-current-step" type="text" value="plan" autocomplete="off" />
+            </div>
+          </div>
+          <div class="top-actions" style="margin-top: 10px;">
+            <button class="btn primary" id="save-workbench-run" type="button">Create run</button>
+            <span class="hint">Uses the selected workbench thread and `POST /api/marius/workbench/threads/{thread_id}/runs`.</span>
+          </div>
+          <div class="list" id="workbench-run-list" style="margin-top: 12px;"></div>
+          <div class="muted-box" style="margin-top: 12px;">
+            <div class="section-note">Selected run</div>
+            <div class="mini-list" id="workbench-run-detail" style="margin-top: 10px;"></div>
+          </div>
+          <div class="section-note" style="margin-top: 12px;">Run events</div>
+          <div class="list" id="workbench-run-event-list" style="margin-top: 10px;"></div>
+          <div class="section-note" style="margin-top: 12px;">Evidence records</div>
+          <div class="list" id="workbench-run-evidence-list" style="margin-top: 10px;"></div>
+          <div class="section-note" style="margin-top: 12px;">Proof gates</div>
+          <div class="list" id="workbench-run-gate-list" style="margin-top: 10px;"></div>
+          <div class="section-note" style="margin-top: 12px;">Approval decisions</div>
+          <div class="list" id="workbench-run-decision-list" style="margin-top: 10px;"></div>
+          <div class="section-note" style="margin-top: 12px;">Append run event</div>
+          <div class="form-grid" style="margin-top: 10px;">
+            <div class="field">
+              <label for="workbench-run-event-type">Event type</label>
+              <select id="workbench-run-event-type">
+                <option value="plan">plan</option>
+                <option value="instruction">instruction</option>
+                <option value="minion_assignment">minion_assignment</option>
+                <option value="tool_result">tool_result</option>
+                <option value="evidence">evidence</option>
+                <option value="proof_gate">proof_gate</option>
+                <option value="approval">approval</option>
+                <option value="blocked">blocked</option>
+                <option value="artifact">artifact</option>
+                <option value="note">note</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="workbench-run-event-severity">Severity</label>
+              <select id="workbench-run-event-severity">
+                <option value="info">info</option>
+                <option value="success">success</option>
+                <option value="warning">warning</option>
+                <option value="blocked">blocked</option>
+                <option value="error">error</option>
+              </select>
+            </div>
+            <div class="field full">
+              <label for="workbench-run-event-title">Event title</label>
+              <input id="workbench-run-event-title" type="text" placeholder="Captain plan" autocomplete="off" />
+            </div>
+            <div class="field full">
+              <label for="workbench-run-event-detail">Event detail</label>
+              <textarea id="workbench-run-event-detail" placeholder="Break the work into bounded checks."></textarea>
+            </div>
+          </div>
+          <div class="top-actions" style="margin-top: 10px;">
+            <button class="btn" id="save-workbench-run-event" type="button">Add event</button>
+          </div>
+          <div class="section-note" style="margin-top: 12px;">Add evidence</div>
+          <div class="form-grid" style="margin-top: 10px;">
+            <div class="field">
+              <label for="workbench-run-evidence-title">Evidence title</label>
+              <input id="workbench-run-evidence-title" type="text" placeholder="Static tests passed" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="workbench-run-evidence-source-type">Source type</label>
+              <select id="workbench-run-evidence-source-type">
+                <option value="test">test</option>
+                <option value="log">log</option>
+                <option value="manual">manual</option>
+                <option value="artifact">artifact</option>
+                <option value="api">api</option>
+                <option value="screenshot">screenshot</option>
+                <option value="verifier">verifier</option>
+              </select>
+            </div>
+            <div class="field full">
+              <label for="workbench-run-evidence-summary">Evidence summary</label>
+              <textarea id="workbench-run-evidence-summary" placeholder="Cockpit static tests passed."></textarea>
+            </div>
+            <div class="field">
+              <label for="workbench-run-evidence-verdict">Verdict</label>
+              <select id="workbench-run-evidence-verdict">
+                <option value="unknown">unknown</option>
+                <option value="passed">passed</option>
+                <option value="failed">failed</option>
+                <option value="blocked">blocked</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="workbench-run-evidence-ref">Source ref</label>
+              <input id="workbench-run-evidence-ref" type="text" placeholder="tests/test_marius_desktop_workbench.py" autocomplete="off" />
+            </div>
+          </div>
+          <div class="top-actions" style="margin-top: 10px;">
+            <button class="btn" id="save-workbench-run-evidence" type="button">Add evidence</button>
+          </div>
+          <div class="section-note" style="margin-top: 12px;">Open proof gate</div>
+          <div class="form-grid" style="margin-top: 10px;">
+            <div class="field">
+              <label for="workbench-run-gate-title">Gate title</label>
+              <input id="workbench-run-gate-title" type="text" placeholder="Human approval before screenshot update" autocomplete="off" />
+            </div>
+            <div class="field full">
+              <label for="workbench-run-gate-reason">Gate reason</label>
+              <textarea id="workbench-run-gate-reason" placeholder="Screenshot docs should not update until operator approves."></textarea>
+            </div>
+          </div>
+          <div class="top-actions" style="margin-top: 10px;">
+            <button class="btn" id="save-workbench-run-gate" type="button">Open gate</button>
+          </div>
+          <div class="section-note" style="margin-top: 12px;">Decide proof gate</div>
+          <div class="form-grid" style="margin-top: 10px;">
+            <div class="field">
+              <label for="workbench-run-decision-actor">Actor</label>
+              <input id="workbench-run-decision-actor" type="text" value="matt" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="workbench-run-decision">Decision</label>
+              <select id="workbench-run-decision">
+                <option value="approved">approved</option>
+                <option value="rejected">rejected</option>
+                <option value="edit_requested">edit_requested</option>
+              </select>
+            </div>
+            <div class="field full">
+              <label for="workbench-run-decision-note">Decision note</label>
+              <textarea id="workbench-run-decision-note" placeholder="Approved for local screenshot update."></textarea>
+            </div>
+          </div>
+          <div class="top-actions" style="margin-top: 10px;">
+            <button class="btn" id="save-workbench-run-decision" type="button">Record decision</button>
+            <button class="btn primary" id="continue-workbench-run" type="button">Continue run</button>
+          </div>
+          <div class="hint" style="margin-top: 8px;">Continue responses: <span class="mono">status: "blocked"</span> or <span class="mono">status: "safe_noop"</span>.</div>
+          <div class="section-note" style="margin-top: 12px;" id="run-continue-note">Continuation is safe-noop unless a proof gate blocks it.</div>
+        </section>
+
+        <section class="panel section">
+          <div class="section-head">
+            <div>
               <h2>Human approval</h2>
               <small>Decision checkpoint for live tasks</small>
             </div>
@@ -860,6 +1015,46 @@
         artifacts: [
           { artifact_id: "proof_pack", kind: "report", title: "Proof Pack", path: "docs/release_candidate_report.md" },
         ],
+        runs: [
+          {
+            run_id: "run_sample_01",
+            thread_id: "thread_alpha",
+            title: "Polish cockpit UI",
+            status: "blocked",
+            current_step: "proof_gate",
+            recovery_hint: "Approve/reject the open proof gates before continuing.",
+            events: [
+              { event_id: "event_1", run_id: "run_sample_01", thread_id: "thread_alpha", event_type: "plan", title: "Captain plan", detail: "Break the work into bounded checks.", severity: "info" },
+              { event_id: "event_2", run_id: "run_sample_01", thread_id: "thread_alpha", event_type: "evidence", title: "Static tests passed", detail: "Cockpit static tests passed.", severity: "success" },
+            ],
+            evidence_records: [
+              { evidence_id: "ev_1", run_id: "run_sample_01", thread_id: "thread_alpha", title: "Static tests passed", summary: "Cockpit static tests passed.", source_type: "test", verdict: "passed" },
+            ],
+            proof_gates: [
+              { gate_id: "gate_1", run_id: "run_sample_01", thread_id: "thread_alpha", title: "Human approval before screenshot update", reason: "Screenshot docs should not update until operator approves.", status: "open", requires_human: true },
+            ],
+            approval_decisions: [],
+          },
+          {
+            run_id: "run_sample_02",
+            thread_id: "thread_alpha",
+            title: "Release proof pack",
+            status: "running",
+            current_step: "safe_noop",
+            events: [
+              { event_id: "event_3", run_id: "run_sample_02", thread_id: "thread_alpha", event_type: "approval", title: "Gate approved", detail: "Approved for local screenshot update.", severity: "success" },
+            ],
+            evidence_records: [
+              { evidence_id: "ev_2", run_id: "run_sample_02", thread_id: "thread_alpha", title: "Backend verifier passed", summary: "verify_marius_desktop_backend.py passed.", source_type: "verifier", verdict: "passed" },
+            ],
+            proof_gates: [
+              { gate_id: "gate_2", run_id: "run_sample_02", thread_id: "thread_alpha", title: "Human approval before screenshot update", reason: "Screenshot docs should not update until operator approves.", status: "approved", requires_human: true },
+            ],
+            approval_decisions: [
+              { decision_id: "dec_1", gate_id: "gate_2", run_id: "run_sample_02", thread_id: "thread_alpha", actor: "matt", decision: "approved", note: "Approved for local screenshot update.", created_at: "2026-06-08T00:00:00Z" },
+            ],
+          },
+        ],
         tools: [
           { name: "workbench_threads", category: "workflow", status: "available", summary: "Local thread registry" },
           { name: "local_mcp", category: "integration", status: "available", summary: "Local-only MCP tool layer" },
@@ -889,6 +1084,7 @@
       workbenchStatus: null,
       workbenchAgents: [],
       workbenchThreads: [],
+      workbenchRuns: [],
       workbenchSkills: [],
       workbenchMemories: [],
       workbenchArtifacts: [],
@@ -899,6 +1095,8 @@
       selectedWorkbenchAgentId: null,
       selectedWorkbenchThreadId: null,
       selectedWorkbenchThread: null,
+      selectedWorkbenchRunId: null,
+      selectedWorkbenchRun: null,
       selectedWorkerRunId: null,
       instructionLog: [],
       sampleMode: new URLSearchParams(window.location.search).get("sample") === "1",
@@ -1154,12 +1352,14 @@
         status: state.workbenchStatus,
         agents: state.workbenchAgents,
         threads: state.workbenchThreads,
+        runs: state.workbenchRuns,
         skills: state.workbenchSkills,
         memories: state.workbenchMemories,
         artifacts: state.workbenchArtifacts,
         tools: state.workbenchTools,
         safetyProfiles: state.workbenchSafetyProfiles,
         selectedThread: state.selectedWorkbenchThread,
+        selectedRun: state.selectedWorkbenchRun,
       };
     }
 
@@ -1172,17 +1372,25 @@
       const artifacts = wb.artifacts || [];
       const tools = wb.tools || [];
       const safetyProfiles = wb.safetyProfiles || [];
+      const runs = wb.runs || [];
       if (!state.selectedWorkbenchAgentId && agents[0]) {
         state.selectedWorkbenchAgentId = agents[0].agent_id;
       }
       if (!state.selectedWorkbenchThreadId && threads[0]) {
         state.selectedWorkbenchThreadId = threads[0].thread_id;
       }
-      const selectedThread = wb.selectedThread || (threads.length ? threads[0] : null);
+      const selectedThread = wb.selectedThread || threads.find((thread) => thread.thread_id === state.selectedWorkbenchThreadId) || threads[0] || null;
+      const selectedRun = wb.selectedRun || runs.find((run) => run.run_id === state.selectedWorkbenchRunId) || runs[0] || null;
+      if (!state.selectedWorkbenchRunId && selectedRun) {
+        state.selectedWorkbenchRunId = selectedRun.run_id;
+      }
+      if (selectedRun && state.selectedWorkbenchRunId !== selectedRun.run_id) {
+        state.selectedWorkbenchRunId = selectedRun.run_id;
+      }
 
       $("workbench-status-note").textContent = state.sampleMode
         ? "Sample UI data — not executed."
-        : `Local-only workbench store. agents: ${wb.status?.agents ?? agents.length} | threads: ${wb.status?.threads ?? threads.length} | messages: ${wb.status?.messages ?? 0} | tools: ${wb.status?.tools ?? tools.length}`;
+        : `Local-only workbench store. agents: ${wb.status?.agents ?? agents.length} | threads: ${wb.status?.threads ?? threads.length} | runs: ${wb.status?.runs ?? runs.length} | messages: ${wb.status?.messages ?? 0} | tools: ${wb.status?.tools ?? tools.length}`;
 
       $("workbench-agent-list").innerHTML = agents.length ? agents.map((agent) => `
         <button class="list-item ${agent.agent_id === state.selectedWorkbenchAgentId ? "active" : ""}" type="button" data-workbench-agent-id="${esc(agent.agent_id)}">
@@ -1248,6 +1456,50 @@
       `).join("") : `
         <option value="operator_local" selected>Operator Local</option>
       `;
+
+      $("workbench-run-list").innerHTML = runs.length ? runs.map((run) => `
+        <button class="list-item ${run.run_id === state.selectedWorkbenchRunId ? "active" : ""}" type="button" data-workbench-run-id="${esc(run.run_id)}">
+          <strong>${esc(run.title || run.run_id)}</strong>
+          <span>${esc(run.run_id)} · ${esc(run.status || "queued")} · ${esc(run.current_step || "step")} · ${esc(run.proof_gates?.length ?? 0)} gates</span>
+        </button>
+      `).join("") : `<div class="empty-state">No runs yet. Create one from the selected workbench thread.</div>`;
+
+      $("workbench-run-detail").innerHTML = selectedRun ? [
+        `<div class="mini-row"><span class="label">Title</span><span class="value">${esc(selectedRun.title || selectedRun.run_id)}</span></div>`,
+        `<div class="mini-row"><span class="label">Run ID</span><span class="value">${esc(selectedRun.run_id)}</span></div>`,
+        `<div class="mini-row"><span class="label">Thread</span><span class="value">${esc(selectedRun.thread_id)}</span></div>`,
+        `<div class="mini-row"><span class="label">Status</span><span class="value">${esc(selectedRun.status || "queued")}</span></div>`,
+        `<div class="mini-row"><span class="label">Current step</span><span class="value">${esc(selectedRun.current_step || "plan")}</span></div>`,
+        `<div class="mini-row"><span class="label">Recovery hint</span><span class="value">${esc(selectedRun.recovery_hint || "none")}</span></div>`,
+      ].join("") : `<div class="empty-state">Select a run to inspect its events, evidence, and proof gates.</div>`;
+
+      $("workbench-run-event-list").innerHTML = selectedRun && selectedRun.events && selectedRun.events.length ? selectedRun.events.map((event) => `
+        <div class="list-item">
+          <strong>${esc(event.title || event.event_type)}</strong>
+          <span>${esc(event.event_type)} · ${esc(event.severity || "info")} · ${esc(event.detail || "")}</span>
+        </div>
+      `).join("") : `<div class="empty-state">No run events yet.</div>`;
+
+      $("workbench-run-evidence-list").innerHTML = selectedRun && selectedRun.evidence_records && selectedRun.evidence_records.length ? selectedRun.evidence_records.map((item) => `
+        <div class="list-item">
+          <strong>${esc(item.title || item.evidence_id)}</strong>
+          <span>${esc(item.source_type || "manual")} · ${esc(item.verdict || "unknown")} · ${esc(item.summary || "")}</span>
+        </div>
+      `).join("") : `<div class="empty-state">No evidence records yet.</div>`;
+
+      $("workbench-run-gate-list").innerHTML = selectedRun && selectedRun.proof_gates && selectedRun.proof_gates.length ? selectedRun.proof_gates.map((gate) => `
+        <div class="list-item">
+          <strong>${esc(gate.title || gate.gate_id)}</strong>
+          <span>${esc(gate.status || "open")} · ${esc(gate.reason || "")}</span>
+        </div>
+      `).join("") : `<div class="empty-state">No proof gates yet.</div>`;
+
+      $("workbench-run-decision-list").innerHTML = selectedRun && selectedRun.approval_decisions && selectedRun.approval_decisions.length ? selectedRun.approval_decisions.map((decision) => `
+        <div class="list-item">
+          <strong>${esc(decision.actor || "operator")} · ${esc(decision.decision || "approved")}</strong>
+          <span>${esc(decision.note || "No decision note.")}</span>
+        </div>
+      `).join("") : `<div class="empty-state">No approval decisions yet.</div>`;
     }
 
     async function refreshWorkbench() {
@@ -1258,8 +1510,13 @@
           agents: SAMPLE.workbench.agents.length,
           threads: SAMPLE.workbench.threads.length,
           messages: 2,
+          runs: SAMPLE.workbench.runs.length,
+          run_events: SAMPLE.workbench.runs.reduce((count, run) => count + (run.events?.length || 0), 0),
+          run_evidence: SAMPLE.workbench.runs.reduce((count, run) => count + (run.evidence_records?.length || 0), 0),
+          run_proof_gates: SAMPLE.workbench.runs.reduce((count, run) => count + (run.proof_gates?.length || 0), 0),
           tools: SAMPLE.workbench.tools.length,
         };
+        state.workbenchRuns = SAMPLE.workbench.runs;
         renderWorkbench();
         return;
       }
@@ -1267,6 +1524,7 @@
         state.workbenchStatus = await request("/api/marius/workbench/status");
         state.workbenchAgents = await request("/api/marius/workbench/agents");
         state.workbenchThreads = await request("/api/marius/workbench/threads");
+        state.workbenchRuns = await request("/api/marius/workbench/runs");
         state.workbenchSkills = await request("/api/marius/workbench/skills");
         state.workbenchMemories = await request("/api/marius/workbench/memories");
         state.workbenchArtifacts = await request("/api/marius/workbench/artifacts");
@@ -1276,6 +1534,7 @@
         state.workbenchStatus = { status: "offline", recovery_hint: error.message };
         state.workbenchAgents = [];
         state.workbenchThreads = [];
+        state.workbenchRuns = [];
         state.workbenchSkills = [];
         state.workbenchMemories = [];
         state.workbenchArtifacts = [];
@@ -1285,6 +1544,9 @@
       renderWorkbench();
       if (state.selectedWorkbenchThreadId && !state.sampleMode) {
         await selectWorkbenchThread(state.selectedWorkbenchThreadId);
+      }
+      if (state.selectedWorkbenchRunId && !state.sampleMode) {
+        await selectWorkbenchRun(state.selectedWorkbenchRunId);
       }
     }
 
@@ -1308,18 +1570,60 @@
       state.selectedWorkbenchThreadId = threadId || null;
       if (state.sampleMode) {
         state.selectedWorkbenchThread = SAMPLE.workbench.threads.find((item) => item.thread_id === threadId) || SAMPLE.workbench.threads[0] || null;
+        const sampleRun = SAMPLE.workbench.runs.find((item) => item.thread_id === threadId) || SAMPLE.workbench.runs[0] || null;
+        state.selectedWorkbenchRunId = sampleRun ? sampleRun.run_id : null;
+        state.selectedWorkbenchRun = sampleRun;
         renderWorkbench();
         return;
       }
       if (!threadId) {
         state.selectedWorkbenchThread = null;
+        state.selectedWorkbenchRunId = null;
+        state.selectedWorkbenchRun = null;
         renderWorkbench();
         return;
       }
       try {
         state.selectedWorkbenchThread = await request(`/api/marius/workbench/threads/${encodeURIComponent(threadId)}`);
+        const relatedRun = state.workbenchRuns.find((item) => item.thread_id === threadId) || null;
+        state.selectedWorkbenchRunId = relatedRun ? relatedRun.run_id : null;
+        state.selectedWorkbenchRun = relatedRun;
       } catch {
         state.selectedWorkbenchThread = null;
+        state.selectedWorkbenchRunId = null;
+        state.selectedWorkbenchRun = null;
+      }
+      renderWorkbench();
+    }
+
+    async function selectWorkbenchRun(runId) {
+      state.selectedWorkbenchRunId = runId || null;
+      if (state.sampleMode) {
+        state.selectedWorkbenchRun = SAMPLE.workbench.runs.find((item) => item.run_id === runId) || SAMPLE.workbench.runs[0] || null;
+        if (state.selectedWorkbenchRun?.thread_id) {
+          state.selectedWorkbenchThreadId = state.selectedWorkbenchRun.thread_id;
+          state.selectedWorkbenchThread = SAMPLE.workbench.threads.find((item) => item.thread_id === state.selectedWorkbenchRun.thread_id) || SAMPLE.workbench.threads[0] || null;
+        }
+        renderWorkbench();
+        return;
+      }
+      if (!runId) {
+        state.selectedWorkbenchRun = null;
+        renderWorkbench();
+        return;
+      }
+      try {
+        state.selectedWorkbenchRun = await request(`/api/marius/workbench/runs/${encodeURIComponent(runId)}`);
+        if (state.selectedWorkbenchRun.thread_id) {
+          state.selectedWorkbenchThreadId = state.selectedWorkbenchRun.thread_id;
+          try {
+            state.selectedWorkbenchThread = await request(`/api/marius/workbench/threads/${encodeURIComponent(state.selectedWorkbenchRun.thread_id)}`);
+          } catch {
+            state.selectedWorkbenchThread = null;
+          }
+        }
+      } catch {
+        state.selectedWorkbenchRun = null;
       }
       renderWorkbench();
     }
@@ -1405,6 +1709,172 @@
           }
         } catch {}
         alert(`Message post failed: ${error.message}`);
+      }
+    }
+
+    async function submitWorkbenchRun() {
+      const thread = state.sampleMode
+        ? SAMPLE.workbench.threads.find((item) => item.thread_id === state.selectedWorkbenchThreadId) || SAMPLE.workbench.threads[0] || null
+        : state.selectedWorkbenchThread;
+      if (!thread) return alert("Select a workbench thread first.");
+      const title = $("workbench-run-title").value.trim();
+      const currentStep = $("workbench-run-current-step").value.trim();
+      if (!title || !currentStep) return alert("Run title and current step are required.");
+      if (state.sampleMode) {
+        alert("Sample UI data is not executed.");
+        return;
+      }
+      try {
+        const created = await request(`/api/marius/workbench/threads/${encodeURIComponent(thread.thread_id)}/runs`, {
+          method: "POST",
+          body: JSON.stringify({
+            title,
+            current_step: currentStep,
+          }),
+        });
+        await refreshWorkbench();
+        await selectWorkbenchRun(created.run_id);
+      } catch (error) {
+        alert(`Run create failed: ${error.message}`);
+      }
+    }
+
+    async function submitWorkbenchRunEvent() {
+      const run = state.sampleMode
+        ? SAMPLE.workbench.runs.find((item) => item.run_id === state.selectedWorkbenchRunId) || SAMPLE.workbench.runs[0] || null
+        : state.selectedWorkbenchRun;
+      if (!run) return alert("Select a run first.");
+      const title = $("workbench-run-event-title").value.trim();
+      const detail = $("workbench-run-event-detail").value.trim();
+      if (!title || !detail) return alert("Event title and detail are required.");
+      if (state.sampleMode) {
+        alert("Sample UI data is not executed.");
+        return;
+      }
+      try {
+        await request(`/api/marius/workbench/runs/${encodeURIComponent(run.run_id)}/events`, {
+          method: "POST",
+          body: JSON.stringify({
+            event_type: $("workbench-run-event-type").value,
+            title,
+            detail,
+            severity: $("workbench-run-event-severity").value,
+          }),
+        });
+        await refreshWorkbench();
+        await selectWorkbenchRun(run.run_id);
+      } catch (error) {
+        alert(`Run event failed: ${error.message}`);
+      }
+    }
+
+    async function submitWorkbenchRunEvidence() {
+      const run = state.sampleMode
+        ? SAMPLE.workbench.runs.find((item) => item.run_id === state.selectedWorkbenchRunId) || SAMPLE.workbench.runs[0] || null
+        : state.selectedWorkbenchRun;
+      if (!run) return alert("Select a run first.");
+      const title = $("workbench-run-evidence-title").value.trim();
+      const summary = $("workbench-run-evidence-summary").value.trim();
+      if (!title || !summary) return alert("Evidence title and summary are required.");
+      if (state.sampleMode) {
+        alert("Sample UI data is not executed.");
+        return;
+      }
+      try {
+        await request(`/api/marius/workbench/runs/${encodeURIComponent(run.run_id)}/evidence`, {
+          method: "POST",
+          body: JSON.stringify({
+            title,
+            summary,
+            source_type: $("workbench-run-evidence-source-type").value,
+            source_ref: $("workbench-run-evidence-ref").value.trim() || null,
+            verdict: $("workbench-run-evidence-verdict").value,
+          }),
+        });
+        await refreshWorkbench();
+        await selectWorkbenchRun(run.run_id);
+      } catch (error) {
+        alert(`Evidence failed: ${error.message}`);
+      }
+    }
+
+    async function submitWorkbenchRunGate() {
+      const run = state.sampleMode
+        ? SAMPLE.workbench.runs.find((item) => item.run_id === state.selectedWorkbenchRunId) || SAMPLE.workbench.runs[0] || null
+        : state.selectedWorkbenchRun;
+      if (!run) return alert("Select a run first.");
+      const title = $("workbench-run-gate-title").value.trim();
+      const reason = $("workbench-run-gate-reason").value.trim();
+      if (!title || !reason) return alert("Gate title and reason are required.");
+      if (state.sampleMode) {
+        alert("Sample UI data is not executed.");
+        return;
+      }
+      try {
+        await request(`/api/marius/workbench/runs/${encodeURIComponent(run.run_id)}/proof-gates`, {
+          method: "POST",
+          body: JSON.stringify({
+            title,
+            reason,
+            requires_human: true,
+          }),
+        });
+        await refreshWorkbench();
+        await selectWorkbenchRun(run.run_id);
+      } catch (error) {
+        alert(`Proof gate failed: ${error.message}`);
+      }
+    }
+
+    async function submitWorkbenchRunDecision() {
+      const run = state.sampleMode
+        ? SAMPLE.workbench.runs.find((item) => item.run_id === state.selectedWorkbenchRunId) || SAMPLE.workbench.runs[0] || null
+        : state.selectedWorkbenchRun;
+      if (!run) return alert("Select a run first.");
+      const gate = run.proof_gates?.find((item) => item.status === "open") || run.proof_gates?.find((item) => item.status !== "approved") || run.proof_gates?.[0];
+      if (!gate) return alert("Open a proof gate first.");
+      if (state.sampleMode) {
+        alert("Sample UI data is not executed.");
+        return;
+      }
+      try {
+        await request(`/api/marius/workbench/proof-gates/${encodeURIComponent(gate.gate_id)}/decision`, {
+          method: "POST",
+          body: JSON.stringify({
+            actor: $("workbench-run-decision-actor").value.trim() || "matt",
+            decision: $("workbench-run-decision").value,
+            note: $("workbench-run-decision-note").value.trim() || null,
+          }),
+        });
+        await refreshWorkbench();
+        await selectWorkbenchRun(run.run_id);
+      } catch (error) {
+        alert(`Proof gate decision failed: ${error.message}`);
+      }
+    }
+
+    async function continueWorkbenchRun() {
+      const run = state.sampleMode
+        ? SAMPLE.workbench.runs.find((item) => item.run_id === state.selectedWorkbenchRunId) || SAMPLE.workbench.runs[0] || null
+        : state.selectedWorkbenchRun;
+      if (!run) return alert("Select a run first.");
+      if (state.sampleMode) {
+        alert("Sample UI data is not executed.");
+        return;
+      }
+      try {
+        const response = await request(`/api/marius/workbench/runs/${encodeURIComponent(run.run_id)}/continue`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        $("run-continue-note").textContent = `${response.status}: ${response.reason}`;
+        if (response.recovery_hint) {
+          $("run-continue-note").textContent += ` ${response.recovery_hint}`;
+        }
+        await refreshWorkbench();
+        await selectWorkbenchRun(run.run_id);
+      } catch (error) {
+        alert(`Continue failed: ${error.message}`);
       }
     }
 
@@ -1594,9 +2064,16 @@
       $("create-task-form").addEventListener("submit", submitTask);
       $("approval-form").addEventListener("submit", submitApproval);
       $("refresh-workbench").addEventListener("click", refreshWorkbench);
+      $("refresh-run-ledger").addEventListener("click", refreshWorkbench);
       $("save-workbench-agent").addEventListener("click", submitWorkbenchAgent);
       $("save-workbench-thread").addEventListener("click", submitWorkbenchThread);
       $("workbench-message-form").addEventListener("submit", submitWorkbenchMessage);
+      $("save-workbench-run").addEventListener("click", submitWorkbenchRun);
+      $("save-workbench-run-event").addEventListener("click", submitWorkbenchRunEvent);
+      $("save-workbench-run-evidence").addEventListener("click", submitWorkbenchRunEvidence);
+      $("save-workbench-run-gate").addEventListener("click", submitWorkbenchRunGate);
+      $("save-workbench-run-decision").addEventListener("click", submitWorkbenchRunDecision);
+      $("continue-workbench-run").addEventListener("click", continueWorkbenchRun);
       $("run-list").addEventListener("click", (event) => {
         const button = event.target.closest("[data-task-id]");
         if (button) selectTask(button.dataset.taskId);
@@ -1608,6 +2085,10 @@
       $("workbench-thread-list").addEventListener("click", (event) => {
         const button = event.target.closest("[data-workbench-thread-id]");
         if (button) selectWorkbenchThread(button.dataset.workbenchThreadId);
+      });
+      $("workbench-run-list").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-workbench-run-id]");
+        if (button) selectWorkbenchRun(button.dataset.workbenchRunId);
       });
     }
 

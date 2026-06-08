@@ -24,6 +24,7 @@ The internal Python module name currently remains `src/marius_desktop` to avoid 
 - Worker execution is fake-worker-only for the current RC.
 - Unsafe legacy worker-launch routes remain disabled.
 - Workbench Core routes exist for agents, threads, messages, skills, memories, artifacts, tools, and safety profiles.
+- Run Ledger v0.1 adds runs, run events, evidence records, proof gates, and approval decisions.
 - Captain Mode models supervised agentic work with prompt queues, bounded minions, evidence, hard gates, human review, and scoped commits.
 - The minimal web cockpit exists.
 - The minimal Tauri shell is verified with `cargo check`.
@@ -47,6 +48,8 @@ http://127.0.0.1:8000/web/mctable-studio/cockpit.html
 ## Showcase cockpit
 
 The cockpit is a Hermes-style operator workspace with a toggleable sample run for screenshots and short demos. Sample mode is labeled `Sample UI data — not executed.` and does not trigger worker launches or mutate backend state.
+
+Run Ledger smoke commands are documented in [docs/workbench_core.md](docs/workbench_core.md).
 
 Workbench Core uses a friendly public-facing contract for thread creation and message posting:
 

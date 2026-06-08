@@ -12,7 +12,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from .contracts import EvidenceRecord, HardGate, MinionTask, PromptQueueItem, ScopedCommitPlan
+from .contracts import EvidenceRecord as ThreadEvidenceRecord
+from .contracts import HardGate, MinionTask, PromptQueueItem, ScopedCommitPlan
 
 MCTABLE_ROOT = Path("_mctable")
 WORKBENCH_ROOT = MCTABLE_ROOT / "workbench"
@@ -46,7 +47,7 @@ class WorkbenchThread(BaseModel):
     next_action: str = "inspect"
     prompt_queue: list[PromptQueueItem] = Field(default_factory=list)
     minion_tasks: list[MinionTask] = Field(default_factory=list)
-    evidence_records: list[EvidenceRecord] = Field(default_factory=list)
+    evidence_records: list[ThreadEvidenceRecord] = Field(default_factory=list)
     hard_gates: list[HardGate] = Field(default_factory=list)
     scoped_commit_plan: Optional[ScopedCommitPlan] = None
     planned_acceptance_commands: list[str] = Field(default_factory=list)
@@ -146,7 +147,7 @@ class WorkbenchThreadCreateRequest(BaseModel):
     next_action: str = "inspect"
     prompt_queue: list[PromptQueueItem] = Field(default_factory=list)
     minion_tasks: list[MinionTask] = Field(default_factory=list)
-    evidence_records: list[EvidenceRecord] = Field(default_factory=list)
+    evidence_records: list[ThreadEvidenceRecord] = Field(default_factory=list)
     hard_gates: list[HardGate] = Field(default_factory=list)
     scoped_commit_plan: Optional[ScopedCommitPlan] = None
     planned_acceptance_commands: list[str] = Field(default_factory=list)
@@ -190,10 +191,137 @@ class WorkbenchArtifactCreateRequest(BaseModel):
     notes: Optional[str] = None
 
 
-class WorkbenchProofGateCreateRequest(BaseModel):
-    kind: str = Field(min_length=1)
+class WorkbenchRunProofGateCreateRequest(BaseModel):
+    gate_id: Optional[str] = Field(default=None, pattern=SAFE_SLUG)
+    title: str = Field(min_length=1)
     reason: str = Field(min_length=1)
-    triggered_by: str = Field(min_length=1)
+    requires_human: bool = True
+    kind: Optional[str] = Field(default=None, min_length=1)
+    triggered_by: Optional[str] = Field(default=None, min_length=1)
+
+
+class WorkbenchRunProofGateDecisionRequest(BaseModel):
+    decision: Literal["approved", "rejected", "edit_requested"]
+    actor: str = Field(min_length=1)
+    note: Optional[str] = None
+
+
+class WorkbenchRunEvent(BaseModel):
+    event_id: str
+    run_id: str
+    thread_id: str
+    event_type: Literal[
+        "instruction",
+        "plan",
+        "minion_assignment",
+        "tool_result",
+        "evidence",
+        "proof_gate",
+        "approval",
+        "blocked",
+        "artifact",
+        "note",
+    ]
+    title: str
+    detail: str
+    severity: Literal["info", "success", "warning", "blocked", "error"] = "info"
+    created_at: datetime
+
+
+class EvidenceRecord(BaseModel):
+    evidence_id: str
+    run_id: str
+    thread_id: str
+    title: str
+    summary: str
+    source_type: Literal["test", "log", "manual", "artifact", "api", "screenshot", "verifier"]
+    source_ref: Optional[str] = None
+    verdict: Literal["unknown", "passed", "failed", "blocked"] = "unknown"
+    created_at: datetime
+
+
+class ProofGate(BaseModel):
+    gate_id: str
+    run_id: str
+    thread_id: str
+    title: str
+    reason: str
+    status: Literal["open", "approved", "rejected", "blocked"] = "open"
+    requires_human: bool = True
+    created_at: datetime
+    decided_at: Optional[datetime] = None
+    decision_id: Optional[str] = None
+
+
+class ApprovalDecision(BaseModel):
+    decision_id: str
+    gate_id: str
+    run_id: str
+    thread_id: str
+    actor: str
+    decision: Literal["approved", "rejected", "edit_requested"]
+    note: Optional[str] = None
+    created_at: datetime
+
+
+class WorkbenchRun(BaseModel):
+    run_id: str
+    thread_id: str
+    title: str
+    status: Literal["queued", "running", "paused", "blocked", "completed", "failed", "cancelled"] = "queued"
+    current_step: str
+    created_at: datetime
+    updated_at: datetime
+    recovery_hint: Optional[str] = None
+    events: list[WorkbenchRunEvent] = Field(default_factory=list)
+    evidence_records: list[EvidenceRecord] = Field(default_factory=list)
+    proof_gates: list[ProofGate] = Field(default_factory=list)
+    approval_decisions: list[ApprovalDecision] = Field(default_factory=list)
+
+
+class WorkbenchRunCreateRequest(BaseModel):
+    run_id: Optional[str] = Field(default=None, pattern=SAFE_SLUG)
+    title: str = Field(min_length=1)
+    current_step: str = Field(min_length=1)
+    status: Literal["queued", "running", "paused", "blocked", "completed", "failed", "cancelled"] = "queued"
+    recovery_hint: Optional[str] = None
+
+
+class WorkbenchRunEventCreateRequest(BaseModel):
+    event_id: Optional[str] = Field(default=None, pattern=SAFE_SLUG)
+    event_type: Literal[
+        "instruction",
+        "plan",
+        "minion_assignment",
+        "tool_result",
+        "evidence",
+        "proof_gate",
+        "approval",
+        "blocked",
+        "artifact",
+        "note",
+    ]
+    title: str = Field(min_length=1)
+    detail: str = Field(min_length=1)
+    severity: Literal["info", "success", "warning", "blocked", "error"] = "info"
+
+
+class WorkbenchEvidenceRecordCreateRequest(BaseModel):
+    evidence_id: Optional[str] = Field(default=None, pattern=SAFE_SLUG)
+    title: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+    source_type: Literal["test", "log", "manual", "artifact", "api", "screenshot", "verifier"]
+    source_ref: Optional[str] = None
+    verdict: Literal["unknown", "passed", "failed", "blocked"] = "unknown"
+
+
+class WorkbenchProofGateCreateRequest(BaseModel):
+    gate_id: Optional[str] = Field(default=None, pattern=SAFE_SLUG)
+    kind: str = Field(default="manual_review", min_length=1)
+    reason: str = Field(min_length=1)
+    triggered_by: str = Field(default="operator", min_length=1)
+    requires_human: bool = True
+    title: Optional[str] = None
 
 
 class WorkbenchProofGateDecisionRequest(BaseModel):
@@ -289,6 +417,7 @@ class WorkbenchStore:
             "agents",
             "threads",
             "messages",
+            "runs",
             "skills",
             "memories",
             "artifacts",
@@ -310,8 +439,84 @@ class WorkbenchStore:
         candidate = f"{prefix}-{uuid.uuid4().hex[:6]}"
         return _safe_id(candidate, "thread_id")
 
+    def _generate_run_id(self, title: str) -> str:
+        prefix = re.sub(r"[^A-Za-z0-9_-]+", "-", title.lower()).strip("-_")
+        prefix = prefix[:24] or "run"
+        candidate = f"run_{prefix}-{uuid.uuid4().hex[:6]}"
+        return _safe_id(candidate, "run_id")
+
+    def _generate_record_id(self, prefix: str, field: str) -> str:
+        candidate = f"{prefix}_{uuid.uuid4().hex[:8]}"
+        return _safe_id(candidate, field)
+
     def _message_path(self, thread_id: str) -> Path:
         return self.root / "messages" / f"{thread_id}.jsonl"
+
+    def _run_path(self, run_id: str) -> Path:
+        return self._path("runs", _safe_id(run_id, "run_id"))
+
+    def _load_run(self, run_id: str) -> WorkbenchRun:
+        path = self._run_path(run_id)
+        if not path.exists():
+            raise WorkbenchError(f"run not available: {run_id}")
+        return _load_model(path, WorkbenchRun)
+
+    def _save_run(self, run: WorkbenchRun) -> WorkbenchRun:
+        _atomic_write_json(self._run_path(run.run_id), run.model_dump(mode="json"))
+        return run
+
+    def _run_view(self, run: WorkbenchRun) -> dict[str, Any]:
+        return run.model_dump(mode="json")
+
+    def _run_events(self, run: WorkbenchRun) -> list[WorkbenchRunEvent]:
+        return list(run.events)
+
+    def _run_has_open_gate(self, run: WorkbenchRun) -> bool:
+        return any(gate.status == "open" for gate in run.proof_gates)
+
+    def _run_has_blocking_gate(self, run: WorkbenchRun) -> bool:
+        return any(gate.status in {"open", "rejected", "blocked"} for gate in run.proof_gates)
+
+    def _recompute_run_status(self, run: WorkbenchRun) -> None:
+        if self._run_has_blocking_gate(run):
+            run.status = "blocked"
+            return
+        if run.proof_gates and run.status == "blocked":
+            run.status = "running"
+
+    def _append_run_event(
+        self,
+        run: WorkbenchRun,
+        *,
+        event_type: Literal[
+            "instruction",
+            "plan",
+            "minion_assignment",
+            "tool_result",
+            "evidence",
+            "proof_gate",
+            "approval",
+            "blocked",
+            "artifact",
+            "note",
+        ],
+        title: str,
+        detail: str,
+        severity: Literal["info", "success", "warning", "blocked", "error"] = "info",
+        event_id: Optional[str] = None,
+    ) -> WorkbenchRunEvent:
+        event = WorkbenchRunEvent(
+            event_id=event_id or self._generate_record_id("event", "event_id"),
+            run_id=run.run_id,
+            thread_id=run.thread_id,
+            event_type=event_type,
+            title=title,
+            detail=detail,
+            severity=severity,
+            created_at=_now(),
+        )
+        run.events.append(event)
+        return event
 
     def _load_list_file(self, path: Path, model: type[BaseModel]) -> list[BaseModel]:
         if not path.exists():
@@ -524,6 +729,228 @@ class WorkbenchStore:
         self._save_thread(thread)
         return self._thread_view(thread)
 
+    def list_runs(self) -> list[dict[str, Any]]:
+        self.ensure_layout()
+        runs_dir = self.root / "runs"
+        if not runs_dir.exists():
+            return []
+        rows: list[dict[str, Any]] = []
+        for path in sorted(runs_dir.glob("*.json")):
+            try:
+                run = _load_model(path, WorkbenchRun)
+            except Exception:
+                continue
+            rows.append(self._run_view(run))
+        rows.sort(key=lambda item: item.get("updated_at") or "", reverse=True)
+        return rows
+
+    def create_run(self, thread_id: str, payload: WorkbenchRunCreateRequest) -> WorkbenchRun:
+        self.ensure_layout()
+        thread = self._load_thread(thread_id)
+        run_id = payload.run_id or self._generate_run_id(payload.title)
+        _safe_id(run_id, "run_id")
+        path = self._run_path(run_id)
+        if path.exists():
+            raise WorkbenchError(f"run already exists: {run_id}")
+        now = _now()
+        run = WorkbenchRun(
+            run_id=run_id,
+            thread_id=thread.thread_id,
+            title=payload.title,
+            status=payload.status,
+            current_step=payload.current_step,
+            created_at=now,
+            updated_at=now,
+            recovery_hint=payload.recovery_hint,
+        )
+        self._save_run(run)
+        return run
+
+    def get_run(self, run_id: str) -> WorkbenchRun:
+        self.ensure_layout()
+        return self._load_run(run_id)
+
+    def list_run_events(self, run_id: str) -> list[WorkbenchRunEvent]:
+        self.ensure_layout()
+        return self._load_run(run_id).events
+
+    def append_run_event(self, run_id: str, payload: WorkbenchRunEventCreateRequest) -> WorkbenchRunEvent:
+        self.ensure_layout()
+        run = self._load_run(run_id)
+        event = WorkbenchRunEvent(
+            event_id=payload.event_id or self._generate_record_id("event", "event_id"),
+            run_id=run.run_id,
+            thread_id=run.thread_id,
+            event_type=payload.event_type,
+            title=payload.title,
+            detail=payload.detail,
+            severity=payload.severity,
+            created_at=_now(),
+        )
+        run.events.append(event)
+        run.updated_at = _now()
+        self._save_run(run)
+        return event
+
+    def list_run_evidence(self, run_id: str) -> list[EvidenceRecord]:
+        self.ensure_layout()
+        return self._load_run(run_id).evidence_records
+
+    def add_run_evidence(self, run_id: str, payload: WorkbenchEvidenceRecordCreateRequest) -> EvidenceRecord:
+        self.ensure_layout()
+        run = self._load_run(run_id)
+        evidence = EvidenceRecord(
+            evidence_id=payload.evidence_id or self._generate_record_id("evidence", "evidence_id"),
+            run_id=run.run_id,
+            thread_id=run.thread_id,
+            title=payload.title,
+            summary=payload.summary,
+            source_type=payload.source_type,
+            source_ref=payload.source_ref,
+            verdict=payload.verdict,
+            created_at=_now(),
+        )
+        run.evidence_records.append(evidence)
+        self._append_run_event(
+            run,
+            event_type="evidence",
+            title=payload.title,
+            detail=payload.summary,
+            severity="success" if payload.verdict == "passed" else "warning" if payload.verdict == "unknown" else "blocked" if payload.verdict == "blocked" else "error",
+        )
+        run.updated_at = _now()
+        self._save_run(run)
+        return evidence
+
+    def list_proof_gates(self, run_id: str) -> list[ProofGate]:
+        self.ensure_layout()
+        return self._load_run(run_id).proof_gates
+
+    def open_run_proof_gate(self, run_id: str, payload: WorkbenchRunProofGateCreateRequest) -> ProofGate:
+        self.ensure_layout()
+        run = self._load_run(run_id)
+        gate = ProofGate(
+            gate_id=payload.gate_id or self._generate_record_id("gate", "gate_id"),
+            run_id=run.run_id,
+            thread_id=run.thread_id,
+            title=payload.title,
+            reason=payload.reason,
+            status="open",
+            requires_human=payload.requires_human,
+            created_at=_now(),
+        )
+        run.proof_gates.append(gate)
+        run.status = "blocked"
+        self._append_run_event(
+            run,
+            event_type="proof_gate",
+            title=gate.title,
+            detail=gate.reason,
+            severity="blocked",
+        )
+        run.updated_at = _now()
+        self._save_run(run)
+        return gate
+
+    def decide_run_proof_gate(self, gate_id: str, payload: WorkbenchRunProofGateDecisionRequest) -> dict[str, Any]:
+        self.ensure_layout()
+        run = None
+        gate = None
+        for candidate_path in sorted((self.root / "runs").glob("*.json")):
+            try:
+                candidate = _load_model(candidate_path, WorkbenchRun)
+            except Exception:
+                continue
+            gate = next((item for item in candidate.proof_gates if item.gate_id == gate_id), None)
+            if gate is not None:
+                run = candidate
+                break
+        if run is None or gate is None:
+            raise WorkbenchError(f"gate not available: {gate_id}")
+        decision = ApprovalDecision(
+            decision_id=self._generate_record_id("decision", "decision_id"),
+            gate_id=gate.gate_id,
+            run_id=run.run_id,
+            thread_id=run.thread_id,
+            actor=payload.actor,
+            decision=payload.decision,
+            note=payload.note,
+            created_at=_now(),
+        )
+        run.approval_decisions.append(decision)
+        gate.decision_id = decision.decision_id
+        gate.decided_at = decision.created_at
+        if payload.decision == "approved":
+            gate.status = "approved"
+        elif payload.decision == "rejected":
+            gate.status = "rejected"
+        else:
+            gate.status = "blocked"
+        run.status = "blocked" if self._run_has_blocking_gate(run) else "running"
+        self._append_run_event(
+            run,
+            event_type="approval",
+            title=f"Gate {payload.decision}",
+            detail=payload.note or f"{payload.actor} recorded {payload.decision}.",
+            severity="success" if payload.decision == "approved" else "blocked",
+        )
+        run.updated_at = _now()
+        self._save_run(run)
+        return self._run_view(run)
+
+    def continue_run(self, run_id: str) -> dict[str, Any]:
+        self.ensure_layout()
+        run = self._load_run(run_id)
+        if self._run_has_open_gate(run):
+            self._append_run_event(
+                run,
+                event_type="blocked",
+                title="Continuation blocked",
+                detail="Approve/reject the open proof gates before continuing.",
+                severity="blocked",
+            )
+            run.status = "blocked"
+            run.updated_at = _now()
+            self._save_run(run)
+            return {
+                "status": "blocked",
+                "reason": "Open proof gates block continuation.",
+                "recovery_hint": "Approve/reject the open proof gates before continuing.",
+                "run": self._run_view(run),
+            }
+        if any(gate.status in {"rejected", "blocked"} for gate in run.proof_gates):
+            self._append_run_event(
+                run,
+                event_type="blocked",
+                title="Continuation blocked",
+                detail="Resolve the rejected or edit-requested proof gates before continuing.",
+                severity="blocked",
+            )
+            run.status = "blocked"
+            run.updated_at = _now()
+            self._save_run(run)
+            return {
+                "status": "blocked",
+                "reason": "Rejected or edit-requested proof gates block continuation.",
+                "recovery_hint": "Resolve the proof gates before continuing.",
+                "run": self._run_view(run),
+            }
+        self._append_run_event(
+            run,
+            event_type="note",
+            title="Safe noop",
+            detail="Continuation is not wired to real execution in the public RC.",
+            severity="info",
+        )
+        run.updated_at = _now()
+        self._save_run(run)
+        return {
+            "status": "safe_noop",
+            "reason": "Continuation is not wired to real execution in the public RC.",
+            "recovery_hint": "Use fake-worker-only tasks or record manual evidence.",
+            "run": self._run_view(run),
+        }
+
     def list_skills(self) -> list[WorkbenchSkill]:
         self.ensure_layout()
         skills_dir = self.root / "skills"
@@ -641,8 +1068,12 @@ class WorkbenchStore:
     def status(self) -> dict[str, Any]:
         self.ensure_layout()
         threads = self.list_threads()
+        runs = self.list_runs()
         messages = sum(len(self.list_messages(item["thread_id"])) for item in threads)
         gates = sum(int(item.get("proof_gate_count", 0)) for item in threads)
+        run_events = sum(len(item.get("events", [])) for item in runs)
+        run_evidence = sum(len(item.get("evidence_records", [])) for item in runs)
+        run_gates = sum(len(item.get("proof_gates", [])) for item in runs)
         return {
             "service": "marius-workbench",
             "status": "online",
@@ -653,6 +1084,10 @@ class WorkbenchStore:
             "agents": len(self.list_agents()),
             "threads": len(threads),
             "messages": messages,
+            "runs": len(runs),
+            "run_events": run_events,
+            "run_evidence": run_evidence,
+            "run_proof_gates": run_gates,
             "skills": len(self.list_skills()),
             "memories": len(self.list_memories()),
             "artifacts": len(self.list_artifacts()),
@@ -771,6 +1206,94 @@ def post_thread_proof_gate_decision(
 ) -> dict[str, Any]:
     try:
         return STORE.decide_proof_gate(thread_id, gate_id, payload)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.get("/runs", response_model=list[WorkbenchRun])
+def get_runs() -> list[WorkbenchRun]:
+    return [WorkbenchRun.model_validate(run) for run in STORE.list_runs()]
+
+
+@router.post("/threads/{thread_id}/runs", response_model=WorkbenchRun)
+def create_run(thread_id: str, payload: WorkbenchRunCreateRequest) -> WorkbenchRun:
+    try:
+        return STORE.create_run(thread_id, payload)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.get("/runs/{run_id}", response_model=WorkbenchRun)
+def get_run(run_id: str) -> WorkbenchRun:
+    try:
+        return STORE.get_run(run_id)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.get("/runs/{run_id}/events", response_model=list[WorkbenchRunEvent])
+def get_run_events(run_id: str) -> list[WorkbenchRunEvent]:
+    try:
+        return STORE.list_run_events(run_id)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.post("/runs/{run_id}/events", response_model=WorkbenchRun)
+def post_run_event(run_id: str, payload: WorkbenchRunEventCreateRequest) -> WorkbenchRun:
+    try:
+        STORE.append_run_event(run_id, payload)
+        return STORE.get_run(run_id)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.get("/runs/{run_id}/evidence", response_model=list[EvidenceRecord])
+def get_run_evidence(run_id: str) -> list[EvidenceRecord]:
+    try:
+        return STORE.list_run_evidence(run_id)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.post("/runs/{run_id}/evidence", response_model=WorkbenchRun)
+def post_run_evidence(run_id: str, payload: WorkbenchEvidenceRecordCreateRequest) -> WorkbenchRun:
+    try:
+        STORE.add_run_evidence(run_id, payload)
+        return STORE.get_run(run_id)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.get("/runs/{run_id}/proof-gates", response_model=list[ProofGate])
+def get_run_proof_gates(run_id: str) -> list[ProofGate]:
+    try:
+        return STORE.list_proof_gates(run_id)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.post("/runs/{run_id}/proof-gates", response_model=WorkbenchRun)
+def post_run_proof_gate(run_id: str, payload: WorkbenchRunProofGateCreateRequest) -> WorkbenchRun:
+    try:
+        STORE.open_run_proof_gate(run_id, payload)
+        return STORE.get_run(run_id)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.post("/proof-gates/{gate_id}/decision", response_model=WorkbenchRun)
+def post_run_proof_gate_decision(gate_id: str, payload: WorkbenchRunProofGateDecisionRequest) -> WorkbenchRun:
+    try:
+        return STORE.decide_run_proof_gate(gate_id, payload)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.post("/runs/{run_id}/continue")
+def continue_run(run_id: str) -> dict[str, Any]:
+    try:
+        return STORE.continue_run(run_id)
     except Exception as exc:
         raise _http_error(exc)
 
