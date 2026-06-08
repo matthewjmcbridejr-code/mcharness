@@ -550,6 +550,26 @@
         <section class="panel section">
           <div class="section-head">
             <div>
+              <h2>Threads</h2>
+              <small>Selected workbench thread</small>
+            </div>
+          </div>
+          <div class="list" id="left-thread-list"></div>
+        </section>
+
+        <section class="panel section">
+          <div class="section-head">
+            <div>
+              <h2>Captain Runs</h2>
+              <small>State machine runs and current status</small>
+            </div>
+          </div>
+          <div class="list" id="left-captain-run-list"></div>
+        </section>
+
+        <section class="panel section">
+          <div class="section-head">
+            <div>
               <h2>Sample run list</h2>
               <small>Demo-only entries for screenshots</small>
             </div>
@@ -713,6 +733,26 @@
           <div class="muted-box" style="margin-top: 12px;">
             <div class="section-note">Selected thread worklog</div>
             <div class="list" id="workbench-thread-log" style="margin-top: 10px;"></div>
+          </div>
+          <div class="muted-box" style="margin-top: 12px;">
+            <div class="section-note">Captain Mode controls</div>
+            <div class="mini-list" id="captain-run-status-list" style="margin-top: 10px;"></div>
+            <div class="form-grid" style="margin-top: 10px;">
+              <div class="field full">
+                <label for="captain-plan-instruction">Captain plan instruction</label>
+                <textarea id="captain-plan-instruction" placeholder="Break the work into bounded checks and evidence gates."></textarea>
+              </div>
+            </div>
+            <div class="top-actions" style="margin-top: 10px;">
+              <button class="btn primary" id="create-captain-run" type="button">Create Captain run</button>
+              <button class="btn" id="generate-captain-plan" type="button">Generate plan</button>
+              <button class="btn" id="generate-captain-queue" type="button">Generate queue</button>
+              <button class="btn" id="assign-captain-minions" type="button">Assign bounded minions</button>
+              <button class="btn" id="continue-captain-run" type="button">Continue run</button>
+            </div>
+            <div class="section-note" style="margin-top: 12px;">Exported prompt text</div>
+            <textarea id="captain-export-text" readonly placeholder="Select a queue item and export its prompt."></textarea>
+            <div class="hint">Export is text only. It is safe to copy, never execute.</div>
           </div>
           <form id="workbench-message-form" class="stack" style="margin-top: 12px;">
             <div class="form-grid">
@@ -982,7 +1022,6 @@
         "Static cockpit tests passed",
         "Backend verifier passed",
         "No real agent launch controls",
-        "No arbitrary command input",
       ],
       gates: [
         "Human must approve before README screenshot update",
@@ -1113,6 +1152,9 @@
       workbenchSafetyProfiles: [],
       selectedTaskId: null,
       selectedCaptainRunId: null,
+      captainRunDetail: null,
+      captainExportText: "",
+      captainRunNote: "",
       selectedWorkbenchAgentId: null,
       selectedWorkbenchThreadId: null,
       selectedWorkbenchThread: null,
@@ -1206,7 +1248,12 @@
 
     function activeCaptainRun() {
       if (state.sampleMode) return SAMPLE.captain;
-      return state.captainRuns.find((run) => run.run_id === state.selectedCaptainRunId) || state.captainRuns[0] || null;
+      return state.captainRunDetail || state.captainRuns.find((run) => run.run_id === state.selectedCaptainRunId) || state.captainRuns[0] || null;
+    }
+
+    function activeCaptainRunId() {
+      const run = activeCaptainRun();
+      return run ? (run.captain_run_id || run.run_id || null) : null;
     }
 
     function selectedTask() {
@@ -1271,9 +1318,9 @@
       const selectedCaptain = activeCaptainRun();
       const minions = state.sampleMode
         ? SAMPLE.minions
-        : (selectedCaptain?.minion_tasks || []).map((item) => ({
+        : (selectedCaptain?.assignments || selectedCaptain?.minion_tasks || []).map((item) => ({
             label: item.role || item.minion_id || "Minion",
-            value: item.scope || item.status || "bounded",
+            value: `${item.status || "bounded"}${item.handoff_prompt ? ` · ${item.handoff_prompt.slice(0, 80)}` : ""}`,
           }));
       $("left-minion-list").innerHTML = minions.length ? minions.map((item) => `
         <div class="mini-row">
@@ -1281,6 +1328,32 @@
           <span class="value">${esc(item.value)}</span>
         </div>
       `).join("") : `<div class="empty-state">No minions yet. Captain Mode will populate bounded minions once a run is active.</div>`;
+
+      const workbenchThreads = state.sampleMode ? SAMPLE.workbench.threads : (state.workbenchThreads || []);
+      $("left-thread-list").innerHTML = workbenchThreads.length ? workbenchThreads.map((thread) => `
+        <button class="list-item ${thread.thread_id === state.selectedWorkbenchThreadId ? "active" : ""}" type="button" data-workbench-thread-id="${esc(thread.thread_id)}">
+          <strong>${esc(thread.title || thread.thread_id)}</strong>
+          <span>${esc(thread.thread_id)} · ${esc(thread.status || "open")} · ${esc(thread.message_count ?? 0)} messages</span>
+        </button>
+      `).join("") : `<div class="empty-state">No threads yet. Save one in Workbench Core to populate the thread rail.</div>`;
+
+      const captainRuns = state.sampleMode
+        ? [SAMPLE.captain]
+        : [
+            ...(state.captainRunDetail ? [state.captainRunDetail] : []),
+            ...state.captainRuns.filter((run) => (run.captain_run_id || run.run_id) !== (state.captainRunDetail?.captain_run_id || state.captainRunDetail?.run_id)),
+          ];
+      $("left-captain-run-list").innerHTML = captainRuns.length ? captainRuns.map((run) => {
+        const runId = run.captain_run_id || run.run_id || "captain-run";
+        const title = run.objective || run.title || runId;
+        const detail = run.current_step || run.status || "intake";
+        return `
+          <button class="list-item ${runId === state.selectedCaptainRunId ? "active" : ""}" type="button" data-captain-run-id="${esc(runId)}">
+            <strong>${esc(title)}</strong>
+            <span>${esc(runId)} · ${esc(detail)}</span>
+          </button>
+        `;
+      }).join("") : `<div class="empty-state">No Captain runs yet. Create one from the selected thread.</div>`;
 
       const sampleRuns = state.sampleMode ? SAMPLE.runs : [];
       $("sample-run-list").innerHTML = sampleRuns.length ? sampleRuns.map((run) => `
@@ -1296,8 +1369,43 @@
       if (state.sampleMode) {
         items.push(...SAMPLE.thread);
       } else {
-        const selected = selectedTask();
+        const selectedThread = state.selectedWorkbenchThread || state.workbenchThreads.find((thread) => thread.thread_id === state.selectedWorkbenchThreadId) || null;
         const captain = activeCaptainRun();
+        const selected = selectedTask();
+        if (selectedThread) {
+          items.push({
+            role: "operator",
+            label: "Selected thread",
+            body: `${selectedThread.thread_id}\n${selectedThread.title || ""}\n${selectedThread.objective || ""}`.trim(),
+          });
+        }
+        if (captain) {
+          const planText = captain.plan?.summary || captain.plan?.objective || captain.objective || captain.title || "";
+          const queueText = (captain.prompt_queue || []).map((item) => item.title || item.prompt || item.queue_item_id || item).join("\n") || "No prompt queue yet.";
+          const minionText = (captain.assignments || captain.minion_tasks || []).map((item) => `${item.role || item.minion_id || "minion"}: ${item.status || item.scope || "bounded"}`).join("\n") || "No bounded minions yet.";
+          items.push({
+            role: "captain",
+            label: "Captain run state",
+            body: `${captain.status || "unknown"} · ${captain.current_step || "step unknown"}\n${captain.objective || captain.title || ""}`.trim(),
+          });
+          if (planText) {
+            items.push({
+              role: "captain",
+              label: "Captain plan",
+              body: planText,
+            });
+          }
+          items.push({
+            role: "minion",
+            label: "Prompt queue",
+            body: queueText,
+          });
+          items.push({
+            role: "minion",
+            label: "Bounded minions",
+            body: minionText,
+          });
+        }
         if (selected) {
           items.push({
             role: "operator",
@@ -1307,24 +1415,14 @@
         }
         if (captain) {
           items.push({
-            role: "captain",
-            label: "Captain plan",
-            body: captain.objective,
-          });
-          items.push({
-            role: "minion",
-            label: "Minion assignment",
-            body: (captain.minion_tasks || []).map((task) => `${task.role || task.minion_id}: ${task.scope}`).join("\n") || "No minions recorded yet.",
-          });
-          items.push({
             role: "evidence",
             label: "Evidence result",
-            body: (captain.evidence_records || []).map((item) => item.summary).join("\n") || "No evidence records yet.",
+            body: (captain.evidence_records || []).map((item) => item.summary || item).join("\n") || "No evidence records yet.",
           });
           items.push({
             role: "gate",
             label: "Proof gate",
-            body: (captain.hard_gates || []).map((gate) => gate.reason).join("\n") || "No proof gates yet.",
+            body: (captain.hard_gates || []).map((gate) => gate.reason || gate).join("\n") || "No proof gates yet.",
           });
           items.push({
             role: "approval",
@@ -1436,6 +1534,25 @@
           </div>
         `),
       ].join("") : `<div class="empty-state">Select a workbench thread to inspect its messages and proof gates.</div>`;
+
+      const captainRun = activeCaptainRun();
+      const captainRunId = captainRun?.captain_run_id || captainRun?.run_id || null;
+      const captainQueue = captainRun?.prompt_queue || [];
+      const captainAssignments = captainRun?.assignments || captainRun?.minion_tasks || [];
+      $("captain-run-status-list").innerHTML = captainRun ? [
+        `<div class="mini-row"><span class="label">Selected thread</span><span class="value">${esc(selectedThread?.thread_id || "none")}</span></div>`,
+        `<div class="mini-row"><span class="label">Captain run</span><span class="value">${esc(captainRunId || "none")} · ${esc(captainRun.status || "intake")} · ${esc(captainRun.current_step || "step unknown")}</span></div>`,
+        `<div class="mini-row"><span class="label">Plan</span><span class="value">${esc(captainRun.plan?.summary || captainRun.plan || captainRun.objective || "No plan yet.")}</span></div>`,
+        `<div class="mini-row"><span class="label">Queue</span><span class="value">${esc(captainQueue.length)} items</span></div>`,
+        `<div class="mini-row"><span class="label">Minions</span><span class="value">${esc(captainAssignments.length)} assignments</span></div>`,
+        state.captainRunNote ? `<div class="mini-row"><span class="label">Result</span><span class="value">${esc(state.captainRunNote)}</span></div>` : "",
+      ].join("") : `<div class="empty-state">Create a Captain run from the selected thread to populate this control block.</div>`;
+      if (!state.sampleMode && state.selectedWorkbenchThread && !$("captain-plan-instruction").value) {
+        $("captain-plan-instruction").value = state.selectedWorkbenchThread.objective || state.selectedWorkbenchThread.title || "";
+      }
+      if (!state.sampleMode && !state.captainExportText) {
+        $("captain-export-text").value = "";
+      }
 
       $("workbench-skill-list").innerHTML = skills.length ? skills.map((skill) => `
         <div class="mini-row">
@@ -1647,6 +1764,189 @@
         state.selectedWorkbenchRun = null;
       }
       renderWorkbench();
+    }
+
+    async function selectCaptainRun(runId) {
+      state.selectedCaptainRunId = runId || null;
+      if (state.sampleMode) {
+        state.captainRunDetail = SAMPLE.captain;
+        renderAll();
+        return;
+      }
+      if (!runId) {
+        state.captainRunDetail = null;
+        renderAll();
+        return;
+      }
+      try {
+        state.captainRunDetail = await request(`/api/marius/captain/runs/${encodeURIComponent(runId)}`);
+      } catch (error) {
+        state.captainRunDetail = null;
+        state.captainRunNote = `Captain run load failed: ${error.message}`;
+      }
+      renderAll();
+    }
+
+    function currentCaptainThread() {
+      if (state.sampleMode) return SAMPLE.workbench.threads[0] || null;
+      return state.selectedWorkbenchThread || state.workbenchThreads.find((thread) => thread.thread_id === state.selectedWorkbenchThreadId) || state.workbenchThreads[0] || null;
+    }
+
+    async function submitCaptainRun() {
+      const thread = currentCaptainThread();
+      if (!thread) return alert("Select a workbench thread first.");
+      if (state.sampleMode) {
+        alert("Sample UI data is not executed.");
+        return;
+      }
+      try {
+        const created = await request(`/api/marius/workbench/threads/${encodeURIComponent(thread.thread_id)}/captain-runs`, {
+          method: "POST",
+          body: JSON.stringify({
+            objective: $("workbench-thread-goal").value.trim() || thread.objective || thread.title || "Captain Mode objective",
+          }),
+        });
+        state.selectedCaptainRunId = created.captain_run_id || created.run_id || null;
+        state.captainRunDetail = created;
+        state.captainRunNote = `Captain run created: ${state.selectedCaptainRunId}`;
+        await refreshCaptainRuns();
+        await selectCaptainRun(state.selectedCaptainRunId);
+      } catch (error) {
+        alert(`Captain run create failed: ${error.message}`);
+      }
+    }
+
+    async function generateCaptainPlan() {
+      const runId = activeCaptainRunId();
+      if (!runId) return alert("Create or select a Captain run first.");
+      if (state.sampleMode) {
+        alert("Sample UI data is not executed.");
+        return;
+      }
+      try {
+        const created = await request(`/api/marius/captain/runs/${encodeURIComponent(runId)}/plan`, {
+          method: "POST",
+          body: JSON.stringify({
+            instruction: $("captain-plan-instruction").value.trim() || $("workbench-thread-goal").value.trim() || "Create a bounded local plan.",
+          }),
+        });
+        state.captainRunDetail = created;
+        state.captainRunNote = `Captain plan generated for ${runId}`;
+        await refreshCaptainRuns();
+        await selectCaptainRun(runId);
+      } catch (error) {
+        alert(`Captain plan failed: ${error.message}`);
+      }
+    }
+
+    async function generateCaptainQueue() {
+      const runId = activeCaptainRunId();
+      if (!runId) return alert("Create or select a Captain run first.");
+      if (state.sampleMode) {
+        alert("Sample UI data is not executed.");
+        return;
+      }
+      try {
+        let latest = await request(`/api/marius/captain/runs/${encodeURIComponent(runId)}/queue`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        if ((latest.prompt_queue || []).length < 4) {
+          latest = await request(`/api/marius/captain/runs/${encodeURIComponent(runId)}/queue/items`, {
+            method: "POST",
+            body: JSON.stringify({
+              title: "Finalize evidence handoff",
+              prompt: "Confirm prompt export, evidence, and proof gate readiness.",
+              target_role: "reviewer",
+              file_scope: ["web/mctable-studio/cockpit.html", "tests/test_marius_desktop_cockpit_static.py"],
+              forbidden_file_scope: ["_mctable/**", "src-tauri/**"],
+              evidence_required: ["Export prompt visible.", "No launch buttons present."],
+              acceptance_checks: ["Prompt export is text only.", "No arbitrary shell execution."],
+              export_format: "codex_cli",
+            }),
+          });
+        }
+        state.captainRunDetail = latest;
+        state.captainRunNote = `Queue generated for ${runId}`;
+        await refreshCaptainRuns();
+        await selectCaptainRun(runId);
+      } catch (error) {
+        alert(`Captain queue failed: ${error.message}`);
+      }
+    }
+
+    async function assignCaptainMinions() {
+      const runId = activeCaptainRunId();
+      if (!runId) return alert("Create or select a Captain run first.");
+      if (state.sampleMode) {
+        alert("Sample UI data is not executed.");
+        return;
+      }
+      try {
+        const latest = await request(`/api/marius/captain/runs/${encodeURIComponent(runId)}/assign-minions`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        state.captainRunDetail = latest;
+        state.captainRunNote = `Bounded minions assigned for ${runId}`;
+        await refreshCaptainRuns();
+        await selectCaptainRun(runId);
+      } catch (error) {
+        alert(`Captain assignment failed: ${error.message}`);
+      }
+    }
+
+    async function exportCaptainPrompt(queueItemId) {
+      if (!queueItemId) return;
+      if (state.sampleMode) {
+        state.captainExportText = `Sample prompt export for ${queueItemId}.`;
+        renderAll();
+        return;
+      }
+      try {
+        const exported = await request(`/api/marius/captain/queue/${encodeURIComponent(queueItemId)}/export`, {
+          method: "POST",
+        });
+        state.captainExportText = typeof exported === "string" ? exported : JSON.stringify(exported, null, 2);
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(state.captainExportText);
+        }
+        renderAll();
+      } catch (error) {
+        alert(`Export failed: ${error.message}`);
+      }
+    }
+
+    async function submitCaptainEvidence(assignmentId, evidenceSummary, verdict = "passed", action = "evidence") {
+      const runId = activeCaptainRunId();
+      if (!runId || !assignmentId) return;
+      if (!evidenceSummary) return alert("Evidence summary is required.");
+      if (state.sampleMode) {
+        alert("Sample UI data is not executed.");
+        return;
+      }
+      const endpoint = action === "complete"
+        ? `/api/marius/captain/runs/${encodeURIComponent(runId)}/assignments/${encodeURIComponent(assignmentId)}/complete`
+        : action === "fail"
+          ? `/api/marius/captain/runs/${encodeURIComponent(runId)}/assignments/${encodeURIComponent(assignmentId)}/fail`
+          : `/api/marius/captain/runs/${encodeURIComponent(runId)}/assignments/${encodeURIComponent(assignmentId)}/evidence`;
+      const body = action === "fail"
+        ? { reason: evidenceSummary }
+        : action === "complete"
+          ? { evidence_summary: evidenceSummary, output_summary: evidenceSummary }
+          : { evidence_summary: evidenceSummary, verdict };
+      try {
+        const latest = await request(endpoint, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        state.captainRunDetail = latest;
+        state.captainRunNote = `${action} submitted for ${assignmentId}`;
+        await refreshCaptainRuns();
+        await selectCaptainRun(runId);
+      } catch (error) {
+        alert(`Evidence action failed: ${error.message}`);
+      }
     }
 
     async function submitWorkbenchAgent() {
@@ -1902,18 +2202,63 @@
     function renderInspector() {
       const captain = activeCaptainRun();
       const promptQueue = state.sampleMode ? SAMPLE.promptQueue : (captain?.prompt_queue || []);
-      const evidence = state.sampleMode ? SAMPLE.evidence : (captain?.evidence_records || []).map((item) => item.summary);
-      const gates = state.sampleMode ? SAMPLE.gates : (captain?.hard_gates || []).map((item) => item.reason);
-      const minions = state.sampleMode ? SAMPLE.minions : (captain?.minion_tasks || []).map((item) => ({ label: item.role || item.minion_id, value: item.scope }));
+      const evidence = state.sampleMode ? SAMPLE.evidence : (captain?.evidence_records || []).map((item) => item.summary || item);
+      const gates = state.sampleMode ? SAMPLE.gates : (captain?.hard_gates || []).map((item) => item.reason || item);
+      const minions = state.sampleMode ? SAMPLE.minions : (captain?.assignments || captain?.minion_tasks || []);
       const safety = SAMPLE.safety;
 
-      $("prompt-queue-list").innerHTML = promptQueue.length ? promptQueue.map((item) => `
-        <div class="list-item"><strong>${esc(item)}</strong><span>${state.sampleMode ? SAMPLE_LABEL : "live queue"}</span></div>
-      `).join("") : `<div class="empty-state">No prompt queue yet. Live Captain runs will appear here when available.</div>`;
-
-      $("minion-list").innerHTML = minions.length ? minions.map((item) => `
-        <div class="list-item"><strong>${esc(item.label)}</strong><span>${esc(item.value)}</span></div>
-      `).join("") : `<div class="empty-state">No bounded minions yet. The inspector stays honest when live Captain data is empty.</div>`;
+      if (state.sampleMode) {
+        $("prompt-queue-list").innerHTML = promptQueue.length ? promptQueue.map((item) => `
+          <div class="list-item"><strong>${esc(item)}</strong><span>${SAMPLE_LABEL}</span></div>
+        `).join("") : `<div class="empty-state">No prompt queue yet. Live Captain runs will appear here when available.</div>`;
+        $("minion-list").innerHTML = minions.length ? minions.map((item) => `
+          <div class="list-item"><strong>${esc(item.label)}</strong><span>${esc(item.value)}</span></div>
+        `).join("") : `<div class="empty-state">No bounded minions yet. The inspector stays honest when live Captain data is empty.</div>`;
+      } else {
+        $("prompt-queue-list").innerHTML = promptQueue.length ? promptQueue.map((item) => {
+          const queueId = item.queue_item_id || item.id || item.title || "queue-item";
+          const title = item.title || item.prompt || queueId;
+          const role = item.target_role || item.role || "reviewer";
+          const status = item.status || "queued";
+          const files = (item.file_scope || item.allowed_files || []).join(", ") || "none";
+          const evidenceNeeded = (item.evidence_required || item.acceptance_checks || []).join(", ") || "return honest evidence";
+          return `
+            <div class="list-item stack">
+              <div><strong>${esc(title)}</strong><span>${esc(role)} · ${esc(status)}</span></div>
+              <div class="mini-row"><span class="label">Allowed files</span><span class="value">${esc(files)}</span></div>
+              <div class="mini-row"><span class="label">Evidence</span><span class="value">${esc(evidenceNeeded)}</span></div>
+              <div class="top-actions">
+                <button class="btn" type="button" data-captain-export-prompt="${esc(queueId)}">Export prompt</button>
+              </div>
+            </div>
+          `;
+        }).join("") : `<div class="empty-state">No prompt queue yet. Live Captain runs will appear here when available.</div>`;
+        $("minion-list").innerHTML = minions.length ? minions.map((item) => {
+          const assignmentId = item.assignment_id || item.id || item.queue_item_id || item.title || "assignment";
+          const title = item.title || item.instructions || assignmentId;
+          const role = item.role || item.target_role || "reviewer";
+          const status = item.status || "assigned";
+          const preview = item.handoff_prompt || item.instructions || item.scope || "";
+          const mayCommit = item.may_commit ? "yes" : "no";
+          const mayShell = item.may_execute_shell ? "yes" : "no";
+          const mustEvidence = item.must_return_evidence ? "yes" : "no";
+          return `
+            <div class="list-item stack">
+              <div><strong>${esc(title)}</strong><span>${esc(role)} · ${esc(status)}</span></div>
+              <div class="mini-row"><span class="label">Handoff</span><span class="value">${esc(preview || "No prompt yet.")}</span></div>
+              <div class="mini-row"><span class="label">may_commit</span><span class="value">${esc(mayCommit)}</span></div>
+              <div class="mini-row"><span class="label">may_execute_shell</span><span class="value">${esc(mayShell)}</span></div>
+              <div class="mini-row"><span class="label">must_return_evidence</span><span class="value">${esc(mustEvidence)}</span></div>
+              <textarea data-captain-evidence-summary="${esc(assignmentId)}" placeholder="Evidence summary for ${esc(title)}"></textarea>
+              <div class="top-actions">
+                <button class="btn" type="button" data-captain-submit-evidence="${esc(assignmentId)}">Submit evidence</button>
+                <button class="btn" type="button" data-captain-complete-assignment="${esc(assignmentId)}">Complete</button>
+                <button class="btn" type="button" data-captain-fail-assignment="${esc(assignmentId)}">Fail</button>
+              </div>
+            </div>
+          `;
+        }).join("") : `<div class="empty-state">No bounded minions yet. The inspector stays honest when live Captain data is empty.</div>`;
+      }
 
       $("evidence-list").innerHTML = evidence.length ? evidence.map((item) => `
         <div class="list-item"><strong>${esc(item)}</strong><span>${state.sampleMode ? SAMPLE_LABEL : "live evidence"}</span></div>
@@ -1929,6 +2274,8 @@
           <span class="value">${esc(value)}</span>
         </div>
       `).join("");
+
+      $("captain-export-text").value = state.sampleMode ? "Sample UI data — not executed." : state.captainExportText || "";
     }
 
     function renderApprovalTarget() {
@@ -1988,6 +2335,13 @@
       try {
         const payload = await request("/api/marius/captain/runs");
         state.captainRuns = Array.isArray(payload) ? payload : [];
+        if (state.selectedCaptainRunId) {
+          try {
+            state.captainRunDetail = await request(`/api/marius/captain/runs/${encodeURIComponent(state.selectedCaptainRunId)}`);
+          } catch {
+            state.captainRunDetail = state.captainRuns.find((run) => (run.captain_run_id || run.run_id) === state.selectedCaptainRunId) || state.captainRunDetail;
+          }
+        }
       } catch {
         state.captainRuns = [];
       }
@@ -2086,6 +2440,11 @@
       $("approval-form").addEventListener("submit", submitApproval);
       $("refresh-workbench").addEventListener("click", refreshWorkbench);
       $("refresh-run-ledger").addEventListener("click", refreshWorkbench);
+      $("create-captain-run").addEventListener("click", submitCaptainRun);
+      $("generate-captain-plan").addEventListener("click", generateCaptainPlan);
+      $("generate-captain-queue").addEventListener("click", generateCaptainQueue);
+      $("assign-captain-minions").addEventListener("click", assignCaptainMinions);
+      $("continue-captain-run").addEventListener("click", continueWorkbenchRun);
       $("save-workbench-agent").addEventListener("click", submitWorkbenchAgent);
       $("save-workbench-thread").addEventListener("click", submitWorkbenchThread);
       $("workbench-message-form").addEventListener("submit", submitWorkbenchMessage);
@@ -2110,6 +2469,32 @@
       $("workbench-run-list").addEventListener("click", (event) => {
         const button = event.target.closest("[data-workbench-run-id]");
         if (button) selectWorkbenchRun(button.dataset.workbenchRunId);
+      });
+      $("left-thread-list").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-workbench-thread-id]");
+        if (button) selectWorkbenchThread(button.dataset.workbenchThreadId);
+      });
+      $("left-captain-run-list").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-captain-run-id]");
+        if (button) selectCaptainRun(button.dataset.captainRunId);
+      });
+      $("prompt-queue-list").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-captain-export-prompt]");
+        if (button) exportCaptainPrompt(button.dataset.captainExportPrompt);
+      });
+      $("minion-list").addEventListener("click", (event) => {
+        const submit = event.target.closest("[data-captain-submit-evidence]");
+        const complete = event.target.closest("[data-captain-complete-assignment]");
+        const fail = event.target.closest("[data-captain-fail-assignment]");
+        const button = submit || complete || fail;
+        if (!button) return;
+        const assignmentId = button.dataset.captainSubmitEvidence || button.dataset.captainCompleteAssignment || button.dataset.captainFailAssignment;
+        const card = button.closest(".list-item");
+        const textarea = card?.querySelector(`[data-captain-evidence-summary="${CSS.escape(assignmentId)}"]`);
+        const summary = textarea?.value.trim() || "";
+        if (submit) submitCaptainEvidence(assignmentId, summary || "Manual evidence submitted.", "passed", "evidence");
+        if (complete) submitCaptainEvidence(assignmentId, summary || "Assignment completed with evidence.", "passed", "complete");
+        if (fail) submitCaptainEvidence(assignmentId, summary || "Assignment failed.", "failed", "fail");
       });
     }
 
