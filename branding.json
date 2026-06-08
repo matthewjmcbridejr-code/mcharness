@@ -1,0 +1,8 @@
+{
+  "product_name": "McHarness",
+  "repo_name": "mcharness",
+  "tagline": "A local-first agentic harness for supervised AI work.",
+  "category": "AI agentic harness",
+  "internal_module": "src.marius_desktop",
+  "legacy_codename": "Marius Desktop"
+}

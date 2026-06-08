@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.log
+
+_mctable/worker_runs/
+_mctable/checkpoints/*.sqlite
+
+src-tauri/target/
+src-tauri/gen/
+
