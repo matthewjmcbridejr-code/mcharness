@@ -49,6 +49,9 @@ def test_workbench_status_and_catalogs_are_local_only():
     assert operator["fake_worker_only"] is True
     assert operator["real_agent_launch_disabled"] is True
 
+    gitignore = (WORKBENCH_ROOT.parent.parent / ".gitignore").read_text(encoding="utf-8")
+    assert "_mctable/workbench/" in gitignore
+
 
 def test_workbench_agent_thread_message_and_gate_flow():
     client = TestClient(app)
@@ -131,6 +134,87 @@ def test_workbench_agent_thread_message_and_gate_flow():
     assert decided["hard_gates"][0]["decision"] == "approve"
 
 
+def test_workbench_friendly_thread_and_message_contracts():
+    client = TestClient(app)
+
+    client.post(
+        "/api/marius/workbench/agents",
+        json={
+            "agent_id": "agent_gamma",
+            "name": "Agent Gamma",
+            "role": "planner",
+            "status": "active",
+            "safety_profile_id": "operator_local",
+            "allowed_threads": [],
+            "notes": None,
+        },
+    )
+
+    friendly_thread = client.post(
+        "/api/marius/workbench/threads",
+        json={"title": "Friendly thread", "goal": "Use the cockpit friendly contract."},
+    )
+    assert friendly_thread.status_code == 200
+    thread = friendly_thread.json()
+    assert thread["thread_id"]
+    assert thread["title"] == "Friendly thread"
+    assert thread["objective"] == "Use the cockpit friendly contract."
+
+    raw_thread = client.post(
+        "/api/marius/workbench/threads",
+        json={
+            "thread_id": "thread_raw",
+            "title": "Raw thread",
+            "objective": "Keep the internal contract available.",
+        },
+    )
+    assert raw_thread.status_code == 200
+    assert raw_thread.json()["thread_id"] == "thread_raw"
+
+    raw_message = client.post(
+        f"/api/marius/workbench/threads/{thread['thread_id']}/messages",
+        json={"author": "operator", "kind": "planning", "content": "Use the friendly cockpit form."},
+    )
+    assert raw_message.status_code == 200
+    assert raw_message.json()["author"] == "operator"
+    assert raw_message.json()["kind"] == "planning"
+
+    friendly_message = client.post(
+        f"/api/marius/workbench/threads/{thread['thread_id']}/messages",
+        json={"role": "operator", "kind": "instruction", "content": "Plan the next step."},
+    )
+    assert friendly_message.status_code == 200
+    friendly_payload = friendly_message.json()
+    assert friendly_payload["author"] == "operator"
+    assert friendly_payload["kind"] == "planning"
+
+    blocked_raw = client.post(
+        f"/api/marius/workbench/threads/{thread['thread_id']}/messages",
+        json={"author": "operator", "kind": "command_request", "content": "run rm -rf /"},
+    )
+    assert blocked_raw.status_code == 400
+    blocked_raw_payload = blocked_raw.json()
+    assert blocked_raw_payload["status"] == "blocked"
+    assert "blocked" in blocked_raw_payload["reason"].lower()
+    assert blocked_raw_payload["recovery_hint"]
+
+    blocked_friendly = client.post(
+        f"/api/marius/workbench/threads/{thread['thread_id']}/messages",
+        json={"role": "operator", "kind": "command_request", "content": "run rm -rf /"},
+    )
+    assert blocked_friendly.status_code == 400
+    blocked_friendly_payload = blocked_friendly.json()
+    assert blocked_friendly_payload["status"] == "blocked"
+    assert "blocked" in blocked_friendly_payload["reason"].lower()
+    assert blocked_friendly_payload["recovery_hint"]
+
+    thread_detail = client.get(f"/api/marius/workbench/threads/{thread['thread_id']}")
+    assert thread_detail.status_code == 200
+    detail = thread_detail.json()
+    assert len(detail["messages"]) == 2
+    assert any(message["kind"] == "planning" for message in detail["messages"])
+
+
 def test_workbench_rejects_command_request_messages_and_persists_registry_records():
     client = TestClient(app)
 
@@ -174,7 +258,10 @@ def test_workbench_rejects_command_request_messages_and_persists_registry_record
         },
     )
     assert rejected.status_code == 400
-    assert "disabled" in rejected.json()["detail"].lower()
+    payload = rejected.json()
+    assert payload["status"] == "blocked"
+    assert "blocked" in payload["reason"].lower()
+    assert payload["recovery_hint"]
 
     skill_response = client.post(
         "/api/marius/workbench/skills",

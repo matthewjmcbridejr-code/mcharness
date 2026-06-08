@@ -638,6 +638,9 @@
             <button class="btn" id="refresh-workbench" type="button">Refresh workbench</button>
           </div>
           <div class="section-note" id="workbench-status-note">Local-only workbench store.</div>
+          <div class="hint" style="margin-top: 8px; font-family: var(--mono);">
+            Friendly thread payload shape: {"title": "Plan the workbench", "goal": "Model agents, threads, messages, and safety locally."}
+          </div>
           <div class="form-grid" style="margin-top: 12px;">
             <div class="field">
               <label for="workbench-agent-id">Agent ID</label>
@@ -660,7 +663,7 @@
               <textarea id="workbench-agent-notes" placeholder="Local planning note only."></textarea>
             </div>
             <div class="field">
-              <label for="workbench-thread-id">Thread ID</label>
+              <label for="workbench-thread-id">Thread ID (optional)</label>
               <input id="workbench-thread-id" type="text" placeholder="thread_alpha" autocomplete="off" />
             </div>
             <div class="field">
@@ -668,8 +671,8 @@
               <input id="workbench-thread-title" type="text" placeholder="Plan the workbench" autocomplete="off" />
             </div>
             <div class="field full">
-              <label for="workbench-thread-objective">Thread objective</label>
-              <textarea id="workbench-thread-objective" placeholder="Model agents, threads, messages, and safety locally."></textarea>
+              <label for="workbench-thread-goal">Thread goal</label>
+              <textarea id="workbench-thread-goal" placeholder="Model agents, threads, messages, and safety locally."></textarea>
             </div>
             <div class="field">
               <label for="workbench-thread-agent">Thread agent</label>
@@ -699,6 +702,7 @@
               <div class="field">
                 <label for="workbench-message-kind">Kind</label>
                 <select id="workbench-message-kind">
+                  <option value="instruction">instruction</option>
                   <option value="planning">planning</option>
                   <option value="note">note</option>
                   <option value="evidence">evidence</option>
@@ -712,8 +716,12 @@
             </div>
             <div class="top-actions">
               <button class="btn primary" type="submit">Post message</button>
-              <span class="hint">Messages are stored locally, and `command_request` is blocked instead of executed.</span>
+              <span class="hint">Messages are stored locally, and `command_request` returns a blocked response instead of executing.</span>
             </div>
+            <div class="hint" style="font-family: var(--mono);">
+              Friendly payload shape: {"role": "operator", "kind": "instruction", "content": "..."}
+            </div>
+            <div class="hint">`command_request` is blocked.</div>
           </form>
           <div class="mini-list" id="workbench-skill-list" style="margin-top: 12px;"></div>
           <div class="mini-list" id="workbench-memory-list" style="margin-top: 12px;"></div>
@@ -1345,36 +1353,23 @@
     }
 
     async function submitWorkbenchThread() {
-      const threadId = $("workbench-thread-id").value.trim();
       const title = $("workbench-thread-title").value.trim();
-      const objective = $("workbench-thread-objective").value.trim();
-      if (!threadId || !title || !objective) return alert("Thread ID, title, and objective are required.");
+      const goal = $("workbench-thread-goal").value.trim();
+      if (!title || !goal) return alert("Thread title and goal are required.");
       if (state.sampleMode) {
         alert("Sample UI data is not executed.");
         return;
       }
       try {
-        await request("/api/marius/workbench/threads", {
+        const created = await request("/api/marius/workbench/threads", {
           method: "POST",
           body: JSON.stringify({
-            thread_id: threadId,
             title,
-            objective,
-            agent_id: $("workbench-thread-agent").value.trim() || null,
-            status: "open",
-            next_action: $("workbench-thread-next-action").value.trim() || "inspect",
-            prompt_queue: [],
-            minion_tasks: [],
-            evidence_records: [],
-            hard_gates: [],
-            scoped_commit_plan: null,
-            planned_acceptance_commands: [],
-            recovery_hint: null,
-            notes: null,
+            goal,
           }),
         });
         await refreshWorkbench();
-        await selectWorkbenchThread(threadId);
+        await selectWorkbenchThread(created.thread_id);
       } catch (error) {
         alert(`Thread save failed: ${error.message}`);
       }
@@ -1394,7 +1389,7 @@
         await request(`/api/marius/workbench/threads/${encodeURIComponent(thread.thread_id)}/messages`, {
           method: "POST",
           body: JSON.stringify({
-            author: $("workbench-message-author").value.trim() || "operator",
+            role: $("workbench-message-author").value.trim() || "operator",
             kind: $("workbench-message-kind").value,
             content,
           }),
@@ -1402,6 +1397,13 @@
         $("workbench-message-content").value = "";
         await selectWorkbenchThread(thread.thread_id);
       } catch (error) {
+        try {
+          const payload = JSON.parse(error.message);
+          if (payload && payload.status === "blocked") {
+            alert(`Message blocked: ${payload.reason}\n${payload.recovery_hint || ""}`);
+            return;
+          }
+        } catch {}
         alert(`Message post failed: ${error.message}`);
       }
     }

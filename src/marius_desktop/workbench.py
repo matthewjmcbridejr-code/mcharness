@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -8,6 +9,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .contracts import EvidenceRecord, HardGate, MinionTask, PromptQueueItem, ScopedCommitPlan
@@ -58,7 +60,7 @@ class WorkbenchMessage(BaseModel):
     message_id: str
     thread_id: str
     author: str
-    kind: Literal["planning", "note", "evidence", "system", "command_request"] = "note"
+    kind: Literal["planning", "instruction", "note", "evidence", "system", "command_request"] = "note"
     content: str
     status: Literal["recorded", "blocked"] = "recorded"
     recovery_hint: Optional[str] = None
@@ -135,9 +137,10 @@ class WorkbenchAgentCreateRequest(BaseModel):
 
 
 class WorkbenchThreadCreateRequest(BaseModel):
-    thread_id: str = Field(pattern=SAFE_SLUG)
+    thread_id: Optional[str] = Field(default=None, pattern=SAFE_SLUG)
     title: str = Field(min_length=1)
-    objective: str = Field(min_length=1)
+    objective: Optional[str] = None
+    goal: Optional[str] = None
     agent_id: Optional[str] = None
     status: Literal["open", "paused", "blocked", "closed"] = "open"
     next_action: str = "inspect"
@@ -152,8 +155,10 @@ class WorkbenchThreadCreateRequest(BaseModel):
 
 
 class WorkbenchMessageCreateRequest(BaseModel):
-    author: str = Field(min_length=1)
-    kind: Literal["planning", "note", "evidence", "system", "command_request"] = "note"
+    message_id: Optional[str] = Field(default=None, pattern=SAFE_SLUG)
+    author: Optional[str] = Field(default=None, min_length=1)
+    role: Optional[str] = Field(default=None, min_length=1)
+    kind: Literal["instruction", "planning", "note", "evidence", "system", "command_request"] = "note"
     content: str = Field(min_length=1)
 
 
@@ -251,8 +256,6 @@ def _now() -> datetime:
 
 
 def _safe_id(value: str, field: str) -> str:
-    import re
-
     if not re.match(SAFE_SLUG, value):
         raise WorkbenchError(f"invalid {field}: {value}")
     return value
@@ -300,6 +303,12 @@ class WorkbenchStore:
 
     def _path(self, kind: str, item_id: str) -> Path:
         return self.root / kind / f"{item_id}.json"
+
+    def _generate_thread_id(self, title: str) -> str:
+        prefix = re.sub(r"[^A-Za-z0-9_-]+", "-", title.lower()).strip("-_")
+        prefix = prefix[:24] or "thread"
+        candidate = f"{prefix}-{uuid.uuid4().hex[:6]}"
+        return _safe_id(candidate, "thread_id")
 
     def _message_path(self, thread_id: str) -> Path:
         return self.root / "messages" / f"{thread_id}.jsonl"
@@ -420,16 +429,20 @@ class WorkbenchStore:
 
     def create_thread(self, payload: WorkbenchThreadCreateRequest) -> dict[str, Any]:
         self.ensure_layout()
-        _safe_id(payload.thread_id, "thread_id")
-        if self._path("threads", payload.thread_id).exists():
-            raise WorkbenchError(f"thread already exists: {payload.thread_id}")
+        objective = payload.objective or payload.goal
+        if not objective:
+            raise WorkbenchError("thread objective is required.")
+        thread_id = payload.thread_id or self._generate_thread_id(payload.title)
+        _safe_id(thread_id, "thread_id")
+        if self._path("threads", thread_id).exists():
+            raise WorkbenchError(f"thread already exists: {thread_id}")
         if payload.agent_id is not None:
             self.get_agent(payload.agent_id)
         thread = WorkbenchThread(
-            thread_id=payload.thread_id,
+            thread_id=thread_id,
             agent_id=payload.agent_id,
             title=payload.title,
-            objective=payload.objective,
+            objective=objective,
             status=payload.status,
             next_action=payload.next_action,
             prompt_queue=list(payload.prompt_queue),
@@ -456,13 +469,19 @@ class WorkbenchStore:
     def append_message(self, thread_id: str, payload: WorkbenchMessageCreateRequest) -> WorkbenchMessage:
         self.ensure_layout()
         thread = self._load_thread(thread_id)
-        if payload.kind == "command_request":
-            raise WorkbenchError("Command execution is disabled in Workbench Core.")
+        author = payload.author or payload.role or "operator"
+        kind = payload.kind
+        if kind == "instruction":
+            kind = "planning"
+        if kind == "command_request":
+            raise WorkbenchError(
+                "Command request messages are blocked in Workbench Core.",
+            )
         message = WorkbenchMessage(
-            message_id=f"msg_{uuid.uuid4().hex[:8]}",
+            message_id=payload.message_id or f"msg_{uuid.uuid4().hex[:8]}",
             thread_id=thread.thread_id,
-            author=payload.author,
-            kind=payload.kind,
+            author=author,
+            kind=kind,
             content=payload.content,
             status="recorded",
             created_at=_now(),
@@ -716,6 +735,15 @@ def post_thread_message(thread_id: str, payload: WorkbenchMessageCreateRequest) 
     try:
         return STORE.append_message(thread_id, payload)
     except Exception as exc:
+        if isinstance(exc, WorkbenchError) and "blocked" in str(exc).lower():
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "blocked",
+                    "reason": str(exc),
+                    "recovery_hint": "Use planning, note, evidence, or system messages instead.",
+                },
+            )
         raise _http_error(exc)
 
 

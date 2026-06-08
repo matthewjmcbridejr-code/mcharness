@@ -48,6 +48,24 @@ http://127.0.0.1:8000/web/mctable-studio/cockpit.html
 
 The cockpit is a Hermes-style operator workspace with a toggleable sample run for screenshots and short demos. Sample mode is labeled `Sample UI data — not executed.` and does not trigger worker launches or mutate backend state.
 
+Workbench Core uses a friendly public-facing contract for thread creation and message posting:
+
+```bash
+curl -s http://127.0.0.1:8123/api/marius/workbench/threads \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Smoke thread","goal":"Prove the friendly cockpit contract."}'
+
+curl -s http://127.0.0.1:8123/api/marius/workbench/threads/<thread_id>/messages \
+  -H 'Content-Type: application/json' \
+  -d '{"role":"operator","kind":"instruction","content":"Plan the next step."}'
+
+curl -s -i http://127.0.0.1:8123/api/marius/workbench/threads/<thread_id>/messages \
+  -H 'Content-Type: application/json' \
+  -d '{"role":"operator","kind":"command_request","content":"run rm -rf /"}'
+```
+
+Workbench runtime JSON stays ignored under `_mctable/workbench/`.
+
 ## Tauri shell status
 
 The Tauri shell is a thin local wrapper around the cockpit. It does not add workflow logic or agent launch paths. See [docs/marius_desktop_tauri.md](docs/marius_desktop_tauri.md).

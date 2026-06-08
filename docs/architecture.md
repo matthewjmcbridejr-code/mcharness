@@ -20,6 +20,7 @@ flowchart TD
 - The UI reads real API state instead of inventing fake task data.
 - Captain Mode models supervised agentic work with prompt queues, bounded minions, evidence, hard gates, human review, and scoped commits.
 - Workbench Core is a separate local metadata layer for agents, threads, messages, skills, memories, artifacts, tools, and safety profiles.
+- The public cockpit uses the friendly thread contract (`title` + `goal`) and friendly message contract (`role` + `kind: instruction`) while the backend still blocks `command_request`.
 - Unsafe legacy launch routes stay disabled.
 - Real external agent launch remains disabled.
 - Arbitrary command execution remains disabled.
