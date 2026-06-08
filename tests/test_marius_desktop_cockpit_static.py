@@ -31,6 +31,16 @@ def test_cockpit_references_live_marius_endpoints_and_same_origin_base():
     for endpoint in [
         "/api/marius/status",
         "/api/marius/capabilities",
+        "/api/marius/workbench/status",
+        "/api/marius/workbench/agents",
+        "/api/marius/workbench/threads",
+        "/api/marius/workbench/threads/${encodeURIComponent(thread.thread_id)}",
+        "/api/marius/workbench/threads/${encodeURIComponent(thread.thread_id)}/messages",
+        "/api/marius/workbench/skills",
+        "/api/marius/workbench/memories",
+        "/api/marius/workbench/artifacts",
+        "/api/marius/workbench/tools",
+        "/api/marius/workbench/safety-profiles",
         "/api/marius/tasks",
         "/api/marius/captain/runs",
     ]:
@@ -63,6 +73,13 @@ def test_cockpit_shows_hermes_workspace_language_and_safety():
     required_snippets = [
         "McHarness",
         "agentic harness",
+        "Workbench Core",
+        "workbench-status-note",
+        "workbench-agent-list",
+        "workbench-thread-list",
+        "workbench-message-kind",
+        "workbench-tools-list",
+        "workbench-safety-profile-list",
         "Captain Mode",
         "bounded minions",
         "proof gates",
@@ -87,6 +104,7 @@ def test_cockpit_shows_hermes_workspace_language_and_safety():
         ".composer textarea { min-height: 58px; resize: none; }",
         ".inspector .list-item",
         ".inspector .mini-row",
+        "command_request` is blocked",
     ]
     for snippet in required_snippets:
         assert snippet in content

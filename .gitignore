@@ -5,8 +5,8 @@ __pycache__/
 *.log
 
 _mctable/worker_runs/
+_mctable/workbench/
 _mctable/checkpoints/*.sqlite
 
 src-tauri/target/
 src-tauri/gen/
-

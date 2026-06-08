@@ -632,6 +632,99 @@
         <section class="panel section">
           <div class="section-head">
             <div>
+              <h2>Workbench Core</h2>
+              <small>Agents, threads, messages, skills, memories, artifacts, tools, and safety profiles.</small>
+            </div>
+            <button class="btn" id="refresh-workbench" type="button">Refresh workbench</button>
+          </div>
+          <div class="section-note" id="workbench-status-note">Local-only workbench store.</div>
+          <div class="form-grid" style="margin-top: 12px;">
+            <div class="field">
+              <label for="workbench-agent-id">Agent ID</label>
+              <input id="workbench-agent-id" type="text" placeholder="agent_alpha" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="workbench-agent-name">Agent name</label>
+              <input id="workbench-agent-name" type="text" placeholder="Agent Alpha" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="workbench-agent-role">Role</label>
+              <input id="workbench-agent-role" type="text" placeholder="planner" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="workbench-agent-safety-profile">Safety profile</label>
+              <select id="workbench-agent-safety-profile"></select>
+            </div>
+            <div class="field full">
+              <label for="workbench-agent-notes">Agent notes</label>
+              <textarea id="workbench-agent-notes" placeholder="Local planning note only."></textarea>
+            </div>
+            <div class="field">
+              <label for="workbench-thread-id">Thread ID</label>
+              <input id="workbench-thread-id" type="text" placeholder="thread_alpha" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="workbench-thread-title">Thread title</label>
+              <input id="workbench-thread-title" type="text" placeholder="Plan the workbench" autocomplete="off" />
+            </div>
+            <div class="field full">
+              <label for="workbench-thread-objective">Thread objective</label>
+              <textarea id="workbench-thread-objective" placeholder="Model agents, threads, messages, and safety locally."></textarea>
+            </div>
+            <div class="field">
+              <label for="workbench-thread-agent">Thread agent</label>
+              <input id="workbench-thread-agent" type="text" placeholder="agent_alpha" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="workbench-thread-next-action">Next action</label>
+              <input id="workbench-thread-next-action" type="text" value="inspect" autocomplete="off" />
+            </div>
+          </div>
+          <div class="top-actions" style="margin-top: 10px;">
+            <button class="btn primary" id="save-workbench-agent" type="button">Save agent</button>
+            <button class="btn" id="save-workbench-thread" type="button">Save thread</button>
+          </div>
+          <div class="list" id="workbench-agent-list" style="margin-top: 12px;"></div>
+          <div class="list" id="workbench-thread-list" style="margin-top: 12px;"></div>
+          <div class="muted-box" style="margin-top: 12px;">
+            <div class="section-note">Selected thread worklog</div>
+            <div class="list" id="workbench-thread-log" style="margin-top: 10px;"></div>
+          </div>
+          <form id="workbench-message-form" class="stack" style="margin-top: 12px;">
+            <div class="form-grid">
+              <div class="field">
+                <label for="workbench-message-author">Author</label>
+                <input id="workbench-message-author" type="text" value="operator" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="workbench-message-kind">Kind</label>
+                <select id="workbench-message-kind">
+                  <option value="planning">planning</option>
+                  <option value="note">note</option>
+                  <option value="evidence">evidence</option>
+                  <option value="system">system</option>
+                </select>
+              </div>
+              <div class="field full">
+                <label for="workbench-message-content">Message</label>
+                <textarea id="workbench-message-content" placeholder="Planning input only. No command execution."></textarea>
+              </div>
+            </div>
+            <div class="top-actions">
+              <button class="btn primary" type="submit">Post message</button>
+              <span class="hint">Messages are stored locally, and `command_request` is blocked instead of executed.</span>
+            </div>
+          </form>
+          <div class="mini-list" id="workbench-skill-list" style="margin-top: 12px;"></div>
+          <div class="mini-list" id="workbench-memory-list" style="margin-top: 12px;"></div>
+          <div class="mini-list" id="workbench-artifact-list" style="margin-top: 12px;"></div>
+          <div class="mini-list" id="workbench-tools-list" style="margin-top: 12px;"></div>
+          <div class="mini-list" id="workbench-safety-profile-list" style="margin-top: 12px;"></div>
+        </section>
+
+        <section class="panel section">
+          <div class="section-head">
+            <div>
               <h2>Human approval</h2>
               <small>Decision checkpoint for live tasks</small>
             </div>
@@ -726,6 +819,48 @@
         ["Local MCP", "local-only"],
         ["No shell execution", "verified"],
       ],
+      workbench: {
+        status: "online",
+        agents: [
+          { agent_id: "agent_alpha", name: "Agent Alpha", role: "planner", safety_profile_id: "operator_local", status: "active" },
+          { agent_id: "agent_beta", name: "Agent Beta", role: "scribe", safety_profile_id: "screenshot_sample", status: "active" },
+        ],
+        threads: [
+          {
+            thread_id: "thread_alpha",
+            title: "Plan the workbench",
+            objective: "Model agents, threads, messages, and safety locally.",
+            status: "open",
+            next_action: "inspect",
+            message_count: 2,
+            proof_gate_count: 1,
+            messages: [
+              { author: "operator", kind: "planning", content: "Keep the workbench local-only." },
+              { author: "captain", kind: "note", content: "No arbitrary command execution." },
+            ],
+            prompt_queue: ["Check status", "Wire endpoints"],
+            evidence_records: ["Static tests prove the local store"],
+            hard_gates: [{ gate_id: "gate_demo", kind: "manual_review", reason: "Screenshot proof gate", decision: "approve" }],
+          },
+        ],
+        skills: [
+          { skill_id: "status_auditor", title: "Status Auditor", description: "Reviews backend and cockpit truth." },
+        ],
+        memories: [
+          { memory_id: "release_notes", scope: "workbench", summary: "Keep the workbench local-only and factual." },
+        ],
+        artifacts: [
+          { artifact_id: "proof_pack", kind: "report", title: "Proof Pack", path: "docs/release_candidate_report.md" },
+        ],
+        tools: [
+          { name: "workbench_threads", category: "workflow", status: "available", summary: "Local thread registry" },
+          { name: "local_mcp", category: "integration", status: "available", summary: "Local-only MCP tool layer" },
+        ],
+        safetyProfiles: [
+          { profile_id: "operator_local", title: "Operator Local", summary: "Local-only supervised workflow profile" },
+          { profile_id: "screenshot_sample", title: "Screenshot Sample", summary: "Preview profile for screenshots and demos" },
+        ],
+      },
       captain: {
         objective: "Polish cockpit UI for public demo",
         status: "active",
@@ -743,8 +878,19 @@
       capabilities: [],
       tasks: [],
       captainRuns: [],
+      workbenchStatus: null,
+      workbenchAgents: [],
+      workbenchThreads: [],
+      workbenchSkills: [],
+      workbenchMemories: [],
+      workbenchArtifacts: [],
+      workbenchTools: [],
+      workbenchSafetyProfiles: [],
       selectedTaskId: null,
       selectedCaptainRunId: null,
+      selectedWorkbenchAgentId: null,
+      selectedWorkbenchThreadId: null,
+      selectedWorkbenchThread: null,
       selectedWorkerRunId: null,
       instructionLog: [],
       sampleMode: new URLSearchParams(window.location.search).get("sample") === "1",
@@ -994,6 +1140,272 @@
       `).join("");
     }
 
+    function activeWorkbench() {
+      if (state.sampleMode) return SAMPLE.workbench;
+      return {
+        status: state.workbenchStatus,
+        agents: state.workbenchAgents,
+        threads: state.workbenchThreads,
+        skills: state.workbenchSkills,
+        memories: state.workbenchMemories,
+        artifacts: state.workbenchArtifacts,
+        tools: state.workbenchTools,
+        safetyProfiles: state.workbenchSafetyProfiles,
+        selectedThread: state.selectedWorkbenchThread,
+      };
+    }
+
+    function renderWorkbench() {
+      const wb = activeWorkbench();
+      const agents = wb.agents || [];
+      const threads = wb.threads || [];
+      const skills = wb.skills || [];
+      const memories = wb.memories || [];
+      const artifacts = wb.artifacts || [];
+      const tools = wb.tools || [];
+      const safetyProfiles = wb.safetyProfiles || [];
+      if (!state.selectedWorkbenchAgentId && agents[0]) {
+        state.selectedWorkbenchAgentId = agents[0].agent_id;
+      }
+      if (!state.selectedWorkbenchThreadId && threads[0]) {
+        state.selectedWorkbenchThreadId = threads[0].thread_id;
+      }
+      const selectedThread = wb.selectedThread || (threads.length ? threads[0] : null);
+
+      $("workbench-status-note").textContent = state.sampleMode
+        ? "Sample UI data — not executed."
+        : `Local-only workbench store. agents: ${wb.status?.agents ?? agents.length} | threads: ${wb.status?.threads ?? threads.length} | messages: ${wb.status?.messages ?? 0} | tools: ${wb.status?.tools ?? tools.length}`;
+
+      $("workbench-agent-list").innerHTML = agents.length ? agents.map((agent) => `
+        <button class="list-item ${agent.agent_id === state.selectedWorkbenchAgentId ? "active" : ""}" type="button" data-workbench-agent-id="${esc(agent.agent_id)}">
+          <strong>${esc(agent.name || agent.agent_id)}</strong>
+          <span>${esc(agent.agent_id)} · ${esc(agent.role || "operator")} · ${esc(agent.safety_profile_id || "operator_local")}</span>
+        </button>
+      `).join("") : `<div class="empty-state">No workbench agents yet. Save one to start a local planning lane.</div>`;
+
+      $("workbench-thread-list").innerHTML = threads.length ? threads.map((thread) => `
+        <button class="list-item ${thread.thread_id === state.selectedWorkbenchThreadId ? "active" : ""}" type="button" data-workbench-thread-id="${esc(thread.thread_id)}">
+          <strong>${esc(thread.title || thread.thread_id)}</strong>
+          <span>${esc(thread.thread_id)} · ${esc(thread.status || "open")} · ${esc(thread.message_count ?? 0)} messages · ${esc(thread.proof_gate_count ?? 0)} gates</span>
+        </button>
+      `).join("") : `<div class="empty-state">No workbench threads yet. Save one to create a local worklog.</div>`;
+
+      $("workbench-thread-log").innerHTML = selectedThread ? [
+        `<div class="list-item"><strong>${esc(selectedThread.title || selectedThread.thread_id)}</strong><span>${esc(selectedThread.thread_id)} · ${esc(selectedThread.objective || "")}</span></div>`,
+        ...(selectedThread.messages || []).map((message) => `
+          <div class="list-item">
+            <strong>${esc(message.author || "unknown")} · ${esc(message.kind || "note")}</strong>
+            <span>${esc(message.content || "")}</span>
+          </div>
+        `),
+      ].join("") : `<div class="empty-state">Select a workbench thread to inspect its messages and proof gates.</div>`;
+
+      $("workbench-skill-list").innerHTML = skills.length ? skills.map((skill) => `
+        <div class="mini-row">
+          <span class="label">${esc(skill.title || skill.skill_id)}</span>
+          <span class="value">${esc(skill.description || skill.skill_id)}</span>
+        </div>
+      `).join("") : `<div class="empty-state">No skills registered.</div>`;
+
+      $("workbench-memory-list").innerHTML = memories.length ? memories.map((memory) => `
+        <div class="mini-row">
+          <span class="label">${esc(memory.scope || memory.memory_id)}</span>
+          <span class="value">${esc(memory.summary || memory.memory_id)}</span>
+        </div>
+      `).join("") : `<div class="empty-state">No memories registered.</div>`;
+
+      $("workbench-artifact-list").innerHTML = artifacts.length ? artifacts.map((artifact) => `
+        <div class="mini-row">
+          <span class="label">${esc(artifact.kind || artifact.artifact_id)}</span>
+          <span class="value">${esc(artifact.title || artifact.path || artifact.artifact_id)}</span>
+        </div>
+      `).join("") : `<div class="empty-state">No artifacts registered.</div>`;
+
+      $("workbench-tools-list").innerHTML = tools.length ? tools.map((tool) => `
+        <div class="mini-row">
+          <span class="label">${esc(tool.name)}</span>
+          <span class="value">${esc(tool.summary || tool.category || "tool")}</span>
+        </div>
+      `).join("") : `<div class="empty-state">No tools registered.</div>`;
+
+      $("workbench-safety-profile-list").innerHTML = safetyProfiles.length ? safetyProfiles.map((profile) => `
+        <div class="mini-row">
+          <span class="label">${esc(profile.title || profile.profile_id)}</span>
+          <span class="value">${esc(profile.summary || profile.profile_id)}</span>
+        </div>
+      `).join("") : `<div class="empty-state">No safety profiles registered.</div>`;
+
+      $("workbench-agent-safety-profile").innerHTML = safetyProfiles.length ? safetyProfiles.map((profile) => `
+        <option value="${esc(profile.profile_id)}" ${profile.profile_id === "operator_local" ? "selected" : ""}>${esc(profile.title || profile.profile_id)}</option>
+      `).join("") : `
+        <option value="operator_local" selected>Operator Local</option>
+      `;
+    }
+
+    async function refreshWorkbench() {
+      if (state.sampleMode) {
+        state.workbenchStatus = {
+          status: "online",
+          service: "marius-workbench",
+          agents: SAMPLE.workbench.agents.length,
+          threads: SAMPLE.workbench.threads.length,
+          messages: 2,
+          tools: SAMPLE.workbench.tools.length,
+        };
+        renderWorkbench();
+        return;
+      }
+      try {
+        state.workbenchStatus = await request("/api/marius/workbench/status");
+        state.workbenchAgents = await request("/api/marius/workbench/agents");
+        state.workbenchThreads = await request("/api/marius/workbench/threads");
+        state.workbenchSkills = await request("/api/marius/workbench/skills");
+        state.workbenchMemories = await request("/api/marius/workbench/memories");
+        state.workbenchArtifacts = await request("/api/marius/workbench/artifacts");
+        state.workbenchTools = await request("/api/marius/workbench/tools");
+        state.workbenchSafetyProfiles = await request("/api/marius/workbench/safety-profiles");
+      } catch (error) {
+        state.workbenchStatus = { status: "offline", recovery_hint: error.message };
+        state.workbenchAgents = [];
+        state.workbenchThreads = [];
+        state.workbenchSkills = [];
+        state.workbenchMemories = [];
+        state.workbenchArtifacts = [];
+        state.workbenchTools = [];
+        state.workbenchSafetyProfiles = [];
+      }
+      renderWorkbench();
+      if (state.selectedWorkbenchThreadId && !state.sampleMode) {
+        await selectWorkbenchThread(state.selectedWorkbenchThreadId);
+      }
+    }
+
+    async function selectWorkbenchAgent(agentId) {
+      state.selectedWorkbenchAgentId = agentId || null;
+      renderWorkbench();
+      if (!agentId || state.sampleMode) return;
+      try {
+        const agent = await request(`/api/marius/workbench/agents/${encodeURIComponent(agentId)}`);
+        $("workbench-agent-id").value = agent.agent_id || "";
+        $("workbench-agent-name").value = agent.name || "";
+        $("workbench-agent-role").value = agent.role || "operator";
+        $("workbench-agent-notes").value = agent.notes || "";
+        $("workbench-agent-safety-profile").value = agent.safety_profile_id || "operator_local";
+      } catch {
+        // Keep the current form values if the agent cannot be loaded.
+      }
+    }
+
+    async function selectWorkbenchThread(threadId) {
+      state.selectedWorkbenchThreadId = threadId || null;
+      if (state.sampleMode) {
+        state.selectedWorkbenchThread = SAMPLE.workbench.threads.find((item) => item.thread_id === threadId) || SAMPLE.workbench.threads[0] || null;
+        renderWorkbench();
+        return;
+      }
+      if (!threadId) {
+        state.selectedWorkbenchThread = null;
+        renderWorkbench();
+        return;
+      }
+      try {
+        state.selectedWorkbenchThread = await request(`/api/marius/workbench/threads/${encodeURIComponent(threadId)}`);
+      } catch {
+        state.selectedWorkbenchThread = null;
+      }
+      renderWorkbench();
+    }
+
+    async function submitWorkbenchAgent() {
+      const agentId = $("workbench-agent-id").value.trim();
+      const name = $("workbench-agent-name").value.trim();
+      if (!agentId || !name) return alert("Agent ID and name are required.");
+      if (state.sampleMode) {
+        alert("Sample UI data is not executed.");
+        return;
+      }
+      try {
+        await request("/api/marius/workbench/agents", {
+          method: "POST",
+          body: JSON.stringify({
+            agent_id: agentId,
+            name,
+            role: $("workbench-agent-role").value.trim() || "operator",
+            status: "active",
+            safety_profile_id: $("workbench-agent-safety-profile").value || "operator_local",
+            allowed_threads: [],
+            notes: $("workbench-agent-notes").value.trim() || null,
+          }),
+        });
+        await refreshWorkbench();
+        await selectWorkbenchAgent(agentId);
+      } catch (error) {
+        alert(`Agent save failed: ${error.message}`);
+      }
+    }
+
+    async function submitWorkbenchThread() {
+      const threadId = $("workbench-thread-id").value.trim();
+      const title = $("workbench-thread-title").value.trim();
+      const objective = $("workbench-thread-objective").value.trim();
+      if (!threadId || !title || !objective) return alert("Thread ID, title, and objective are required.");
+      if (state.sampleMode) {
+        alert("Sample UI data is not executed.");
+        return;
+      }
+      try {
+        await request("/api/marius/workbench/threads", {
+          method: "POST",
+          body: JSON.stringify({
+            thread_id: threadId,
+            title,
+            objective,
+            agent_id: $("workbench-thread-agent").value.trim() || null,
+            status: "open",
+            next_action: $("workbench-thread-next-action").value.trim() || "inspect",
+            prompt_queue: [],
+            minion_tasks: [],
+            evidence_records: [],
+            hard_gates: [],
+            scoped_commit_plan: null,
+            planned_acceptance_commands: [],
+            recovery_hint: null,
+            notes: null,
+          }),
+        });
+        await refreshWorkbench();
+        await selectWorkbenchThread(threadId);
+      } catch (error) {
+        alert(`Thread save failed: ${error.message}`);
+      }
+    }
+
+    async function submitWorkbenchMessage(event) {
+      event.preventDefault();
+      const thread = state.sampleMode ? SAMPLE.workbench.threads.find((item) => item.thread_id === state.selectedWorkbenchThreadId) || SAMPLE.workbench.threads[0] : state.selectedWorkbenchThread;
+      if (!thread) return alert("Select a workbench thread first.");
+      const content = $("workbench-message-content").value.trim();
+      if (!content) return alert("Message content is required.");
+      if (state.sampleMode) {
+        alert("Sample UI data is not executed.");
+        return;
+      }
+      try {
+        await request(`/api/marius/workbench/threads/${encodeURIComponent(thread.thread_id)}/messages`, {
+          method: "POST",
+          body: JSON.stringify({
+            author: $("workbench-message-author").value.trim() || "operator",
+            kind: $("workbench-message-kind").value,
+            content,
+          }),
+        });
+        $("workbench-message-content").value = "";
+        await selectWorkbenchThread(thread.thread_id);
+      } catch (error) {
+        alert(`Message post failed: ${error.message}`);
+      }
+    }
+
     function renderInspector() {
       const captain = activeCaptainRun();
       const promptQueue = state.sampleMode ? SAMPLE.promptQueue : (captain?.prompt_queue || []);
@@ -1041,6 +1453,7 @@
       renderLeftRail();
       renderThread();
       renderInspector();
+      renderWorkbench();
       renderApprovalTarget();
       renderLiveTaskSelection();
       $("show-sample-run").setAttribute("aria-pressed", state.sampleMode ? "true" : "false");
@@ -1178,15 +1591,28 @@
       $("record-instruction").addEventListener("click", recordInstruction);
       $("create-task-form").addEventListener("submit", submitTask);
       $("approval-form").addEventListener("submit", submitApproval);
+      $("refresh-workbench").addEventListener("click", refreshWorkbench);
+      $("save-workbench-agent").addEventListener("click", submitWorkbenchAgent);
+      $("save-workbench-thread").addEventListener("click", submitWorkbenchThread);
+      $("workbench-message-form").addEventListener("submit", submitWorkbenchMessage);
       $("run-list").addEventListener("click", (event) => {
         const button = event.target.closest("[data-task-id]");
         if (button) selectTask(button.dataset.taskId);
+      });
+      $("workbench-agent-list").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-workbench-agent-id]");
+        if (button) selectWorkbenchAgent(button.dataset.workbenchAgentId);
+      });
+      $("workbench-thread-list").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-workbench-thread-id]");
+        if (button) selectWorkbenchThread(button.dataset.workbenchThreadId);
       });
     }
 
     async function bootstrap() {
       wireEvents();
       await refreshBackend();
+      await refreshWorkbench();
       if (state.sampleMode) {
         renderAll();
       } else {
@@ -1195,10 +1621,12 @@
       setInterval(async () => {
         if (!state.sampleMode) {
           await refreshBackend();
+          await refreshWorkbench();
           renderAll();
         } else {
           await refreshStatus();
           await refreshCapabilities();
+          await refreshWorkbench();
           renderAll();
         }
       }, 8000);

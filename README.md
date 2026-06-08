@@ -23,6 +23,7 @@ The internal Python module name currently remains `src/marius_desktop` to avoid 
 - Unknown commands are rejected through both API and MCP.
 - Worker execution is fake-worker-only for the current RC.
 - Unsafe legacy worker-launch routes remain disabled.
+- Workbench Core routes exist for agents, threads, messages, skills, memories, artifacts, tools, and safety profiles.
 - Captain Mode models supervised agentic work with prompt queues, bounded minions, evidence, hard gates, human review, and scoped commits.
 - The minimal web cockpit exists.
 - The minimal Tauri shell is verified with `cargo check`.

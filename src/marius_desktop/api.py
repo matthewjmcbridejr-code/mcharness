@@ -13,10 +13,12 @@ from .graph import (
     checkpoint_file_exists,
     get_runtime_capabilities,
 )
+from .workbench import router as workbench_router
 from .worker import WorkerStub, ALLOWED_COMMANDS
 
 router = APIRouter(prefix="/api/marius", tags=["marius-desktop"])
 router.include_router(captain_router)
+router.include_router(workbench_router)
 
 legacy_router = APIRouter(tags=["marius-desktop-legacy"])
 
