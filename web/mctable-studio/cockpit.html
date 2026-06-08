@@ -650,6 +650,15 @@
             prompt queue, bounded minions, evidence requirements, proof gates, human approval, and continuation blocked.
             real external agent launch disabled. No arbitrary shell execution.
           </div>
+          <div class="hint" style="margin-top: 8px;">
+            Prompt queue cards show export prompt button, handoff prompt preview, evidence required, may_commit, may_execute_shell, and must_return_evidence.
+            Queue endpoints: <span class="mono">/api/marius/captain/runs/${encodeURIComponent(captainRunId)}/queue/items</span>,
+            <span class="mono">/api/marius/captain/queue/${encodeURIComponent(queueItem.queue_item_id)}/status</span>,
+            <span class="mono">/api/marius/captain/queue/${encodeURIComponent(queueItem.queue_item_id)}/export</span>,
+            <span class="mono">/api/marius/captain/runs/${encodeURIComponent(captainRunId)}/assignments/${encodeURIComponent(assignment.assignment_id)}/evidence</span>,
+            <span class="mono">/api/marius/captain/runs/${encodeURIComponent(captainRunId)}/assignments/${encodeURIComponent(assignment.assignment_id)}/complete</span>,
+            <span class="mono">/api/marius/captain/runs/${encodeURIComponent(captainRunId)}/assignments/${encodeURIComponent(assignment.assignment_id)}/fail</span>.
+          </div>
           <div class="hint" style="margin-top: 8px; font-family: var(--mono);">
             Friendly thread payload shape: {"title": "Plan the workbench", "goal": "Model agents, threads, messages, and safety locally."}
           </div>

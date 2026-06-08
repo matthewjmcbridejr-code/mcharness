@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from .contracts import (
@@ -21,6 +22,7 @@ from .contracts import (
 from .workbench import (
     STORE as WORKBENCH_STORE,
     WorkbenchRunCreateRequest,
+    WorkbenchEvidenceRecordCreateRequest,
     WorkbenchRunEventCreateRequest,
     WorkbenchRunProofGateCreateRequest,
 )
@@ -159,6 +161,14 @@ class PromptQueueItem(BaseModel):
     status: Literal["queued", "assigned", "evidence_required", "blocked", "completed", "cancelled"] = "queued"
     priority: int = 1
     target_role: Literal["ui_inspector", "safety_auditor", "test_runner", "implementer", "docs_writer", "reviewer"] = "reviewer"
+    dependencies: list[str] = Field(default_factory=list)
+    file_scope: list[str] = Field(default_factory=list)
+    forbidden_file_scope: list[str] = Field(default_factory=list)
+    max_attempts: int = 2
+    attempt_count: int = 0
+    evidence_required: list[str] = Field(default_factory=list)
+    export_format: Literal["codex_cli", "agy_cli", "generic_markdown"] = "generic_markdown"
+    export_text: str = ""
     allowed_files: list[str] = Field(default_factory=list)
     forbidden_actions: list[str] = Field(default_factory=list)
     acceptance_checks: list[str] = Field(default_factory=list)
@@ -173,7 +183,12 @@ class MinionAssignment(BaseModel):
     role: Literal["ui_inspector", "safety_auditor", "test_runner", "implementer", "docs_writer", "reviewer"]
     title: str
     instructions: str
-    status: Literal["assigned", "waiting", "evidence_submitted", "blocked", "completed", "failed"] = "assigned"
+    status: Literal["assigned", "waiting_for_result", "evidence_submitted", "blocked", "completed", "failed"] = "assigned"
+    may_edit: bool = False
+    may_commit: bool = False
+    may_execute_shell: bool = False
+    must_return_evidence: bool = True
+    handoff_prompt: str = ""
     evidence_required: list[str] = Field(default_factory=list)
     output_summary: Optional[str] = None
     created_at: datetime
@@ -195,6 +210,42 @@ class CaptainRunStateMachineCreateRequest(BaseModel):
 
 class CaptainPlanRequest(BaseModel):
     instruction: str = Field(min_length=1)
+
+
+class CaptainQueueItemCreateRequest(BaseModel):
+    title: str = Field(min_length=1)
+    prompt: str = Field(min_length=1)
+    target_role: Literal["ui_inspector", "safety_auditor", "test_runner", "implementer", "docs_writer", "reviewer"] = "reviewer"
+    priority: int = 1
+    dependencies: list[str] = Field(default_factory=list)
+    file_scope: list[str] = Field(default_factory=list)
+    forbidden_file_scope: list[str] = Field(default_factory=list)
+    max_attempts: int = 2
+    evidence_required: list[str] = Field(default_factory=list)
+    export_format: Literal["codex_cli", "agy_cli", "generic_markdown"] = "generic_markdown"
+    allowed_files: list[str] = Field(default_factory=list)
+    forbidden_actions: list[str] = Field(default_factory=list)
+    acceptance_checks: list[str] = Field(default_factory=list)
+
+
+class CaptainQueueItemStatusRequest(BaseModel):
+    status: Literal["queued", "assigned", "evidence_required", "blocked", "completed", "cancelled"]
+
+
+class CaptainAssignmentEvidenceRequest(BaseModel):
+    evidence_summary: str = Field(min_length=1)
+    source_ref: Optional[str] = None
+    artifact_refs: list[str] = Field(default_factory=list)
+    verdict: Literal["unknown", "passed", "failed", "blocked"] = "passed"
+
+
+class CaptainAssignmentCompleteRequest(BaseModel):
+    evidence_summary: str = Field(min_length=1)
+    output_summary: Optional[str] = None
+
+
+class CaptainAssignmentFailRequest(BaseModel):
+    reason: Optional[str] = None
 
 
 STATE_MACHINE_DIR = CAPTAIN_ROOT / "state_machine"
@@ -287,6 +338,106 @@ def _append_workbench_event(
     )
 
 
+def _render_queue_item_export_text(state: CaptainState, item: PromptQueueItem) -> str:
+    allowed_files = "\n".join(f"- {path}" for path in item.file_scope or item.allowed_files or ["(none)"])
+    forbidden_files = "\n".join(f"- {path}" for path in item.forbidden_file_scope or ["_mctable/**", "src-tauri/**"])
+    forbidden_actions = "\n".join(f"- {action}" for action in item.forbidden_actions or [
+        "Do not commit.",
+        "Do not push.",
+        "Do not launch real external agents.",
+    ])
+    acceptance_checks = "\n".join(f"- {check}" for check in item.acceptance_checks or ["Return honest evidence."])
+    dependencies = ", ".join(item.dependencies) if item.dependencies else "none"
+    export_lines = [
+        f"Mission: {state.objective}",
+        f"Queue item: {item.title}",
+        f"Target role: {item.target_role}",
+        "Allowed files:",
+        allowed_files,
+        "Forbidden files:",
+        forbidden_files,
+        "Forbidden actions:",
+        forbidden_actions,
+        "Acceptance checks:",
+        acceptance_checks,
+        "Final proof format:",
+        "- summary",
+        "- evidence",
+        "- status",
+        "Do not commit.",
+        "Do not push.",
+        "Do not launch real external agents.",
+        f"Dependencies: {dependencies}",
+    ]
+    return "\n".join(export_lines)
+
+
+def _queue_dependencies_complete(state: CaptainState, dependencies: list[str]) -> bool:
+    completed = {queued.queue_item_id for queued in state.prompt_queue if queued.status == "completed"}
+    return all(dep in completed for dep in dependencies)
+
+
+def _queue_item_dependency_complete(state: CaptainState, item: PromptQueueItem) -> bool:
+    return _queue_dependencies_complete(state, item.dependencies)
+
+
+def _find_state_by_queue_item_id(queue_item_id: str) -> tuple[CaptainState, PromptQueueItem]:
+    STATE_MACHINE_DIR.mkdir(parents=True, exist_ok=True)
+    for path in sorted(STATE_MACHINE_DIR.glob("*.json")):
+        try:
+            state = CaptainState.model_validate_json(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for item in state.prompt_queue:
+            if item.queue_item_id == queue_item_id:
+                return state, item
+    raise FileNotFoundError(queue_item_id)
+
+
+def _find_state_by_assignment_id(assignment_id: str) -> tuple[CaptainState, MinionAssignment]:
+    STATE_MACHINE_DIR.mkdir(parents=True, exist_ok=True)
+    for path in sorted(STATE_MACHINE_DIR.glob("*.json")):
+        try:
+            state = CaptainState.model_validate_json(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for assignment in state.assignments:
+            if assignment.assignment_id == assignment_id:
+                return state, assignment
+    raise FileNotFoundError(assignment_id)
+
+
+def _sync_state_status_from_assignments(state: CaptainState) -> None:
+    if any(assignment.status == "failed" for assignment in state.assignments):
+        state.status = "failed"
+        return
+    if any(assignment.status == "blocked" for assignment in state.assignments):
+        state.status = "blocked_on_gate"
+        return
+    if state.assignments and all(assignment.status == "completed" for assignment in state.assignments):
+        state.status = "completed"
+        return
+    if any(assignment.status == "evidence_submitted" for assignment in state.assignments):
+        state.status = "waiting_for_evidence"
+        return
+    if state.assignments:
+        state.status = "assigning"
+
+
+def _sync_state_status_from_queue(state: CaptainState) -> None:
+    if any(item.status == "blocked" for item in state.prompt_queue):
+        state.status = "blocked_on_gate"
+        return
+    if state.prompt_queue and all(item.status == "completed" for item in state.prompt_queue):
+        state.status = "completed"
+        return
+    if any(item.status in {"assigned", "evidence_required"} for item in state.prompt_queue):
+        state.status = "waiting_for_evidence"
+        return
+    if state.prompt_queue:
+        state.status = "queued"
+
+
 def _generate_plan(state: CaptainState, instruction: str) -> CaptainPlan:
     objective_words = [word.strip(".,:;!?") for word in state.objective.split()[:6] if word.strip(".,:;!?")]
     instruction_words = [word.strip(".,:;!?") for word in instruction.split()[:6] if word.strip(".,:;!?")]
@@ -338,25 +489,35 @@ def _generate_queue_items(state: CaptainState, plan: CaptainPlan) -> list[Prompt
     ]
     items: list[PromptQueueItem] = []
     for index, role in enumerate(roles, start=1):
+        item = PromptQueueItem(
+            queue_item_id=f"queue_{uuid.uuid4().hex[:8]}",
+            captain_run_id=state.captain_run_id,
+            title=f"Queue item {index}",
+            prompt=prompts[index - 1],
+            status="queued",
+            priority=index,
+            target_role=role,  # type: ignore[arg-type]
+            dependencies=[items[-1].queue_item_id] if items and index > 1 else [],
+            file_scope=files[index - 1],
+            forbidden_file_scope=["_mctable/**", "src-tauri/**"],
+            max_attempts=2,
+            attempt_count=0,
+            evidence_required=list(checks[index - 1]),
+            export_format="generic_markdown",
+            export_text="",
+            allowed_files=files[index - 1],
+            forbidden_actions=[
+                "arbitrary shell execution",
+                "real external agent launch",
+                "public worker launch",
+            ],
+            acceptance_checks=checks[index - 1],
+            created_at=_now(),
+            updated_at=_now(),
+        )
+        item.export_text = _render_queue_item_export_text(state, item)
         items.append(
-            PromptQueueItem(
-                queue_item_id=f"queue_{uuid.uuid4().hex[:8]}",
-                captain_run_id=state.captain_run_id,
-                title=f"Queue item {index}",
-                prompt=prompts[index - 1],
-                status="queued",
-                priority=index,
-                target_role=role,  # type: ignore[arg-type]
-                allowed_files=files[index - 1],
-                forbidden_actions=[
-                    "arbitrary shell execution",
-                    "real external agent launch",
-                    "public worker launch",
-                ],
-                acceptance_checks=checks[index - 1],
-                created_at=_now(),
-                updated_at=_now(),
-            )
+            item
         )
     return items
 
@@ -364,6 +525,7 @@ def _generate_queue_items(state: CaptainState, plan: CaptainPlan) -> list[Prompt
 def _generate_assignments(state: CaptainState) -> list[MinionAssignment]:
     assignments: list[MinionAssignment] = []
     for queue_item in state.prompt_queue:
+        dependency_blocked = not _queue_item_dependency_complete(state, queue_item)
         assignments.append(
             MinionAssignment(
                 assignment_id=f"assign_{uuid.uuid4().hex[:8]}",
@@ -372,7 +534,12 @@ def _generate_assignments(state: CaptainState) -> list[MinionAssignment]:
                 role=queue_item.target_role,
                 title=queue_item.title,
                 instructions=queue_item.prompt,
-                status="assigned",
+                status="blocked" if dependency_blocked else "assigned",
+                may_edit=queue_item.target_role in {"reviewer", "docs_writer"},
+                may_commit=False,
+                may_execute_shell=False,
+                must_return_evidence=True,
+                handoff_prompt=queue_item.export_text,
                 evidence_required=list(queue_item.acceptance_checks),
                 created_at=_now(),
                 updated_at=_now(),
@@ -981,7 +1148,15 @@ def assign_captain_minions(captain_run_id: str) -> CaptainState:
         if not state.assignments:
             state.assignments = _generate_assignments(state)
         state.current_step = "assign"
-        state.status = "blocked_on_gate" if _state_has_open_gate(state) else "waiting_for_evidence"
+        for assignment in state.assignments:
+            queue_item = next((item for item in state.prompt_queue if item.queue_item_id == assignment.queue_item_id), None)
+            if queue_item is not None and queue_item.status != "completed" and not _queue_dependencies_complete(state, list(queue_item.dependencies)):
+                assignment.status = "blocked"
+                queue_item.status = "blocked"
+                queue_item.updated_at = _now()
+        _sync_state_status_from_assignments(state)
+        if _state_has_open_gate(state):
+            state.status = "blocked_on_gate"
         _record_transition(state, before, state.status, "Created bounded minion assignments.")
         for assignment in state.assignments:
             _append_workbench_event(
@@ -1092,5 +1267,245 @@ def continue_captain_run(captain_run_id: str) -> dict[str, Any]:
 def get_captain_transitions(captain_run_id: str) -> list[CaptainTransition]:
     try:
         return _load_state(captain_run_id).transitions
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Captain run {captain_run_id} not found.") from exc
+
+
+@router.post("/runs/{captain_run_id}/queue/items", response_model=CaptainState)
+def add_captain_queue_item(captain_run_id: str, req: CaptainQueueItemCreateRequest) -> CaptainState:
+    def _add(state: CaptainState) -> CaptainState:
+        before = state.status
+        dependency_blocked = bool(req.dependencies) and not _queue_dependencies_complete(state, list(req.dependencies))
+        item = PromptQueueItem(
+            queue_item_id=f"queue_{uuid.uuid4().hex[:8]}",
+            captain_run_id=state.captain_run_id,
+            title=req.title,
+            prompt=req.prompt,
+            status="blocked" if dependency_blocked else "queued",
+            priority=req.priority,
+            target_role=req.target_role,
+            dependencies=list(req.dependencies),
+            file_scope=list(req.file_scope),
+            forbidden_file_scope=list(req.forbidden_file_scope),
+            max_attempts=req.max_attempts,
+            attempt_count=0,
+            evidence_required=list(req.evidence_required),
+            export_format=req.export_format,
+            export_text="",
+            allowed_files=list(req.file_scope or req.allowed_files),
+            forbidden_actions=list(req.forbidden_actions),
+            acceptance_checks=list(req.acceptance_checks),
+            created_at=_now(),
+            updated_at=_now(),
+        )
+        item.export_text = _render_queue_item_export_text(state, item)
+        state.prompt_queue.append(item)
+        _record_transition(state, before, state.status, f"Added prompt queue item: {item.title}")
+        _append_workbench_event(
+            state,
+            event_type="note",
+            title=item.title,
+            detail=f"Queue item added with {len(item.evidence_required)} evidence checks.",
+            severity="info",
+        )
+        return state
+
+    try:
+        return _update_state(captain_run_id, _add)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Captain run {captain_run_id} not found.") from exc
+
+
+@router.post("/queue/{queue_item_id}/status", response_model=CaptainState)
+def update_captain_queue_item_status(queue_item_id: str, req: CaptainQueueItemStatusRequest) -> CaptainState:
+    try:
+        state, item = _find_state_by_queue_item_id(queue_item_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Captain queue item {queue_item_id} not found.") from exc
+
+    def _update(found: CaptainState) -> CaptainState:
+        before = found.status
+        target = next((queued for queued in found.prompt_queue if queued.queue_item_id == queue_item_id), None)
+        if target is None:
+            raise HTTPException(status_code=404, detail=f"Captain queue item {queue_item_id} not found.")
+        target.status = req.status
+        target.updated_at = _now()
+        if req.status == "completed":
+            target.attempt_count = min(target.max_attempts, target.attempt_count + 1)
+        _sync_state_status_from_assignments(found)
+        _record_transition(found, before, found.status, f"Queue item {queue_item_id} updated to {req.status}.")
+        return found
+
+    try:
+        return _update_state(state.captain_run_id, _update)
+    except HTTPException:
+        raise
+
+
+@router.post("/queue/{queue_item_id}/export", response_class=PlainTextResponse)
+def export_captain_queue_item(queue_item_id: str) -> str:
+    try:
+        state, item = _find_state_by_queue_item_id(queue_item_id)
+        return item.export_text or _render_queue_item_export_text(state, item)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Captain queue item {queue_item_id} not found.") from exc
+
+
+@router.post("/runs/{captain_run_id}/assignments/{assignment_id}/evidence", response_model=CaptainState)
+def record_captain_assignment_evidence(
+    captain_run_id: str,
+    assignment_id: str,
+    req: CaptainAssignmentEvidenceRequest,
+) -> CaptainState:
+    def _evidence(state: CaptainState) -> CaptainState:
+        assignment = next((item for item in state.assignments if item.assignment_id == assignment_id), None)
+        if assignment is None:
+            raise HTTPException(status_code=404, detail=f"Captain assignment {assignment_id} not found.")
+        if assignment.captain_run_id != captain_run_id:
+            raise HTTPException(status_code=404, detail=f"Captain assignment {assignment_id} not found.")
+        if assignment.status == "blocked":
+            raise HTTPException(status_code=409, detail="Blocked assignments cannot receive evidence.")
+        if assignment.status == "assigned":
+            assignment.status = "waiting_for_result"
+        assignment.output_summary = req.evidence_summary
+        assignment.status = "evidence_submitted"
+        assignment.updated_at = _now()
+        queue_item = next((item for item in state.prompt_queue if item.queue_item_id == assignment.queue_item_id), None)
+        if queue_item is not None:
+            queue_item.attempt_count = min(queue_item.max_attempts, queue_item.attempt_count + 1)
+            queue_item.status = "evidence_required"
+            queue_item.updated_at = _now()
+        _append_workbench_event(
+            state,
+            event_type="evidence",
+            title=assignment.title,
+            detail=req.evidence_summary,
+            severity="success" if req.verdict == "passed" else "warning" if req.verdict == "unknown" else "error" if req.verdict == "failed" else "blocked",
+        )
+        try:
+            WORKBENCH_STORE.add_run_evidence(
+                state.run_id,
+                WorkbenchEvidenceRecordCreateRequest(
+                    title=assignment.title,
+                    summary=req.evidence_summary,
+                    source_type="manual",
+                    source_ref=req.source_ref,
+                    verdict=req.verdict,
+                    evidence_id=None,
+                ),
+            )
+        except Exception:
+            pass
+        _sync_state_status_from_assignments(state)
+        _record_transition(state, "waiting_for_result", assignment.status, "Recorded assignment evidence.")
+        return state
+
+    try:
+        return _update_state(captain_run_id, _evidence)
+    except HTTPException:
+        raise
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Captain run {captain_run_id} not found.") from exc
+
+
+@router.post("/runs/{captain_run_id}/assignments/{assignment_id}/complete", response_model=CaptainState)
+def complete_captain_assignment(
+    captain_run_id: str,
+    assignment_id: str,
+    req: CaptainAssignmentCompleteRequest,
+) -> CaptainState:
+    def _complete(state: CaptainState) -> CaptainState:
+        assignment = next((item for item in state.assignments if item.assignment_id == assignment_id), None)
+        if assignment is None or assignment.captain_run_id != captain_run_id:
+            raise HTTPException(status_code=404, detail=f"Captain assignment {assignment_id} not found.")
+        if assignment.must_return_evidence and assignment.status != "evidence_submitted":
+            raise HTTPException(status_code=409, detail="Evidence is required before completion.")
+        assignment.output_summary = req.output_summary or req.evidence_summary
+        assignment.status = "completed"
+        assignment.updated_at = _now()
+        queue_item = next((item for item in state.prompt_queue if item.queue_item_id == assignment.queue_item_id), None)
+        if queue_item is not None:
+            queue_item.status = "completed"
+            queue_item.attempt_count = min(queue_item.max_attempts, queue_item.attempt_count + 1)
+            queue_item.updated_at = _now()
+        _append_workbench_event(
+            state,
+            event_type="approval",
+            title=assignment.title,
+            detail=req.evidence_summary,
+            severity="success",
+        )
+        try:
+            WORKBENCH_STORE.add_run_evidence(
+                state.run_id,
+                WorkbenchEvidenceRecordCreateRequest(
+                    title=assignment.title,
+                    summary=req.evidence_summary,
+                    source_type="manual",
+                    source_ref=None,
+                    verdict="passed",
+                    evidence_id=None,
+                ),
+            )
+        except Exception:
+            pass
+        _sync_state_status_from_assignments(state)
+        if state.status != "completed":
+            state.status = "completed" if all(item.status == "completed" for item in state.assignments) else state.status
+        _record_transition(state, "evidence_submitted", state.status, "Assignment completed with evidence.")
+        return state
+
+    try:
+        return _update_state(captain_run_id, _complete)
+    except HTTPException:
+        raise
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Captain run {captain_run_id} not found.") from exc
+
+
+@router.post("/runs/{captain_run_id}/assignments/{assignment_id}/fail", response_model=CaptainState)
+def fail_captain_assignment(
+    captain_run_id: str,
+    assignment_id: str,
+    req: CaptainAssignmentFailRequest,
+) -> CaptainState:
+    def _fail(state: CaptainState) -> CaptainState:
+        assignment = next((item for item in state.assignments if item.assignment_id == assignment_id), None)
+        if assignment is None or assignment.captain_run_id != captain_run_id:
+            raise HTTPException(status_code=404, detail=f"Captain assignment {assignment_id} not found.")
+        assignment.status = "failed"
+        assignment.output_summary = req.reason or "Assignment failed."
+        assignment.updated_at = _now()
+        queue_item = next((item for item in state.prompt_queue if item.queue_item_id == assignment.queue_item_id), None)
+        if queue_item is not None:
+            queue_item.status = "blocked"
+            queue_item.updated_at = _now()
+        _append_workbench_event(
+            state,
+            event_type="blocked",
+            title=assignment.title,
+            detail=req.reason or "Assignment failed.",
+            severity="error",
+        )
+        try:
+            WORKBENCH_STORE.append_run_event(
+                state.run_id,
+                WorkbenchRunEventCreateRequest(
+                    event_type="blocked",
+                    title=assignment.title,
+                    detail=req.reason or "Assignment failed.",
+                    severity="error",
+                ),
+            )
+        except Exception:
+            pass
+        state.status = "failed"
+        _record_transition(state, "assigned", state.status, "Assignment failed.")
+        return state
+
+    try:
+        return _update_state(captain_run_id, _fail)
+    except HTTPException:
+        raise
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Captain run {captain_run_id} not found.") from exc

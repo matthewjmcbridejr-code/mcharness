@@ -410,3 +410,137 @@ def test_captain_state_machine_descriptor_is_local_only():
     assert payload["real_external_agent_launch_disabled"] is True
     assert payload["public_worker_launch_disabled"] is True
     assert payload["arbitrary_shell_execution_disabled"] is True
+
+
+def test_captain_queue_exports_and_dependency_blocking_are_safe():
+    client = TestClient(app)
+    client.post(
+        "/api/marius/workbench/threads",
+        json={
+            "thread_id": "thread_captain_queue",
+            "title": "Captain queue thread",
+            "objective": "Exercise queue exports and dependency blocking.",
+        },
+    )
+    created = client.post(
+        "/api/marius/workbench/threads/thread_captain_queue/captain-runs",
+        json={"objective": "Exercise queue exports and dependency blocking."},
+    )
+    captain_run_id = created.json()["captain_run_id"]
+    client.post(
+        f"/api/marius/captain/runs/{captain_run_id}/plan",
+        json={"instruction": "Create a bounded plan with exports and evidence checks."},
+    )
+
+    first_item = client.post(
+        f"/api/marius/captain/runs/{captain_run_id}/queue/items",
+        json={
+            "title": "Review docs",
+            "prompt": "Review the docs for correctness.",
+            "target_role": "docs_writer",
+            "file_scope": ["README.md", "docs/architecture.md"],
+            "forbidden_file_scope": ["_mctable/**", "src-tauri/**"],
+            "evidence_required": ["README mentions the state machine."],
+            "acceptance_checks": ["Docs are honest."],
+            "export_format": "generic_markdown",
+        },
+    )
+    assert first_item.status_code == 200
+    first_queue_item = first_item.json()["prompt_queue"][-1]
+
+    second_item = client.post(
+        f"/api/marius/captain/runs/{captain_run_id}/queue/items",
+        json={
+            "title": "Blocked review",
+            "prompt": "Depends on the first review.",
+            "target_role": "reviewer",
+            "dependencies": [first_queue_item["queue_item_id"]],
+            "file_scope": ["tests/test_marius_desktop_captain.py"],
+            "forbidden_file_scope": ["_mctable/**", "src-tauri/**"],
+            "evidence_required": ["Dependency completed."],
+            "acceptance_checks": ["Dependency gate holds."],
+            "export_format": "codex_cli",
+        },
+    )
+    assert second_item.status_code == 200
+    second_queue_item = second_item.json()["prompt_queue"][-1]
+
+    export_response = client.post(f"/api/marius/captain/queue/{first_queue_item['queue_item_id']}/export")
+    assert export_response.status_code == 200
+    exported = export_response.text
+    assert "Do not commit." in exported
+    assert "Do not push." in exported
+    assert "Do not launch real external agents." in exported
+    assert "launch" not in exported.lower() or "real external agent" in exported.lower()
+
+    assign_response = client.post(f"/api/marius/captain/runs/{captain_run_id}/assign-minions")
+    assert assign_response.status_code == 200
+    assigned = assign_response.json()
+    blocked_assignment = next(item for item in assigned["assignments"] if item["queue_item_id"] == second_queue_item["queue_item_id"])
+    assert blocked_assignment["status"] == "blocked"
+    assert blocked_assignment["may_commit"] is False
+    assert blocked_assignment["may_execute_shell"] is False
+    assert blocked_assignment["must_return_evidence"] is True
+    assert blocked_assignment["handoff_prompt"]
+
+    evidence_response = client.post(
+        f"/api/marius/captain/runs/{captain_run_id}/assignments/{assigned['assignments'][0]['assignment_id']}/evidence",
+        json={"evidence_summary": "Reviewed the docs locally.", "verdict": "passed"},
+    )
+    assert evidence_response.status_code == 200
+    evidence_run = evidence_response.json()
+    assert evidence_run["assignments"][0]["status"] == "evidence_submitted"
+
+    complete_response = client.post(
+        f"/api/marius/captain/runs/{captain_run_id}/assignments/{assigned['assignments'][0]['assignment_id']}/complete",
+        json={"evidence_summary": "Docs review completed.", "output_summary": "Docs are correct."},
+    )
+    assert complete_response.status_code == 200
+    completed_run = complete_response.json()
+    assert completed_run["assignments"][0]["status"] == "completed"
+    assert completed_run["prompt_queue"][0]["status"] in {"evidence_required", "completed"}
+    assert completed_run["status"] in {"waiting_for_evidence", "completed", "blocked_on_gate"}
+
+
+def test_captain_assignment_failure_records_warning_event():
+    client = TestClient(app)
+    client.post(
+        "/api/marius/workbench/threads",
+        json={
+            "thread_id": "thread_captain_failure",
+            "title": "Captain failure thread",
+            "objective": "Exercise failed assignment handling.",
+        },
+    )
+    created = client.post(
+        "/api/marius/workbench/threads/thread_captain_failure/captain-runs",
+        json={"objective": "Exercise failed assignment handling."},
+    )
+    captain_run_id = created.json()["captain_run_id"]
+    client.post(
+        f"/api/marius/captain/runs/{captain_run_id}/plan",
+        json={"instruction": "Create a bounded plan with a failure path."},
+    )
+    client.post(
+        f"/api/marius/captain/runs/{captain_run_id}/queue/items",
+        json={
+            "title": "Failing review",
+            "prompt": "A prompt that will fail.",
+            "target_role": "reviewer",
+            "evidence_required": ["Failure reason recorded."],
+        },
+    )
+    assign_response = client.post(f"/api/marius/captain/runs/{captain_run_id}/assign-minions")
+    assignment_id = assign_response.json()["assignments"][0]["assignment_id"]
+
+    failure_response = client.post(
+        f"/api/marius/captain/runs/{captain_run_id}/assignments/{assignment_id}/fail",
+        json={"reason": "The bounded check failed."},
+    )
+    assert failure_response.status_code == 200
+    failed_run = failure_response.json()
+    assert failed_run["assignments"][0]["status"] == "failed"
+    assert failed_run["status"] == "failed"
+    workbench_run = client.get(f"/api/marius/workbench/runs/{captain_run_id}")
+    assert workbench_run.status_code == 200
+    assert any(event["severity"] in {"warning", "error"} for event in workbench_run.json()["events"])
