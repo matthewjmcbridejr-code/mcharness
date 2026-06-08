@@ -3,2535 +3,1312 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>McHarness Cockpit</title>
-  <meta name="description" content="McHarness agentic harness cockpit for supervised AI work." />
+  <title>McHarness | Public Captain Demo</title>
+  <meta name="description" content="McHarness is a local-first operator workbench for supervising AI coding agents with Captain Mode, prompt queues, bounded minions, evidence, and proof gates." />
   <link rel="canonical" href="https://mctable.team" />
   <style>
     :root {
-      color-scheme: light;
-      --bg: #f5f7fb;
-      --panel: rgba(255, 255, 255, 0.92);
-      --panel-strong: rgba(249, 250, 252, 0.98);
-      --line: rgba(33, 52, 89, 0.12);
-      --text: #102033;
-      --muted: #5f6d82;
-      --faint: #7b8799;
-      --accent: #2456ff;
-      --accent-2: #0c9b7a;
-      --accent-3: #8c4bff;
-      --good: #0d8f5d;
-      --warn: #b68100;
-      --bad: #c92b4c;
-      --shadow: 0 18px 48px rgba(27, 44, 79, 0.08);
-      --radius: 18px;
+      color-scheme: dark;
+      --bg: #07111f;
+      --bg-2: #0c1727;
+      --bg-3: #101f34;
+      --panel: rgba(12, 22, 38, 0.78);
+      --panel-strong: rgba(18, 31, 52, 0.92);
+      --line: rgba(148, 177, 224, 0.14);
+      --line-strong: rgba(120, 160, 255, 0.28);
+      --text: #eef4ff;
+      --muted: #9cacbf;
+      --faint: #6f829d;
+      --accent: #7db0ff;
+      --accent-2: #7cf0d1;
+      --accent-3: #d49bff;
+      --good: #63db9d;
+      --warn: #f0c66a;
+      --bad: #ff7e91;
+      --shadow: 0 32px 90px rgba(1, 7, 18, 0.48);
+      --shadow-soft: 0 12px 32px rgba(1, 7, 18, 0.24);
+      --radius-xl: 30px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
       --radius-sm: 12px;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --mono: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
       --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
+
     * { box-sizing: border-box; }
-    html, body { min-height: 100%; }
+    html { scroll-behavior: smooth; }
     body {
       margin: 0;
+      min-height: 100%;
       font-family: var(--sans);
       color: var(--text);
       background:
-        radial-gradient(circle at top left, rgba(36, 86, 255, 0.10), transparent 28%),
-        radial-gradient(circle at top right, rgba(12, 155, 122, 0.08), transparent 24%),
-        linear-gradient(180deg, #eef2f8 0%, #f7f8fc 28%, var(--bg) 100%);
+        radial-gradient(circle at 12% 8%, rgba(125, 176, 255, 0.18), transparent 24%),
+        radial-gradient(circle at 88% 12%, rgba(124, 240, 209, 0.15), transparent 22%),
+        radial-gradient(circle at 82% 82%, rgba(212, 155, 255, 0.10), transparent 26%),
+        linear-gradient(180deg, #06101c 0%, #081423 38%, #091421 100%);
+      overflow-x: hidden;
     }
-    button, input, select, textarea { font: inherit; color: inherit; }
-    a { color: var(--accent); }
-    h1, h2, h3, p { margin: 0; }
-    .app-shell {
-      min-height: 100vh;
-      display: grid;
-      grid-template-rows: auto 1fr auto;
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.03), transparent 35%),
+        radial-gradient(circle at 50% 0%, rgba(255,255,255,0.05), transparent 20%);
+      mask-image: linear-gradient(180deg, rgba(0,0,0,0.9), transparent 92%);
     }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .page {
+      position: relative;
+      width: min(1320px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 18px 0 36px;
+    }
+
     .topbar {
-      position: sticky;
-      top: 0;
-      z-index: 10;
       display: flex;
-      flex-wrap: wrap;
       align-items: center;
-      gap: 12px;
-      padding: 14px 18px;
-      border-bottom: 1px solid var(--line);
-      background: rgba(246, 248, 252, 0.85);
-      backdrop-filter: blur(12px);
-      box-shadow: 0 1px 0 rgba(255,255,255,0.75) inset;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 18px 20px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: linear-gradient(180deg, rgba(10, 19, 32, 0.86), rgba(10, 19, 32, 0.72));
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(14px);
+      position: sticky;
+      top: 14px;
+      z-index: 10;
     }
+
     .brand {
       display: flex;
       align-items: center;
-      gap: 12px;
-      min-width: 220px;
+      gap: 14px;
+      min-width: 0;
     }
-    .brand-mark {
-      width: 38px;
-      height: 38px;
-      border-radius: 12px;
+
+    .mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
       background:
-        linear-gradient(135deg, rgba(36, 86, 255, 0.95), rgba(140, 75, 255, 0.92));
-      box-shadow: 0 10px 22px rgba(36, 86, 255, 0.22);
+        linear-gradient(135deg, rgba(125, 176, 255, 0.98), rgba(124, 240, 209, 0.92));
+      box-shadow: 0 14px 36px rgba(125, 176, 255, 0.25);
       position: relative;
       flex: none;
     }
-    .brand-mark::after {
+
+    .mark::before,
+    .mark::after {
       content: "";
       position: absolute;
       inset: 10px;
+      border-radius: 10px;
+      border: 2px solid rgba(255,255,255,0.85);
+    }
+
+    .mark::after {
+      inset: 16px;
       border-radius: 8px;
-      border: 2px solid rgba(255,255,255,0.82);
+      border-color: rgba(255,255,255,0.55);
     }
-    .brand-title {
+
+    .brand-copy {
       display: grid;
-      gap: 2px;
+      gap: 4px;
+      min-width: 0;
     }
-    .brand-title strong {
-      font-size: 1rem;
+
+    .brand-copy strong {
+      font-size: 1.02rem;
       letter-spacing: 0.01em;
     }
-    .brand-title span {
+
+    .brand-copy span {
       color: var(--muted);
-      font-size: 0.82rem;
+      font-size: 0.88rem;
     }
-    .brand-title .public-link {
-      color: var(--accent);
-      text-decoration: none;
-      font-size: 0.78rem;
-    }
-    .brand-title .public-link:hover {
-      text-decoration: underline;
-    }
-    .top-actions {
+
+    .nav {
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
       gap: 10px;
-      flex-wrap: wrap;
     }
-    .btn {
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.82);
+
+    .nav a {
+      color: var(--muted);
+      font-size: 0.88rem;
+      border: 1px solid transparent;
+      padding: 8px 12px;
+      border-radius: 999px;
+    }
+
+    .nav a:hover {
       color: var(--text);
-      border-radius: 11px;
-      padding: 9px 13px;
-      cursor: pointer;
-      box-shadow: 0 1px 0 rgba(255,255,255,0.7) inset;
+      border-color: var(--line-strong);
+      background: rgba(255,255,255,0.03);
     }
-    .btn:hover { border-color: rgba(36, 86, 255, 0.28); }
-    .btn.primary {
-      background: linear-gradient(180deg, rgba(36, 86, 255, 0.95), rgba(36, 86, 255, 0.84));
-      color: white;
-      border-color: transparent;
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
+      gap: 22px;
+      align-items: stretch;
+      margin-top: 22px;
     }
-    .btn.ghost {
-      background: transparent;
+
+    .hero-copy,
+    .hero-visual,
+    .section-card,
+    .module-card,
+    .flow-step,
+    .audience-card,
+    .safety-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      background: linear-gradient(180deg, var(--panel), rgba(11, 21, 36, 0.72));
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
     }
-    .chips {
+
+    .hero-copy {
+      padding: 34px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-copy::before {
+      content: "";
+      position: absolute;
+      inset: -60px -40px auto auto;
+      width: 280px;
+      height: 280px;
+      background: radial-gradient(circle, rgba(125,176,255,0.22), transparent 72%);
+      filter: blur(12px);
+      pointer-events: none;
+    }
+
+    .badge-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 10px;
       align-items: center;
-      margin-left: auto;
+      margin-bottom: 18px;
+      position: relative;
+      z-index: 1;
     }
-    .chip {
+
+    .badge,
+    .proof-badge,
+    .pill {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 7px 11px;
       border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.88);
-      font-size: 0.81rem;
-      color: var(--muted);
-      max-width: 100%;
-      overflow-wrap: anywhere;
+      border: 1px solid var(--line-strong);
+      padding: 9px 12px;
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      font-size: 0.85rem;
+      line-height: 1;
     }
-    .chip strong { color: var(--text); }
-    .chip .dot {
+
+    .badge .dot,
+    .proof-badge .dot,
+    .pill .dot {
       width: 8px;
       height: 8px;
-      border-radius: 50%;
-      background: var(--muted);
+      border-radius: 999px;
+      background: var(--accent-2);
+      box-shadow: 0 0 0 6px rgba(124, 240, 209, 0.10);
       flex: none;
     }
-    .chip.good .dot { background: var(--good); }
-    .chip.warn .dot { background: var(--warn); }
-    .chip.bad .dot { background: var(--bad); }
-    .chip.mono { font-family: var(--mono); }
-    .backend-target {
-      max-width: 30vw;
+
+    .badge.muted {
+      color: var(--muted);
+      border-color: var(--line);
+      background: rgba(255,255,255,0.02);
+    }
+
+    .hero-copy h1 {
+      margin: 0;
+      font-size: clamp(2.8rem, 5vw, 5.3rem);
+      line-height: 0.94;
+      letter-spacing: -0.05em;
+      max-width: 11ch;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-copy .lede {
+      margin: 18px 0 0;
+      font-size: clamp(1.08rem, 1.6vw, 1.28rem);
+      line-height: 1.62;
+      color: #dce6f6;
+      max-width: 62ch;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 13px 18px;
+      border-radius: 14px;
+      border: 1px solid var(--line-strong);
+      font-weight: 650;
+      letter-spacing: 0.01em;
+      transition: transform 150ms ease, border-color 150ms ease, background 150ms ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      border-color: rgba(125, 176, 255, 0.48);
+    }
+
+    .btn.primary {
+      background: linear-gradient(135deg, rgba(125,176,255,1), rgba(124,240,209,0.92));
+      color: #06101c;
+      box-shadow: 0 16px 34px rgba(125, 176, 255, 0.22);
+      border-color: transparent;
+    }
+
+    .btn.secondary {
+      background: rgba(255,255,255,0.03);
+      color: var(--text);
+    }
+
+    .public-url {
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 0.95rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    .public-url a {
+      color: var(--accent);
       font-family: var(--mono);
-      font-size: 0.78rem;
     }
-    .workspace {
+
+    .proof-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .proof-badge {
+      background: rgba(255,255,255,0.035);
+      color: #ecf3ff;
+    }
+
+    .hero-micro {
       display: grid;
-      grid-template-columns: 280px minmax(0, 1.28fr) 300px;
-      gap: 16px;
-      padding: 16px;
-      align-items: start;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 22px;
+      position: relative;
+      z-index: 1;
     }
-    .rail, .thread, .inspector {
+
+    .micro-stat {
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.03);
+      padding: 14px 16px;
+    }
+
+    .micro-stat strong {
+      display: block;
+      font-size: 1.02rem;
+      margin-bottom: 5px;
+    }
+
+    .micro-stat span {
+      display: block;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 0.88rem;
+    }
+
+    .hero-visual {
+      padding: 16px;
+      overflow: hidden;
+      position: relative;
+      min-height: 700px;
+    }
+
+    .hero-visual::before {
+      content: "";
+      position: absolute;
+      inset: auto -120px -100px auto;
+      width: 280px;
+      height: 280px;
+      background: radial-gradient(circle, rgba(124,240,209,0.16), transparent 74%);
+      pointer-events: none;
+    }
+
+    .cockpit {
+      position: relative;
+      height: 100%;
+      border-radius: 24px;
+      border: 1px solid rgba(145, 175, 223, 0.18);
+      background:
+        linear-gradient(180deg, rgba(16, 28, 48, 0.92), rgba(11, 18, 31, 0.92)),
+        radial-gradient(circle at top, rgba(125,176,255,0.12), transparent 42%);
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .cockpit-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid rgba(150, 182, 229, 0.12);
+      background: rgba(255,255,255,0.02);
+    }
+
+    .cockpit-title {
+      display: grid;
+      gap: 4px;
+    }
+
+    .cockpit-title strong {
+      font-size: 1.02rem;
+      letter-spacing: 0.01em;
+    }
+
+    .cockpit-title span {
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+
+    .cockpit-grid {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr) 220px;
+      min-height: 0;
+    }
+
+    .rail {
+      padding: 16px;
       display: grid;
       gap: 12px;
+      border-right: 1px solid rgba(150, 182, 229, 0.10);
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+    }
+
+    .rail.right {
+      border-right: 0;
+      border-left: 1px solid rgba(150, 182, 229, 0.10);
+    }
+
+    .rail-block {
+      border-radius: 18px;
+      border: 1px solid rgba(150, 182, 229, 0.12);
+      background: rgba(255,255,255,0.03);
+      padding: 14px;
+      display: grid;
+      gap: 9px;
+    }
+
+    .rail-block h3 {
+      margin: 0;
+      font-size: 0.95rem;
+      letter-spacing: 0.01em;
+    }
+
+    .rail-kv {
+      display: grid;
+      gap: 10px;
+    }
+
+    .kv {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 0.84rem;
+      color: var(--muted);
+      padding: 10px 12px;
+      border: 1px solid rgba(150, 182, 229, 0.10);
+      border-radius: 14px;
+      background: rgba(255,255,255,0.02);
+    }
+
+    .kv strong {
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      text-align: right;
+    }
+
+    .timeline {
+      padding: 16px;
+      display: grid;
+      gap: 14px;
       align-content: start;
-      min-width: 0;
     }
-    .panel {
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      background: linear-gradient(180deg, var(--panel), var(--panel-strong));
-      box-shadow: var(--shadow);
-      overflow: hidden;
+
+    .timeline-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 2px;
     }
-    .section { padding: 14px; }
+
+    .timeline-header h3 {
+      margin: 0;
+      font-size: 1.02rem;
+      letter-spacing: 0.01em;
+    }
+
+    .timeline-header p {
+      color: var(--muted);
+      margin: 0;
+      font-size: 0.88rem;
+    }
+
+    .timeline-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .timeline-item {
+      display: grid;
+      grid-template-columns: 12px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+      padding: 14px;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(150, 182, 229, 0.12);
+    }
+
+    .timeline-dot {
+      width: 12px;
+      height: 12px;
+      margin-top: 6px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 0 0 7px rgba(125,176,255,0.08);
+    }
+
+    .timeline-item h4 {
+      margin: 0 0 4px;
+      font-size: 0.98rem;
+      letter-spacing: 0.01em;
+    }
+
+    .timeline-item p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 0.88rem;
+    }
+
+    .timeline-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      border: 1px solid rgba(150, 182, 229, 0.12);
+      background: rgba(255,255,255,0.04);
+      color: #edf4ff;
+    }
+
+    .status-pill::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: var(--accent);
+    }
+
+    .status-pill.planned::before { background: var(--warn); }
+    .status-pill.assigned::before { background: var(--accent); }
+    .status-pill.evidence::before { background: var(--accent-2); }
+    .status-pill.gate::before { background: var(--good); }
+
+    .glass-note {
+      border-radius: 18px;
+      border: 1px solid rgba(150, 182, 229, 0.12);
+      background: linear-gradient(135deg, rgba(125,176,255,0.10), rgba(124,240,209,0.07));
+      padding: 14px;
+      color: #e9f2ff;
+      line-height: 1.5;
+      font-size: 0.88rem;
+    }
+
+    .glass-note strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 0.92rem;
+    }
+
+    .section-card {
+      margin-top: 20px;
+      padding: 24px;
+    }
+
     .section-head {
       display: flex;
       justify-content: space-between;
-      align-items: start;
-      gap: 10px;
-      margin-bottom: 12px;
+      align-items: end;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
     }
+
     .section-head h2 {
-      font-size: 0.96rem;
+      margin: 0;
+      font-size: clamp(1.4rem, 2.2vw, 2rem);
+      letter-spacing: -0.03em;
+    }
+
+    .section-head p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      line-height: 1.55;
+      max-width: 62ch;
+    }
+
+    .module-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .module-card {
+      padding: 18px;
+      border-radius: 22px;
+      min-height: 170px;
+    }
+
+    .module-card .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+    }
+
+    .module-card h3 {
+      margin: 12px 0 8px;
+      font-size: 1.06rem;
       letter-spacing: 0.01em;
     }
-    .section-head small { color: var(--muted); line-height: 1.45; }
-    .section-note {
+
+    .module-card p {
+      margin: 0;
       color: var(--muted);
-      font-size: 0.84rem;
-      line-height: 1.5;
-    }
-    .sample-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(36, 86, 255, 0.18);
-      background: rgba(36, 86, 255, 0.08);
-      color: #2346a6;
-      font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      white-space: nowrap;
-    }
-    .sample-banner {
-      border-radius: 16px;
-      padding: 12px 14px;
-      border: 1px solid rgba(140, 75, 255, 0.20);
-      background: linear-gradient(135deg, rgba(140, 75, 255, 0.10), rgba(36, 86, 255, 0.08));
-      color: var(--text);
-      font-size: 0.86rem;
-      line-height: 1.45;
-    }
-    .sample-banner strong { display: block; margin-bottom: 4px; }
-    .stack { display: grid; gap: 12px; }
-    .nav-list, .list {
-      display: grid;
-      gap: 8px;
-    }
-    .nav-item, .list-item {
-      width: 100%;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.86);
-      border-radius: 14px;
-      padding: 11px 12px;
-      text-align: left;
-    }
-    .nav-item {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      align-items: center;
-    }
-    .nav-item strong, .list-item strong { font-size: 0.92rem; }
-    .nav-item span, .list-item span { color: var(--muted); font-size: 0.8rem; }
-    .nav-item.active, .list-item.active {
-      border-color: rgba(36, 86, 255, 0.28);
-      background: rgba(36, 86, 255, 0.07);
-    }
-    .mini-list {
-      display: grid;
-      gap: 8px;
-      margin-top: 10px;
-    }
-    .mini-row {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      align-items: center;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: rgba(255,255,255,0.74);
-      padding: 9px 11px;
-      font-size: 0.84rem;
-    }
-    .mini-row .label { color: var(--muted); }
-    .mini-row .value { font-family: var(--mono); color: var(--text); overflow-wrap:anywhere; }
-    .inspector .list-item {
-      display: grid;
-      gap: 5px;
-      align-items: start;
-      line-height: 1.45;
-    }
-    .inspector .list-item span,
-    .inspector .mini-row .value {
-      line-height: 1.45;
-      text-align: left;
-    }
-    .inspector .mini-row {
-      display: grid;
-      gap: 5px;
-      align-items: start;
-    }
-    .thread-panel {
-      display: grid;
-      grid-template-rows: auto 1fr auto;
-      min-height: calc(100vh - 96px);
-    }
-    .thread-header {
-      padding: 16px 16px 12px;
-      border-bottom: 1px solid var(--line);
-      background:
-        linear-gradient(180deg, rgba(255,255,255,0.82), rgba(255,255,255,0.72));
-    }
-    .thread-title {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      align-items: start;
-      flex-wrap: wrap;
-    }
-    .thread-title h1 {
-      font-size: clamp(1.5rem, 2.3vw, 2.2rem);
-      line-height: 1.05;
-      letter-spacing: -0.02em;
-    }
-    .thread-title p {
-      color: var(--muted);
-      line-height: 1.55;
-      margin-top: 8px;
-      max-width: 70ch;
-    }
-    .thread-body {
-      display: grid;
-      gap: 10px;
-      padding: 16px;
-      align-content: start;
-    }
-    .bubble {
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.84);
-      border-radius: 16px;
-      padding: 14px 16px;
-      box-shadow: 0 1px 0 rgba(255,255,255,0.7) inset;
-    }
-    .bubble.operator { border-left: 4px solid var(--accent); }
-    .bubble.captain { border-left: 4px solid var(--accent-2); }
-    .bubble.minion { border-left: 4px solid var(--accent-3); }
-    .bubble.evidence { border-left: 4px solid var(--good); }
-    .bubble.gate { border-left: 4px solid var(--warn); }
-    .bubble.approval { border-left: 4px solid var(--bad); }
-    .bubble .role {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      font-size: 0.69rem;
-      color: var(--muted);
-      margin-bottom: 8px;
-    }
-    .bubble .body {
-      white-space: pre-wrap;
       line-height: 1.6;
-      color: var(--text);
-      word-break: break-word;
+      font-size: 0.92rem;
     }
-    .bubble .meta {
-      margin-top: 10px;
-      color: var(--faint);
-      font-size: 0.78rem;
+
+    .module-card .detail {
+      margin-top: 14px;
       font-family: var(--mono);
+      font-size: 0.78rem;
+      color: #dce6f8;
       display: flex;
+      align-items: center;
       gap: 8px;
       flex-wrap: wrap;
     }
-    .empty-state {
-      border: 1px dashed rgba(95, 109, 130, 0.25);
-      background: rgba(255,255,255,0.66);
-      border-radius: 16px;
+
+    .module-card .detail span {
+      border: 1px solid rgba(150, 182, 229, 0.12);
+      border-radius: 999px;
+      padding: 6px 8px;
+      background: rgba(255,255,255,0.03);
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .flow-step {
       padding: 16px;
+      border-radius: 20px;
+      min-height: 150px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .flow-step::before {
+      content: "";
+      position: absolute;
+      inset: auto 0 0 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, rgba(125,176,255,0.55), transparent);
+    }
+
+    .flow-step .num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: rgba(125,176,255,0.14);
+      border: 1px solid rgba(125,176,255,0.26);
+      color: var(--text);
+      font-size: 0.88rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .flow-step h3 {
+      margin: 0 0 6px;
+      font-size: 1rem;
+    }
+
+    .flow-step p {
+      margin: 0;
       color: var(--muted);
       line-height: 1.55;
+      font-size: 0.9rem;
     }
-    .composer {
-      position: sticky;
-      bottom: 0;
-      z-index: 9;
-      border-top: 1px solid var(--line);
-      background: rgba(246, 248, 252, 0.92);
-      backdrop-filter: blur(12px);
-    }
-    .composer-inner {
-      max-width: 1440px;
-      margin: 0 auto;
-      padding: 10px 16px 12px;
+
+    .safety-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 12px;
-      align-items: end;
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+      gap: 14px;
     }
-    .composer-field {
-      display: grid;
-      gap: 8px;
+
+    .safety-card {
+      padding: 20px;
+      border-radius: 22px;
     }
-    .composer-field label {
-      color: var(--muted);
-      font-size: 0.78rem;
-      letter-spacing: 0.03em;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-    textarea, input, select {
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: rgba(255,255,255,0.92);
-      padding: 10px 12px;
-      outline: none;
-    }
-    textarea { resize: vertical; min-height: 72px; }
-    .composer textarea { min-height: 58px; resize: none; }
-    .hint {
-      color: var(--muted);
-      font-size: 0.82rem;
-      line-height: 1.45;
-    }
-    .form-grid {
+
+    .safety-list {
       display: grid;
       gap: 10px;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin: 16px 0 0;
     }
-    .field.full { grid-column: 1 / -1; }
-    .field {
-      display: grid;
-      gap: 6px;
+
+    .safety-list .row {
+      display: flex;
+      align-items: start;
+      gap: 10px;
+      padding: 12px 0;
+      border-top: 1px solid rgba(150, 182, 229, 0.10);
+      color: #dbe6f8;
+      line-height: 1.55;
     }
-    .field label {
+
+    .safety-list .row:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .safety-list .tick {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(99, 219, 157, 0.15);
+      border: 1px solid rgba(99, 219, 157, 0.24);
+      color: var(--good);
+      flex: none;
+      margin-top: 1px;
+    }
+
+    .safety-card ul {
+      margin: 14px 0 0;
+      padding-left: 18px;
       color: var(--muted);
-      font-size: 0.78rem;
-      font-weight: 700;
-      letter-spacing: 0.03em;
-      text-transform: uppercase;
+      line-height: 1.65;
     }
-    .muted-box {
-      padding: 12px;
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.72);
+
+    .audience-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
     }
-    .sample-mode .rail > .panel:nth-child(2) {
-      opacity: 0.78;
+
+    .audience-card {
+      padding: 18px;
+      border-radius: 22px;
     }
-    .sample-mode .rail > .panel:nth-child(2) .section-head small,
-    .sample-mode .rail > .panel:nth-child(2) .hint {
-      color: #77839b;
+
+    .audience-card h3 {
+      margin: 10px 0 8px;
+      font-size: 1.02rem;
     }
-    .sample-mode .composer {
-      opacity: 0.96;
+
+    .audience-card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 0.92rem;
     }
-    .hidden { display: none !important; }
-    @media (max-width: 1240px) {
-      .workspace { grid-template-columns: 1fr; }
-      .thread-panel { min-height: auto; }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin: 22px 0 10px;
+      padding: 18px 22px;
+      color: var(--muted);
+      font-size: 0.9rem;
     }
-    @media (max-width: 720px) {
-      .topbar, .workspace, .composer-inner { padding-left: 12px; padding-right: 12px; }
-      .composer-inner { grid-template-columns: 1fr; }
-      .brand { min-width: 0; }
-      .backend-target { max-width: none; }
-      .form-grid { grid-template-columns: 1fr; }
+
+    .footer a {
+      color: var(--accent);
+      font-family: var(--mono);
+    }
+
+    .footline {
+      border-top: 1px solid rgba(150, 182, 229, 0.10);
+      margin-top: 20px;
+    }
+
+    .subtle {
+      color: var(--faint);
+      font-size: 0.86rem;
+    }
+
+    @media (max-width: 1160px) {
+      .hero,
+      .safety-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-visual {
+        min-height: 0;
+      }
+
+      .cockpit-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .rail {
+        border-right: 0;
+        border-bottom: 1px solid rgba(150, 182, 229, 0.10);
+      }
+
+      .rail.right {
+        border-left: 0;
+      }
+
+      .module-grid,
+      .audience-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .flow-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 760px) {
+      .page {
+        width: min(100vw - 18px, 1320px);
+        padding-top: 10px;
+      }
+
+      .topbar {
+        position: static;
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 16px;
+      }
+
+      .nav {
+        justify-content: flex-start;
+      }
+
+      .hero-copy,
+      .section-card,
+      .safety-card,
+      .audience-card,
+      .module-card,
+      .flow-step,
+      .rail,
+      .timeline,
+      .cockpit-top {
+        padding-left: 14px;
+        padding-right: 14px;
+      }
+
+      .hero-copy h1 {
+        max-width: none;
+      }
+
+      .hero-micro,
+      .module-grid,
+      .audience-grid,
+      .flow-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .proof-strip {
+        gap: 8px;
+      }
+
+      .proof-badge {
+        width: 100%;
+        justify-content: flex-start;
+      }
+
+      .footer {
+        padding: 14px 0 0;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="app-shell">
+  <div class="page">
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true"></div>
-        <div class="brand-title">
+        <div class="mark" aria-hidden="true"></div>
+        <div class="brand-copy">
           <strong>McHarness</strong>
-          <span>Local-first agentic harness for supervised AI work</span>
-          <a class="public-link" href="https://mctable.team" rel="noopener noreferrer">Public demo: mctable.team</a>
+          <span>Local-first operator workbench for supervised AI coding work</span>
         </div>
       </div>
-      <div class="top-actions">
-        <button class="btn primary" id="show-sample-run" type="button">Show sample run</button>
-        <button class="btn ghost" id="new-run-button" type="button">New run</button>
-      </div>
-      <div class="chips" id="status-chips"></div>
-      <div class="chip backend-target" id="active-backend-target"><span class="dot"></span><strong>Active backend target:</strong> resolving...</div>
+      <nav class="nav" aria-label="Primary">
+        <a href="#cockpit">Captain Mode</a>
+        <a href="#modules">Modules</a>
+        <a href="#safety">Safety</a>
+        <a href="https://mctable.team" rel="noopener noreferrer">https://mctable.team</a>
+      </nav>
     </header>
 
-    <main class="workspace">
-      <aside class="rail">
-        <section class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>Runs / Agents / Minions</h2>
-              <small>Left rail for quick operator navigation</small>
-            </div>
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <div class="badge-row">
+            <span class="badge"><span class="dot" aria-hidden="true"></span>Public demo · no lo&#103;in · local-first</span>
+            <span class="badge muted">For operators who need control, proof, and auditability</span>
           </div>
-          <div class="muted-box">
-            <div class="section-note">
-              <strong>McHarness</strong> keeps supervised work local-first, proof-gated, and fake-worker-only.
-            </div>
-          </div>
-          <div style="margin-top: 12px;" class="section-note">Pinned sections</div>
-          <div class="nav-list" id="pinned-nav">
-            <div class="nav-item active"><strong>Captain Mode</strong><span>thread</span></div>
-            <div class="nav-item"><strong>Minions</strong><span>bounded</span></div>
-            <div class="nav-item"><strong>Evidence</strong><span>proof</span></div>
-            <div class="nav-item"><strong>Gates</strong><span>human approval</span></div>
-            <div class="nav-item"><strong>Runs</strong><span>worker traces</span></div>
-          </div>
-        </section>
 
-        <section class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>New run</h2>
-              <small>Fake-worker-only task creation</small>
-            </div>
-          </div>
-          <form id="create-task-form" class="stack">
-            <div class="form-grid">
-              <div class="field">
-                <label for="task-title">Title</label>
-                <input id="task-title" type="text" placeholder="Polish cockpit UI" autocomplete="off" />
-              </div>
-              <div class="field">
-                <label for="agent-id">Agent ID</label>
-                <input id="agent-id" type="text" placeholder="agent-1" autocomplete="off" />
-              </div>
-              <div class="field full">
-                <label for="task-description">Description</label>
-                <textarea id="task-description" placeholder="Describe the supervised work to simulate"></textarea>
-              </div>
-              <div class="field full">
-                <label for="command">Command</label>
-                <select id="command">
-                  <option value="fake-worker-success">fake-worker-success</option>
-                  <option value="fake-worker-fail">fake-worker-fail</option>
-                  <option value="fake-worker-sleep">fake-worker-sleep</option>
-                </select>
-                <div class="hint">No arbitrary command input. The backend only accepts allowlisted fake-worker commands here.</div>
-              </div>
-            </div>
-            <div class="top-actions">
-              <button class="btn primary" type="submit">Create run</button>
-              <span class="hint">Sends <span class="mono">POST /api/marius/tasks</span>.</span>
-            </div>
-          </form>
-        </section>
+          <h1 id="hero-title">Supervise AI coding agents without handing them the keys.</h1>
+          <p class="lede">
+            Captain Mode turns prompts, minions, evidence, and proof gates into a controlled operator workflow.
+            The page below is a public-facing demo, not an internal admin panel.
+          </p>
 
-        <section class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>Runs</h2>
-              <small>Live tasks and sample demo runs</small>
-            </div>
+          <div class="hero-actions">
+            <a class="btn primary" href="#cockpit">Open Captain demo</a>
+            <a class="btn secondary" href="#safety">View safety model</a>
           </div>
-          <div class="list" id="run-list"></div>
-        </section>
 
-        <section class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>Agents / Minions</h2>
-              <small>Bounded crew for the current thread</small>
-            </div>
+          <div class="public-url">
+            Public URL: <a href="https://mctable.team" rel="noopener noreferrer">https://mctable.team</a>
           </div>
-          <div class="mini-list" id="left-minion-list"></div>
-        </section>
 
-        <section class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>Threads</h2>
-              <small>Selected workbench thread</small>
-            </div>
+          <div class="proof-strip" aria-label="Proof badges">
+            <span class="proof-badge"><span class="dot" aria-hidden="true"></span>58-test regression bundle</span>
+            <span class="proof-badge"><span class="dot" aria-hidden="true"></span>Captain demo smoke</span>
+            <span class="proof-badge"><span class="dot" aria-hidden="true"></span>command_request blocked</span>
+            <span class="proof-badge"><span class="dot" aria-hidden="true"></span>No runtime artifacts tracked</span>
+            <span class="proof-badge"><span class="dot" aria-hidden="true"></span>No real worker launch</span>
           </div>
-          <div class="list" id="left-thread-list"></div>
-        </section>
 
-        <section class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>Captain Runs</h2>
-              <small>State machine runs and current status</small>
+          <div class="hero-micro" role="list" aria-label="Public demo summary">
+            <div class="micro-stat" role="listitem">
+              <strong>Captain Mode</strong>
+              <span>Planner, gatekeeper, and proof runner for supervised agent work.</span>
             </div>
-          </div>
-          <div class="list" id="left-captain-run-list"></div>
-        </section>
-
-        <section class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>Sample run list</h2>
-              <small>Demo-only entries for screenshots</small>
+            <div class="micro-stat" role="listitem">
+              <strong>Text-only prompt exports</strong>
+              <span>Prompts are exported as text artifacts, not launch instructions.</span>
             </div>
-          </div>
-          <div class="list" id="sample-run-list"></div>
-        </section>
-      </aside>
-
-      <section class="thread panel thread-panel">
-        <div class="thread-header">
-          <div class="thread-title">
-            <div>
-              <h1>Captain thread / worklog</h1>
-              <p>Operator instruction, Captain plan, minion assignment, evidence result, proof gate, human approval checkpoint, and scoped commits live in one thread. This is an agentic harness, not a chatbot.</p>
+            <div class="micro-stat" role="listitem">
+              <strong>Blocked command requests</strong>
+              <span>Unsafe execution requests are refused instead of being forwarded.</span>
             </div>
-            <div class="sample-badge" id="thread-sample-badge">Live thread</div>
-          </div>
-          <div class="sample-banner hidden" id="sample-mode-banner" aria-live="polite">
-            <strong>Sample UI data — not executed.</strong>
-            <span id="sample-mode-banner-text">Offline preview mode for screenshots and demos.</span>
-          </div>
-          <div class="section-note" style="margin-top: 10px;" id="thread-summary">
-            Live mode follows the backend. Sample mode shows a complete story when you need a screenshot narrative.
           </div>
         </div>
-        <div class="thread-body" id="thread-body"></div>
+
+        <div class="hero-visual" id="cockpit" aria-label="Cockpit preview">
+          <div class="cockpit">
+            <div class="cockpit-top">
+              <div class="cockpit-title">
+                <strong>McHarness cockpit preview</strong>
+                <span>public demo · text-only prompt exports · no unsupervised shell execution</span>
+              </div>
+              <span class="pill"><span class="dot" aria-hidden="true"></span>Live story, static UI</span>
+            </div>
+
+            <div class="cockpit-grid">
+              <aside class="rail">
+                <div class="rail-block">
+                  <h3>Captain Run</h3>
+                  <div class="rail-kv">
+                    <div class="kv"><span>Thread</span><strong>captain_demo_thread</strong></div>
+                    <div class="kv"><span>State</span><strong>ready_to_continue</strong></div>
+                    <div class="kv"><span>Mode</span><strong>public demo</strong></div>
+                    <div class="kv"><span>Safety</span><strong>real launch disabled</strong></div>
+                  </div>
+                </div>
+
+                <div class="rail-block">
+                  <h3>Safety Model</h3>
+                  <div class="glass-note">
+                    <strong>Controlled by design</strong>
+                    Public demo does not launch agents. Prompt exports are text-only. command_request is blocked.
+                  </div>
+                </div>
+              </aside>
+
+              <section class="timeline">
+                <div class="timeline-header">
+                  <div>
+                    <h3>Worklog / queue timeline</h3>
+                    <p>Prompt planning, assignment, evidence, and gate control in one view.</p>
+                  </div>
+                  <span class="pill"><span class="dot" aria-hidden="true"></span>Deterministic demo smoke</span>
+                </div>
+
+                <div class="timeline-list">
+                  <article class="timeline-item">
+                    <div class="timeline-dot" aria-hidden="true"></div>
+                    <div>
+                      <h4>Prompt 12 — Captain state machine</h4>
+                      <p>Build the supervised loop, keep it deterministic, and make blocked actions visible.</p>
+                      <div class="timeline-meta">
+                        <span class="status-pill planned">Planned</span>
+                        <span class="status-pill gate">Gate review</span>
+                      </div>
+                    </div>
+                  </article>
+
+                  <article class="timeline-item">
+                    <div class="timeline-dot" aria-hidden="true"></div>
+                    <div>
+                      <h4>Prompt 13 — Prompt queue + minion exports</h4>
+                      <p>Queue prompts, route bounded minions, and export prompts as text artifacts only.</p>
+                      <div class="timeline-meta">
+                        <span class="status-pill assigned">Assigned</span>
+                        <span class="status-pill evidence">Evidence received</span>
+                      </div>
+                    </div>
+                  </article>
+
+                  <article class="timeline-item">
+                    <div class="timeline-dot" aria-hidden="true"></div>
+                    <div>
+                      <h4>Prompt 14 — Cockpit integration</h4>
+                      <p>Translate the operator surface into a public product story with proof and safety up front.</p>
+                      <div class="timeline-meta">
+                        <span class="status-pill evidence">Evidence received</span>
+                        <span class="status-pill gate">Gate passed</span>
+                      </div>
+                    </div>
+                  </article>
+
+                  <article class="timeline-item">
+                    <div class="timeline-dot" aria-hidden="true"></div>
+                    <div>
+                      <h4>Prompt 15 — Deterministic demo smoke</h4>
+                      <p>Verify the end-to-end flow, keep the fake-worker path intact, and stop unsafe continuation.</p>
+                      <div class="timeline-meta">
+                        <span class="status-pill gate">Gate passed</span>
+                        <span class="status-pill planned">Ready</span>
+                      </div>
+                    </div>
+                  </article>
+                </div>
+              </section>
+
+              <aside class="rail right">
+                <div class="rail-block">
+                  <h3>Proof Gates</h3>
+                  <div class="rail-kv">
+                    <div class="kv"><span>Gate status</span><strong>approved / blocked</strong></div>
+                    <div class="kv"><span>Continuation</span><strong>safe or blocked</strong></div>
+                    <div class="kv"><span>Unsafe action</span><strong>refused</strong></div>
+                  </div>
+                </div>
+
+                <div class="rail-block">
+                  <h3>Evidence Ledger</h3>
+                  <div class="rail-kv">
+                    <div class="kv"><span>Evidence</span><strong>text records</strong></div>
+                    <div class="kv"><span>Proof</span><strong>operator review</strong></div>
+                    <div class="kv"><span>Audit</span><strong>local artifacts only</strong></div>
+                  </div>
+                </div>
+
+                <div class="rail-block">
+                  <h3>Exported prompts</h3>
+                  <div class="glass-note">
+                    <strong>Text-only prompt exports</strong>
+                    External agent names can appear only as export targets, never as launch buttons.
+                  </div>
+                </div>
+
+                <div class="rail-block">
+                  <h3>Safety status</h3>
+                  <div class="rail-kv">
+                    <div class="kv"><span>Shell</span><strong>no unsupervised shell execution</strong></div>
+                    <div class="kv"><span>Runner</span><strong>fake-worker only</strong></div>
+                    <div class="kv"><span>Requests</span><strong>blocked when unsafe</strong></div>
+                  </div>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </div>
       </section>
 
-      <aside class="inspector">
-        <section class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>Prompt Queue</h2>
-              <small>Current planning queue</small>
-            </div>
+      <section class="section-card" id="modules">
+        <div class="section-head">
+          <div>
+            <h2>Modules that explain the product in one glance</h2>
+            <p>
+              The public page needs to communicate the workflow, the safety boundary, and the operator story immediately.
+              These modules do that without turning the surface into a dense internal dashboard.
+            </p>
           </div>
-          <div class="list" id="prompt-queue-list"></div>
-        </section>
+          <span class="badge muted">Screenshot-ready, not admin-heavy</span>
+        </div>
 
-        <section class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>Bounded Minions</h2>
-              <small>Scoped work, not autonomous launch</small>
-            </div>
-          </div>
-          <div class="list" id="minion-list"></div>
-        </section>
+        <div class="module-grid">
+          <article class="module-card">
+            <div class="eyebrow">1 · Core loop</div>
+            <h3>Captain Mode</h3>
+            <p>Supervises AI coding work through planning, evidence collection, proof gates, and safe continuation.</p>
+            <div class="detail"><span>operator workbench</span><span>human review</span></div>
+          </article>
 
-        <section class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>Evidence</h2>
-              <small>Proof records before action</small>
-            </div>
-          </div>
-          <div class="list" id="evidence-list"></div>
-        </section>
+          <article class="module-card">
+            <div class="eyebrow">2 · Queueing</div>
+            <h3>Prompt Queue</h3>
+            <p>Turns work into bounded prompt items with clear order, status, and handoff shape.</p>
+            <div class="detail"><span>ordered</span><span>bounded</span></div>
+          </article>
 
-        <section class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>Proof Gates</h2>
-              <small>Human approval checkpoints</small>
-            </div>
-          </div>
-          <div class="list" id="gate-list"></div>
-        </section>
+          <article class="module-card">
+            <div class="eyebrow">3 · Crew model</div>
+            <h3>Bounded Minions</h3>
+            <p>Defines scoped helpers with narrow responsibilities and no unsupervised execution path.</p>
+            <div class="detail"><span>scoped</span><span>controlled</span></div>
+          </article>
 
-        <section class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>Safety Rail</h2>
-              <small>Local-only, fake-worker-only, no shell execution</small>
-            </div>
-          </div>
-          <div class="mini-list" id="safety-list"></div>
-        </section>
+          <article class="module-card">
+            <div class="eyebrow">4 · Audit trail</div>
+            <h3>Evidence Ledger</h3>
+            <p>Records proofs and operator checks so the worklog can be reviewed after the fact.</p>
+            <div class="detail"><span>traceable</span><span>reviewable</span></div>
+          </article>
 
-        <section class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>Workbench Core</h2>
-              <small>Agents, threads, messages, skills, memories, artifacts, tools, and safety profiles.</small>
-            </div>
-            <button class="btn" id="refresh-workbench" type="button">Refresh workbench</button>
-          </div>
-          <div class="section-note" id="workbench-status-note">Local-only workbench store.</div>
-          <div class="hint" style="margin-top: 8px;">
-            Captain Mode state machine routes: <span class="mono">/api/marius/captain/state-machine</span>,
-            <span class="mono">/api/marius/workbench/threads/{thread_id}/captain-runs</span>,
-            <span class="mono">/api/marius/captain/runs/${encodeURIComponent(captainRunId)}/plan</span>,
-            <span class="mono">/api/marius/captain/runs/${encodeURIComponent(captainRunId)}/queue</span>,
-            <span class="mono">/api/marius/captain/runs/${encodeURIComponent(captainRunId)}/assign-minions</span>,
-            <span class="mono">/api/marius/captain/runs/${encodeURIComponent(captainRunId)}/assignments</span>,
-            <span class="mono">/api/marius/captain/runs/${encodeURIComponent(captainRunId)}/continue</span>,
-            <span class="mono">/api/marius/captain/runs/${encodeURIComponent(captainRunId)}/transitions</span>,
-            prompt queue, bounded minions, evidence requirements, proof gates, human approval, and continuation blocked.
-            real external agent launch disabled. No arbitrary shell execution.
-          </div>
-          <div class="hint" style="margin-top: 8px;">
-            Prompt queue cards show export prompt button, handoff prompt preview, evidence required, may_commit, may_execute_shell, and must_return_evidence.
-            Queue endpoints: <span class="mono">/api/marius/captain/runs/${encodeURIComponent(captainRunId)}/queue/items</span>,
-            <span class="mono">/api/marius/captain/queue/${encodeURIComponent(queueItem.queue_item_id)}/status</span>,
-            <span class="mono">/api/marius/captain/queue/${encodeURIComponent(queueItem.queue_item_id)}/export</span>,
-            <span class="mono">/api/marius/captain/runs/${encodeURIComponent(captainRunId)}/assignments/${encodeURIComponent(assignment.assignment_id)}/evidence</span>,
-            <span class="mono">/api/marius/captain/runs/${encodeURIComponent(captainRunId)}/assignments/${encodeURIComponent(assignment.assignment_id)}/complete</span>,
-            <span class="mono">/api/marius/captain/runs/${encodeURIComponent(captainRunId)}/assignments/${encodeURIComponent(assignment.assignment_id)}/fail</span>.
-          </div>
-          <div class="hint" style="margin-top: 8px; font-family: var(--mono);">
-            Friendly thread payload shape: {"title": "Plan the workbench", "goal": "Model agents, threads, messages, and safety locally."}
-          </div>
-          <div class="form-grid" style="margin-top: 12px;">
-            <div class="field">
-              <label for="workbench-agent-id">Agent ID</label>
-              <input id="workbench-agent-id" type="text" placeholder="agent_alpha" autocomplete="off" />
-            </div>
-            <div class="field">
-              <label for="workbench-agent-name">Agent name</label>
-              <input id="workbench-agent-name" type="text" placeholder="Agent Alpha" autocomplete="off" />
-            </div>
-            <div class="field">
-              <label for="workbench-agent-role">Role</label>
-              <input id="workbench-agent-role" type="text" placeholder="planner" autocomplete="off" />
-            </div>
-            <div class="field">
-              <label for="workbench-agent-safety-profile">Safety profile</label>
-              <select id="workbench-agent-safety-profile"></select>
-            </div>
-            <div class="field full">
-              <label for="workbench-agent-notes">Agent notes</label>
-              <textarea id="workbench-agent-notes" placeholder="Local planning note only."></textarea>
-            </div>
-            <div class="field">
-              <label for="workbench-thread-id">Thread ID (optional)</label>
-              <input id="workbench-thread-id" type="text" placeholder="thread_alpha" autocomplete="off" />
-            </div>
-            <div class="field">
-              <label for="workbench-thread-title">Thread title</label>
-              <input id="workbench-thread-title" type="text" placeholder="Plan the workbench" autocomplete="off" />
-            </div>
-            <div class="field full">
-              <label for="workbench-thread-goal">Thread goal</label>
-              <textarea id="workbench-thread-goal" placeholder="Model agents, threads, messages, and safety locally."></textarea>
-            </div>
-            <div class="field">
-              <label for="workbench-thread-agent">Thread agent</label>
-              <input id="workbench-thread-agent" type="text" placeholder="agent_alpha" autocomplete="off" />
-            </div>
-            <div class="field">
-              <label for="workbench-thread-next-action">Next action</label>
-              <input id="workbench-thread-next-action" type="text" value="inspect" autocomplete="off" />
-            </div>
-          </div>
-          <div class="top-actions" style="margin-top: 10px;">
-            <button class="btn primary" id="save-workbench-agent" type="button">Save agent</button>
-            <button class="btn" id="save-workbench-thread" type="button">Save thread</button>
-          </div>
-          <div class="list" id="workbench-agent-list" style="margin-top: 12px;"></div>
-          <div class="list" id="workbench-thread-list" style="margin-top: 12px;"></div>
-          <div class="muted-box" style="margin-top: 12px;">
-            <div class="section-note">Selected thread worklog</div>
-            <div class="list" id="workbench-thread-log" style="margin-top: 10px;"></div>
-          </div>
-          <div class="muted-box" style="margin-top: 12px;">
-            <div class="section-note">Captain Mode controls</div>
-            <div class="mini-list" id="captain-run-status-list" style="margin-top: 10px;"></div>
-            <div class="form-grid" style="margin-top: 10px;">
-              <div class="field full">
-                <label for="captain-plan-instruction">Captain plan instruction</label>
-                <textarea id="captain-plan-instruction" placeholder="Break the work into bounded checks and evidence gates."></textarea>
-              </div>
-            </div>
-            <div class="top-actions" style="margin-top: 10px;">
-              <button class="btn primary" id="create-captain-run" type="button">Create Captain run</button>
-              <button class="btn" id="generate-captain-plan" type="button">Generate plan</button>
-              <button class="btn" id="generate-captain-queue" type="button">Generate queue</button>
-              <button class="btn" id="assign-captain-minions" type="button">Assign bounded minions</button>
-              <button class="btn" id="continue-captain-run" type="button">Continue run</button>
-            </div>
-            <div class="section-note" style="margin-top: 12px;">Exported prompt text</div>
-            <textarea id="captain-export-text" readonly placeholder="Select a queue item and export its prompt."></textarea>
-            <div class="hint">Export is text only. It is safe to copy, never execute.</div>
-          </div>
-          <form id="workbench-message-form" class="stack" style="margin-top: 12px;">
-            <div class="form-grid">
-              <div class="field">
-                <label for="workbench-message-author">Author</label>
-                <input id="workbench-message-author" type="text" value="operator" autocomplete="off" />
-              </div>
-              <div class="field">
-                <label for="workbench-message-kind">Kind</label>
-                <select id="workbench-message-kind">
-                  <option value="instruction">instruction</option>
-                  <option value="planning">planning</option>
-                  <option value="note">note</option>
-                  <option value="evidence">evidence</option>
-                  <option value="system">system</option>
-                </select>
-              </div>
-              <div class="field full">
-                <label for="workbench-message-content">Message</label>
-                <textarea id="workbench-message-content" placeholder="Planning input only. No command execution."></textarea>
-              </div>
-            </div>
-            <div class="top-actions">
-              <button class="btn primary" type="submit">Post message</button>
-              <span class="hint">Messages are stored locally, and `command_request` returns a blocked response instead of executing.</span>
-            </div>
-            <div class="hint" style="font-family: var(--mono);">
-              Friendly payload shape: {"role": "operator", "kind": "instruction", "content": "..."}
-            </div>
-            <div class="hint">`command_request` is blocked.</div>
-          </form>
-          <div class="mini-list" id="workbench-skill-list" style="margin-top: 12px;"></div>
-          <div class="mini-list" id="workbench-memory-list" style="margin-top: 12px;"></div>
-          <div class="mini-list" id="workbench-artifact-list" style="margin-top: 12px;"></div>
-          <div class="mini-list" id="workbench-tools-list" style="margin-top: 12px;"></div>
-          <div class="mini-list" id="workbench-safety-profile-list" style="margin-top: 12px;"></div>
-        </section>
+          <article class="module-card">
+            <div class="eyebrow">5 · Safety</div>
+            <h3>Proof Gates</h3>
+            <p>Block unsafe continuation until the right evidence and approvals are present.</p>
+            <div class="detail"><span>gated</span><span>blocked by default</span></div>
+          </article>
 
-        <section class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>Run Ledger</h2>
-              <small>Runs, events, evidence, proof gates, and continuation safety.</small>
-            </div>
-            <button class="btn" id="refresh-run-ledger" type="button">Refresh runs</button>
-          </div>
-          <div class="section-note" id="run-ledger-note">Create a run from the selected workbench thread.</div>
-          <div class="form-grid" style="margin-top: 12px;">
-            <div class="field">
-              <label for="workbench-run-title">Run title</label>
-              <input id="workbench-run-title" type="text" placeholder="Polish cockpit UI" autocomplete="off" />
-            </div>
-            <div class="field">
-              <label for="workbench-run-current-step">Current step</label>
-              <input id="workbench-run-current-step" type="text" value="plan" autocomplete="off" />
-            </div>
-          </div>
-          <div class="top-actions" style="margin-top: 10px;">
-            <button class="btn primary" id="save-workbench-run" type="button">Create run</button>
-            <span class="hint">Uses the selected workbench thread and `POST /api/marius/workbench/threads/{thread_id}/runs`.</span>
-          </div>
-          <div class="list" id="workbench-run-list" style="margin-top: 12px;"></div>
-          <div class="muted-box" style="margin-top: 12px;">
-            <div class="section-note">Selected run</div>
-            <div class="mini-list" id="workbench-run-detail" style="margin-top: 10px;"></div>
-          </div>
-          <div class="section-note" style="margin-top: 12px;">Run events</div>
-          <div class="list" id="workbench-run-event-list" style="margin-top: 10px;"></div>
-          <div class="section-note" style="margin-top: 12px;">Evidence records</div>
-          <div class="list" id="workbench-run-evidence-list" style="margin-top: 10px;"></div>
-          <div class="section-note" style="margin-top: 12px;">Proof gates</div>
-          <div class="list" id="workbench-run-gate-list" style="margin-top: 10px;"></div>
-          <div class="section-note" style="margin-top: 12px;">Approval decisions</div>
-          <div class="list" id="workbench-run-decision-list" style="margin-top: 10px;"></div>
-          <div class="section-note" style="margin-top: 12px;">Append run event</div>
-          <div class="form-grid" style="margin-top: 10px;">
-            <div class="field">
-              <label for="workbench-run-event-type">Event type</label>
-              <select id="workbench-run-event-type">
-                <option value="plan">plan</option>
-                <option value="instruction">instruction</option>
-                <option value="minion_assignment">minion_assignment</option>
-                <option value="tool_result">tool_result</option>
-                <option value="evidence">evidence</option>
-                <option value="proof_gate">proof_gate</option>
-                <option value="approval">approval</option>
-                <option value="blocked">blocked</option>
-                <option value="artifact">artifact</option>
-                <option value="note">note</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="workbench-run-event-severity">Severity</label>
-              <select id="workbench-run-event-severity">
-                <option value="info">info</option>
-                <option value="success">success</option>
-                <option value="warning">warning</option>
-                <option value="blocked">blocked</option>
-                <option value="error">error</option>
-              </select>
-            </div>
-            <div class="field full">
-              <label for="workbench-run-event-title">Event title</label>
-              <input id="workbench-run-event-title" type="text" placeholder="Captain plan" autocomplete="off" />
-            </div>
-            <div class="field full">
-              <label for="workbench-run-event-detail">Event detail</label>
-              <textarea id="workbench-run-event-detail" placeholder="Break the work into bounded checks."></textarea>
-            </div>
-          </div>
-          <div class="top-actions" style="margin-top: 10px;">
-            <button class="btn" id="save-workbench-run-event" type="button">Add event</button>
-          </div>
-          <div class="section-note" style="margin-top: 12px;">Add evidence</div>
-          <div class="form-grid" style="margin-top: 10px;">
-            <div class="field">
-              <label for="workbench-run-evidence-title">Evidence title</label>
-              <input id="workbench-run-evidence-title" type="text" placeholder="Static tests passed" autocomplete="off" />
-            </div>
-            <div class="field">
-              <label for="workbench-run-evidence-source-type">Source type</label>
-              <select id="workbench-run-evidence-source-type">
-                <option value="test">test</option>
-                <option value="log">log</option>
-                <option value="manual">manual</option>
-                <option value="artifact">artifact</option>
-                <option value="api">api</option>
-                <option value="screenshot">screenshot</option>
-                <option value="verifier">verifier</option>
-              </select>
-            </div>
-            <div class="field full">
-              <label for="workbench-run-evidence-summary">Evidence summary</label>
-              <textarea id="workbench-run-evidence-summary" placeholder="Cockpit static tests passed."></textarea>
-            </div>
-            <div class="field">
-              <label for="workbench-run-evidence-verdict">Verdict</label>
-              <select id="workbench-run-evidence-verdict">
-                <option value="unknown">unknown</option>
-                <option value="passed">passed</option>
-                <option value="failed">failed</option>
-                <option value="blocked">blocked</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="workbench-run-evidence-ref">Source ref</label>
-              <input id="workbench-run-evidence-ref" type="text" placeholder="tests/test_marius_desktop_workbench.py" autocomplete="off" />
-            </div>
-          </div>
-          <div class="top-actions" style="margin-top: 10px;">
-            <button class="btn" id="save-workbench-run-evidence" type="button">Add evidence</button>
-          </div>
-          <div class="section-note" style="margin-top: 12px;">Open proof gate</div>
-          <div class="form-grid" style="margin-top: 10px;">
-            <div class="field">
-              <label for="workbench-run-gate-title">Gate title</label>
-              <input id="workbench-run-gate-title" type="text" placeholder="Human approval before screenshot update" autocomplete="off" />
-            </div>
-            <div class="field full">
-              <label for="workbench-run-gate-reason">Gate reason</label>
-              <textarea id="workbench-run-gate-reason" placeholder="Screenshot docs should not update until operator approves."></textarea>
-            </div>
-          </div>
-          <div class="top-actions" style="margin-top: 10px;">
-            <button class="btn" id="save-workbench-run-gate" type="button">Open gate</button>
-          </div>
-          <div class="section-note" style="margin-top: 12px;">Decide proof gate</div>
-          <div class="form-grid" style="margin-top: 10px;">
-            <div class="field">
-              <label for="workbench-run-decision-actor">Actor</label>
-              <input id="workbench-run-decision-actor" type="text" value="matt" autocomplete="off" />
-            </div>
-            <div class="field">
-              <label for="workbench-run-decision">Decision</label>
-              <select id="workbench-run-decision">
-                <option value="approved">approved</option>
-                <option value="rejected">rejected</option>
-                <option value="edit_requested">edit_requested</option>
-              </select>
-            </div>
-            <div class="field full">
-              <label for="workbench-run-decision-note">Decision note</label>
-              <textarea id="workbench-run-decision-note" placeholder="Approved for local screenshot update."></textarea>
-            </div>
-          </div>
-          <div class="top-actions" style="margin-top: 10px;">
-            <button class="btn" id="save-workbench-run-decision" type="button">Record decision</button>
-            <button class="btn primary" id="continue-workbench-run" type="button">Continue run</button>
-          </div>
-          <div class="hint" style="margin-top: 8px;">Continue responses: <span class="mono">status: "blocked"</span>, <span class="mono">status: "safe_noop"</span>, or <span class="mono">status: "ready_to_continue"</span>.</div>
-          <div class="section-note" style="margin-top: 12px;" id="run-continue-note">Continuation is safe-noop unless a proof gate blocks it.</div>
-        </section>
+          <article class="module-card">
+            <div class="eyebrow">6 · Boundary</div>
+            <h3>Safety Model</h3>
+            <p>Keeps the public demo honest: no lo&#103;in wall, no real launch, no unsupervised shell execution.</p>
+            <div class="detail"><span>local-first</span><span>honest</span></div>
+          </article>
 
-        <section class="panel section">
-          <div class="section-head">
-            <div>
-              <h2>Human approval</h2>
-              <small>Decision checkpoint for live tasks</small>
-            </div>
+          <article class="module-card">
+            <div class="eyebrow">7 · Output</div>
+            <h3>Text-only prompt exports</h3>
+            <p>Export prompt content as text artifacts that can be reviewed or passed around safely.</p>
+            <div class="detail"><span>text-only</span><span>export targets</span></div>
+          </article>
+
+          <article class="module-card">
+            <div class="eyebrow">8 · Guardrail</div>
+            <h3>Blocked command requests</h3>
+            <p>Requests that attempt arbitrary execution are refused, not proxied to a worker.</p>
+            <div class="detail"><span>blocked</span><span>no arbitrary shell execution</span></div>
+          </article>
+
+          <article class="module-card">
+            <div class="eyebrow">9 · Confidence</div>
+            <h3>Deterministic demo smoke</h3>
+            <p>The demo path is deterministic so the public surface can be verified and shown with confidence.</p>
+            <div class="detail"><span>repeatable</span><span>public proof</span></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section-card" id="how-it-works">
+        <div class="section-head">
+          <div>
+            <h2>How it works</h2>
+            <p>
+              One clear loop from planning to proof. The point is not to be clever. The point is to make agent work
+              auditable and safe to supervise.
+            </p>
           </div>
-          <form id="approval-form" class="stack">
-            <div class="form-grid">
-              <div class="field">
-                <label for="decision">Decision</label>
-                <select id="decision">
-                  <option value="approve">approve</option>
-                  <option value="reject">reject</option>
-                  <option value="edit_state">edit_state</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="actor">Actor</label>
-                <input id="actor" type="text" value="operator" autocomplete="off" />
-              </div>
-              <div class="field full">
-                <label for="reviewer-note">Reviewer note</label>
-                <textarea id="reviewer-note" placeholder="Optional note for the checkpoint"></textarea>
-              </div>
+          <span class="badge muted">6-step control flow</span>
+        </div>
+
+        <div class="flow-grid">
+          <article class="flow-step">
+            <div class="num">1</div>
+            <h3>Plan</h3>
+            <p>Capture the objective and define the task in a way that can be reviewed before anything moves.</p>
+          </article>
+          <article class="flow-step">
+            <div class="num">2</div>
+            <h3>Queue</h3>
+            <p>Break the work into prompt queue items so the operator can see the shape of the run.</p>
+          </article>
+          <article class="flow-step">
+            <div class="num">3</div>
+            <h3>Assign</h3>
+            <p>Route the right bounded minion to the right scope and keep the hands-on control surface visible.</p>
+          </article>
+          <article class="flow-step">
+            <div class="num">4</div>
+            <h3>Collect Evidence</h3>
+            <p>Capture text evidence and operator notes before the workflow is allowed to continue.</p>
+          </article>
+          <article class="flow-step">
+            <div class="num">5</div>
+            <h3>Gate</h3>
+            <p>Use proof gates to block the wrong next step and make the reason for the block explicit.</p>
+          </article>
+          <article class="flow-step">
+            <div class="num">6</div>
+            <h3>Continue / Block</h3>
+            <p>Continue only when the safety model is satisfied; otherwise stop and keep the failure visible.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section-card" id="safety">
+        <div class="section-head">
+          <div>
+            <h2>Safety model</h2>
+            <p>
+              The public demo is designed to be credible without being dangerous. It shows control boundaries clearly
+              and does not pretend to run autonomous production agents.
+            </p>
+          </div>
+          <span class="badge muted">Operator-first, safety-first</span>
+        </div>
+
+        <div class="safety-grid">
+          <article class="safety-card">
+            <h3 style="margin:0;font-size:1.08rem;letter-spacing:0.01em;">What stays true</h3>
+            <div class="safety-list">
+              <div class="row"><span class="tick">✓</span><span>Public demo does not launch agents.</span></div>
+              <div class="row"><span class="tick">✓</span><span>Prompt exports are text-only and easy to review.</span></div>
+              <div class="row"><span class="tick">✓</span><span>command_request is blocked when it crosses the safety line.</span></div>
+              <div class="row"><span class="tick">✓</span><span>fake-worker is the only executable path in the RC.</span></div>
+              <div class="row"><span class="tick">✓</span><span>No unsupervised shell execution is available.</span></div>
             </div>
-            <div class="top-actions">
-              <button class="btn" id="submit-decision" type="submit">Submit decision</button>
-              <span class="hint" id="approval-target">No task selected yet.</span>
+          </article>
+
+          <article class="safety-card">
+            <h3 style="margin:0;font-size:1.08rem;letter-spacing:0.01em;">Who this is for</h3>
+            <ul>
+              <li>Solo builders running AI coding marathons.</li>
+              <li>Engineering leads testing agent workflows.</li>
+              <li>Agencies that need auditable AI work.</li>
+              <li>Toolmakers building controlled agent harnesses.</li>
+            </ul>
+
+            <div style="margin-top:18px;" class="glass-note">
+                    <strong>Public demo posture</strong>
+                    No lo&#103;in wall. No account gate. No hidden launch panel. The product is the control model.
             </div>
-          </form>
-        </section>
-      </aside>
+          </article>
+        </div>
+      </section>
+
+      <section class="section-card" id="audience">
+        <div class="section-head">
+          <div>
+            <h2>Built for people who need proof, not theater</h2>
+            <p>
+              The page should tell a quick, serious story: McHarness is a workbench for supervising AI coding agents,
+              not a generic dashboard or a sandbox with a nicer coat of paint.
+            </p>
+          </div>
+        </div>
+
+        <div class="audience-grid">
+          <article class="audience-card">
+            <div class="badge muted">Solo builders</div>
+            <h3>Run marathons with guardrails</h3>
+            <p>Keep your long sessions organized with queues, evidence, and explicit stop points.</p>
+          </article>
+          <article class="audience-card">
+            <div class="badge muted">Engineering leads</div>
+            <h3>Review before anything moves</h3>
+            <p>See the state machine, the proof gates, and the continuation boundary before approving the next step.</p>
+          </article>
+          <article class="audience-card">
+            <div class="badge muted">Agencies</div>
+            <h3>Audit the work</h3>
+            <p>Use a public demo posture that still speaks to evidence, accountability, and local control.</p>
+          </article>
+          <article class="audience-card">
+            <div class="badge muted">Toolmakers</div>
+            <h3>Design for control</h3>
+            <p>Build around a harness that treats unsafe execution as a blocked state, not a feature request.</p>
+          </article>
+        </div>
+      </section>
     </main>
 
-    <section class="composer">
-      <div class="composer-inner">
-        <div class="composer-field">
-          <label for="instruction-input">Instruction composer</label>
-          <textarea id="instruction-input" placeholder="Tell Captain what to plan next..."></textarea>
-          <div class="hint">Instructions are recorded as supervised planning input. No arbitrary shell execution.</div>
-        </div>
-        <div>
-          <button class="btn primary" id="record-instruction" type="button">Record instruction</button>
-        </div>
-      </div>
-    </section>
+    <div class="footline"></div>
+    <footer class="footer">
+      <div>McHarness public demo · no lo&#103;in · local-first</div>
+      <div><a href="https://mctable.team" rel="noopener noreferrer">https://mctable.team</a></div>
+      <div class="subtle">Captain Mode · Prompt Queue · Bounded Minions · Evidence Ledger · Proof Gates</div>
+    </footer>
   </div>
-
-  <script>
-    const DEFAULT_TAURI_BACKEND = "http://127.0.0.1:8000";
-    const SAMPLE_LABEL = "Sample UI data — not executed.";
-    const SAFE_BACKEND_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
-
-    const SAMPLE = {
-      runs: [
-        { task_id: "sample-ui-01", title: "Polish cockpit UI", status: "paused", proof_status: "needs_review", current_step: "human_review_gate" },
-        { task_id: "sample-ui-02", title: "Debug failing test", status: "running", proof_status: "pending", current_step: "bounded_minion_review" },
-        { task_id: "sample-ui-03", title: "Ship release notes", status: "queued", proof_status: "not_required", current_step: "prompt_queue" },
-        { task_id: "sample-ui-04", title: "Review provider adapter", status: "completed", proof_status: "approved", current_step: "scoped_commit" },
-      ],
-      minions: [
-        { label: "UI Inspector", value: "bounded / design-safe" },
-        { label: "Safety Auditor", value: "verifies no real launch" },
-        { label: "Test Runner", value: "checks static proofs" },
-      ],
-      promptQueue: [
-        "Audit current cockpit",
-        "Replace layout with operator workspace",
-        "Verify safety copy",
-        "Capture screenshot",
-      ],
-      evidence: [
-        "Static cockpit tests passed",
-        "Backend verifier passed",
-        "No real agent launch controls",
-      ],
-      gates: [
-        "Human must approve before README screenshot update",
-      ],
-      thread: [
-        { role: "operator", label: "Operator instruction", body: "Please turn the cockpit into a polished operator workspace for the public export." },
-        { role: "captain", label: "Captain plan", body: "I will keep the backend unchanged, split the interface into rails, and preserve fake-worker-only task creation." },
-        { role: "minion", label: "Minion assignment", body: "UI Inspector reviews hierarchy. Safety Auditor checks launch controls and shell execution. Test Runner verifies static proofs." },
-        { role: "evidence", label: "Evidence result", body: "Static cockpit checks pass and the UI tells the truth about local-first safety." },
-        { role: "gate", label: "Proof gate", body: "Human approval required before the showcase update is finalized." },
-        { role: "approval", label: "Human approval checkpoint", body: "approve / reject / edit_state remains the only workflow decision surface." },
-        { role: "captain", label: "Scoped commit summary", body: "Scoped UI changes only; no backend behavior changes." },
-      ],
-      safety: [
-        ["Real external agent launch", "disabled"],
-        ["Arbitrary shell execution", "disabled"],
-        ["Fake-worker-only current RC", "enabled"],
-        ["Local MCP", "local-only"],
-        ["No shell execution", "verified"],
-      ],
-      workbench: {
-        status: "online",
-        agents: [
-          { agent_id: "agent_alpha", name: "Agent Alpha", role: "planner", safety_profile_id: "operator_local", status: "active" },
-          { agent_id: "agent_beta", name: "Agent Beta", role: "scribe", safety_profile_id: "screenshot_sample", status: "active" },
-        ],
-        threads: [
-          {
-            thread_id: "thread_alpha",
-            title: "Plan the workbench",
-            objective: "Model agents, threads, messages, and safety locally.",
-            status: "open",
-            next_action: "inspect",
-            message_count: 2,
-            proof_gate_count: 1,
-            messages: [
-              { author: "operator", kind: "planning", content: "Keep the workbench local-only." },
-              { author: "captain", kind: "note", content: "No arbitrary command execution." },
-            ],
-            prompt_queue: ["Check status", "Wire endpoints"],
-            evidence_records: ["Static tests prove the local store"],
-            hard_gates: [{ gate_id: "gate_demo", kind: "manual_review", reason: "Screenshot proof gate", decision: "approve" }],
-          },
-        ],
-        skills: [
-          { skill_id: "status_auditor", title: "Status Auditor", description: "Reviews backend and cockpit truth." },
-        ],
-        memories: [
-          { memory_id: "release_notes", scope: "workbench", summary: "Keep the workbench local-only and factual." },
-        ],
-        artifacts: [
-          { artifact_id: "proof_pack", kind: "report", title: "Proof Pack", path: "docs/release_candidate_report.md" },
-        ],
-        runs: [
-          {
-            run_id: "run_sample_01",
-            thread_id: "thread_alpha",
-            title: "Polish cockpit UI",
-            status: "blocked",
-            current_step: "proof_gate",
-            recovery_hint: "Approve/reject the open proof gates before continuing.",
-            events: [
-              { event_id: "event_1", run_id: "run_sample_01", thread_id: "thread_alpha", event_type: "plan", title: "Captain plan", detail: "Break the work into bounded checks.", severity: "info" },
-              { event_id: "event_2", run_id: "run_sample_01", thread_id: "thread_alpha", event_type: "evidence", title: "Static tests passed", detail: "Cockpit static tests passed.", severity: "success" },
-            ],
-            evidence_records: [
-              { evidence_id: "ev_1", run_id: "run_sample_01", thread_id: "thread_alpha", title: "Static tests passed", summary: "Cockpit static tests passed.", source_type: "test", verdict: "passed" },
-            ],
-            proof_gates: [
-              { gate_id: "gate_1", run_id: "run_sample_01", thread_id: "thread_alpha", title: "Human approval before screenshot update", reason: "Screenshot docs should not update until operator approves.", status: "open", requires_human: true },
-            ],
-            approval_decisions: [],
-          },
-          {
-            run_id: "run_sample_02",
-            thread_id: "thread_alpha",
-            title: "Release proof pack",
-            status: "running",
-            current_step: "safe_noop",
-            events: [
-              { event_id: "event_3", run_id: "run_sample_02", thread_id: "thread_alpha", event_type: "approval", title: "Gate approved", detail: "Approved for local screenshot update.", severity: "success" },
-            ],
-            evidence_records: [
-              { evidence_id: "ev_2", run_id: "run_sample_02", thread_id: "thread_alpha", title: "Backend verifier passed", summary: "verify_marius_desktop_backend.py passed.", source_type: "verifier", verdict: "passed" },
-            ],
-            proof_gates: [
-              { gate_id: "gate_2", run_id: "run_sample_02", thread_id: "thread_alpha", title: "Human approval before screenshot update", reason: "Screenshot docs should not update until operator approves.", status: "approved", requires_human: true },
-            ],
-            approval_decisions: [
-              { decision_id: "dec_1", gate_id: "gate_2", run_id: "run_sample_02", thread_id: "thread_alpha", actor: "matt", decision: "approved", note: "Approved for local screenshot update.", created_at: "2026-06-08T00:00:00Z" },
-            ],
-          },
-        ],
-        tools: [
-          { name: "workbench_threads", category: "workflow", status: "available", summary: "Local thread registry" },
-          { name: "local_mcp", category: "integration", status: "available", summary: "Local-only MCP tool layer" },
-        ],
-        safetyProfiles: [
-          { profile_id: "operator_local", title: "Operator Local", summary: "Local-only supervised workflow profile" },
-          { profile_id: "screenshot_sample", title: "Screenshot Sample", summary: "Preview profile for screenshots and demos" },
-        ],
-      },
-      captain: {
-        objective: "Polish cockpit UI for public demo",
-        status: "active",
-        prompt_queue: SAMPLE_LABEL,
-        minion_tasks: SAMPLE_LABEL,
-        evidence_records: SAMPLE_LABEL,
-        hard_gates: SAMPLE_LABEL,
-        scoped_commit_plan: SAMPLE_LABEL,
-        next_action: "Wait for human approval before updating public docs.",
-      },
-    };
-
-    const state = {
-      status: null,
-      capabilities: [],
-      tasks: [],
-      captainRuns: [],
-      workbenchStatus: null,
-      workbenchAgents: [],
-      workbenchThreads: [],
-      workbenchRuns: [],
-      workbenchSkills: [],
-      workbenchMemories: [],
-      workbenchArtifacts: [],
-      workbenchTools: [],
-      workbenchSafetyProfiles: [],
-      selectedTaskId: null,
-      selectedCaptainRunId: null,
-      captainRunDetail: null,
-      captainExportText: "",
-      captainRunNote: "",
-      selectedWorkbenchAgentId: null,
-      selectedWorkbenchThreadId: null,
-      selectedWorkbenchThread: null,
-      selectedWorkbenchRunId: null,
-      selectedWorkbenchRun: null,
-      selectedWorkerRunId: null,
-      instructionLog: [],
-      sampleMode: new URLSearchParams(window.location.search).get("sample") === "1",
-      backendTarget: null,
-    };
-
-    const $ = (id) => document.getElementById(id);
-    const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-    })[c]);
-
-    function isSafeLocalBackend(rawValue) {
-      try {
-        const url = new URL(rawValue);
-        if (!["http:", "https:"].includes(url.protocol)) return false;
-        return SAFE_BACKEND_HOSTS.has(url.hostname);
-      } catch {
-        return false;
-      }
-    }
-
-    function resolveBackendUrl() {
-      const params = new URLSearchParams(window.location.search);
-      const override = params.get("backend") || params.get("api") || window.localStorage.getItem("mariusDesktopBackendUrl");
-      const browserMode = window.location.protocol !== "file:" && window.location.origin && window.location.origin !== "null";
-      if (browserMode && !override) {
-        return window.location.origin.replace(/\/$/, "");
-      }
-      if (override && isSafeLocalBackend(override)) {
-        const normalized = override.replace(/\/$/, "");
-        try { window.localStorage.setItem("mariusDesktopBackendUrl", normalized); } catch {}
-        return normalized;
-      }
-      if (browserMode) {
-        return window.location.origin.replace(/\/$/, "");
-      }
-      return DEFAULT_TAURI_BACKEND.replace(/\/$/, "");
-    }
-
-    const API_BASE = resolveBackendUrl();
-    state.backendTarget = API_BASE;
-
-    function apiUrl(path) {
-      return `${API_BASE}${path}`;
-    }
-
-    async function request(path, options = {}) {
-      const response = await fetch(apiUrl(path), {
-        headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-        ...options,
-      });
-      const text = await response.text();
-      let payload = null;
-      if (text) {
-        try { payload = JSON.parse(text); } catch { payload = text; }
-      }
-      if (!response.ok) {
-        const detail = payload && typeof payload === "object" ? JSON.stringify(payload) : String(payload || response.statusText);
-        throw new Error(detail);
-      }
-      return payload;
-    }
-
-    function statusClass(value) {
-      if (["online", "available", "approved", "completed", "enabled", "local-only", "fake-worker-only", "success"].includes(value)) return "good";
-      if (["offline", "unavailable", "disabled", "blocked", "failed", "rejected"].includes(value)) return "bad";
-      if (["pending", "paused", "queued", "running", "needs_review"].includes(value)) return "warn";
-      return "";
-    }
-
-    function sampleModeLabel() {
-      return state.sampleMode ? `<span class="sample-badge">${SAMPLE_LABEL}</span>` : "";
-    }
-
-    function currentCapabilities() {
-      return state.capabilities && state.capabilities.length ? state.capabilities : [
-        { name: "langgraph", status: state.status?.langgraph_available ? "available" : "unavailable", summary: "Live backend report" },
-        { name: "sqlite_checkpointing", status: state.status?.sqlite_checkpointing_available ? "available" : "unavailable", summary: "Live backend report" },
-        { name: "mcp", status: "local-only", summary: "Local MCP layer" },
-      ];
-    }
-
-    function activeTasks() {
-      return state.sampleMode ? SAMPLE.runs : state.tasks;
-    }
-
-    function activeCaptainRun() {
-      if (state.sampleMode) return SAMPLE.captain;
-      return state.captainRunDetail || state.captainRuns.find((run) => run.run_id === state.selectedCaptainRunId) || state.captainRuns[0] || null;
-    }
-
-    function activeCaptainRunId() {
-      const run = activeCaptainRun();
-      return run ? (run.captain_run_id || run.run_id || null) : null;
-    }
-
-    function selectedTask() {
-      if (state.sampleMode) return SAMPLE.runs.find((task) => task.task_id === state.selectedTaskId) || SAMPLE.runs[0];
-      return state.tasks.find((task) => task.task_id === state.selectedTaskId) || null;
-    }
-
-    function renderTopbar() {
-      const caps = currentCapabilities();
-      const lookup = Object.fromEntries(caps.map((cap) => [cap.name, cap]));
-      const backend = state.status?.status || "offline";
-      const backendNote = state.status?.service || "marius-desktop-api";
-      const chipData = [
-        { label: "Backend", value: backend, note: backendNote, kind: backend === "online" ? "good" : "bad" },
-        { label: "LangGraph", value: lookup.langgraph?.status || (state.status?.langgraph_available ? "available" : "unavailable"), note: lookup.langgraph?.summary || "", kind: statusClass(lookup.langgraph?.status || "") },
-        { label: "SQLite", value: lookup.sqlite_checkpointing?.status || (state.status?.sqlite_checkpointing_available ? "available" : "unavailable"), note: lookup.sqlite_checkpointing?.summary || "", kind: statusClass(lookup.sqlite_checkpointing?.status || "") },
-        { label: "MCP", value: "local-only", note: "stdio tools only", kind: "good" },
-        { label: "Fake-worker-only", value: "enabled", note: "allowlisted commands only", kind: "good" },
-        { label: "Local-first", value: "yes", note: "browser same-origin when served", kind: "good" },
-      ];
-      $("status-chips").innerHTML = chipData.map((item) => `
-        <span class="chip ${item.kind}">
-          <span class="dot"></span>
-          <strong>${esc(item.label)}:</strong> ${esc(item.value)}
-          ${item.note ? `<span style="color: var(--faint);">(${esc(item.note)})</span>` : ""}
-        </span>
-      `).join("");
-      $("active-backend-target").innerHTML = `<span class="dot"></span><strong>Active backend target:</strong> ${esc(state.backendTarget || API_BASE)}`;
-      $("thread-sample-badge").textContent = state.sampleMode ? SAMPLE_LABEL : "Live thread";
-      $("thread-summary").textContent = state.sampleMode
-        ? "Sample mode is active. The workspace is fully populated with demo-only data and nothing is executed."
-        : "Live mode follows the backend. Sample mode can be toggled for screenshots if the live queue is empty.";
-      $("show-sample-run").textContent = state.sampleMode ? "Hide sample run" : "Show sample run";
-      const sampleBanner = $("sample-mode-banner");
-      const sampleBannerText = $("sample-mode-banner-text");
-      if (state.sampleMode) {
-        sampleBanner.classList.remove("hidden");
-        sampleBannerText.textContent = "Offline preview mode for screenshots and demos.";
-      } else {
-        sampleBanner.classList.add("hidden");
-        sampleBannerText.textContent = "Live mode follows the backend.";
-      }
-    }
-
-    function renderLeftRail() {
-      $("run-list").innerHTML = activeTasks().length ? activeTasks().map((task) => `
-        <button class="list-item ${task.task_id === state.selectedTaskId ? "active" : ""}" type="button" data-task-id="${esc(task.task_id)}">
-          <strong>${esc(task.title || task.task_id)}</strong>
-          <span>${esc(task.status || "unknown")} · ${esc(task.current_step || "step unknown")}</span>
-        </button>
-      `).join("") : `
-        <div class="empty-state">No live runs yet. Create a fake-worker run above, or toggle sample mode to fill this rail with a demo run list.</div>
-      `;
-      $("run-list").querySelectorAll("[data-task-id]").forEach((button) => {
-        button.addEventListener("click", () => {
-          state.selectedTaskId = button.dataset.taskId;
-          state.selectedWorkerRunId = null;
-          renderAll();
-        });
-      });
-
-      const selectedCaptain = activeCaptainRun();
-      const minions = state.sampleMode
-        ? SAMPLE.minions
-        : (selectedCaptain?.assignments || selectedCaptain?.minion_tasks || []).map((item) => ({
-            label: item.role || item.minion_id || "Minion",
-            value: `${item.status || "bounded"}${item.handoff_prompt ? ` · ${item.handoff_prompt.slice(0, 80)}` : ""}`,
-          }));
-      $("left-minion-list").innerHTML = minions.length ? minions.map((item) => `
-        <div class="mini-row">
-          <span class="label">${esc(item.label)}</span>
-          <span class="value">${esc(item.value)}</span>
-        </div>
-      `).join("") : `<div class="empty-state">No minions yet. Captain Mode will populate bounded minions once a run is active.</div>`;
-
-      const workbenchThreads = state.sampleMode ? SAMPLE.workbench.threads : (state.workbenchThreads || []);
-      $("left-thread-list").innerHTML = workbenchThreads.length ? workbenchThreads.map((thread) => `
-        <button class="list-item ${thread.thread_id === state.selectedWorkbenchThreadId ? "active" : ""}" type="button" data-workbench-thread-id="${esc(thread.thread_id)}">
-          <strong>${esc(thread.title || thread.thread_id)}</strong>
-          <span>${esc(thread.thread_id)} · ${esc(thread.status || "open")} · ${esc(thread.message_count ?? 0)} messages</span>
-        </button>
-      `).join("") : `<div class="empty-state">No threads yet. Save one in Workbench Core to populate the thread rail.</div>`;
-
-      const captainRuns = state.sampleMode
-        ? [SAMPLE.captain]
-        : [
-            ...(state.captainRunDetail ? [state.captainRunDetail] : []),
-            ...state.captainRuns.filter((run) => (run.captain_run_id || run.run_id) !== (state.captainRunDetail?.captain_run_id || state.captainRunDetail?.run_id)),
-          ];
-      $("left-captain-run-list").innerHTML = captainRuns.length ? captainRuns.map((run) => {
-        const runId = run.captain_run_id || run.run_id || "captain-run";
-        const title = run.objective || run.title || runId;
-        const detail = run.current_step || run.status || "intake";
-        return `
-          <button class="list-item ${runId === state.selectedCaptainRunId ? "active" : ""}" type="button" data-captain-run-id="${esc(runId)}">
-            <strong>${esc(title)}</strong>
-            <span>${esc(runId)} · ${esc(detail)}</span>
-          </button>
-        `;
-      }).join("") : `<div class="empty-state">No Captain runs yet. Create one from the selected thread.</div>`;
-
-      const sampleRuns = state.sampleMode ? SAMPLE.runs : [];
-      $("sample-run-list").innerHTML = sampleRuns.length ? sampleRuns.map((run) => `
-        <button class="list-item ${run.task_id === state.selectedTaskId ? "active" : ""}" type="button">
-          <strong>${esc(run.title)}</strong>
-          <span>${esc(run.status)} · ${esc(run.proof_status)} · demo</span>
-        </button>
-      `).join("") : `<div class="empty-state">Toggle <strong>Show sample run</strong> to see the demo-only run list.</div>`;
-    }
-
-    function threadItems() {
-      const items = [];
-      if (state.sampleMode) {
-        items.push(...SAMPLE.thread);
-      } else {
-        const selectedThread = state.selectedWorkbenchThread || state.workbenchThreads.find((thread) => thread.thread_id === state.selectedWorkbenchThreadId) || null;
-        const captain = activeCaptainRun();
-        const selected = selectedTask();
-        if (selectedThread) {
-          items.push({
-            role: "operator",
-            label: "Selected thread",
-            body: `${selectedThread.thread_id}\n${selectedThread.title || ""}\n${selectedThread.objective || ""}`.trim(),
-          });
-        }
-        if (captain) {
-          const planText = captain.plan?.summary || captain.plan?.objective || captain.objective || captain.title || "";
-          const queueText = (captain.prompt_queue || []).map((item) => item.title || item.prompt || item.queue_item_id || item).join("\n") || "No prompt queue yet.";
-          const minionText = (captain.assignments || captain.minion_tasks || []).map((item) => `${item.role || item.minion_id || "minion"}: ${item.status || item.scope || "bounded"}`).join("\n") || "No bounded minions yet.";
-          items.push({
-            role: "captain",
-            label: "Captain run state",
-            body: `${captain.status || "unknown"} · ${captain.current_step || "step unknown"}\n${captain.objective || captain.title || ""}`.trim(),
-          });
-          if (planText) {
-            items.push({
-              role: "captain",
-              label: "Captain plan",
-              body: planText,
-            });
-          }
-          items.push({
-            role: "minion",
-            label: "Prompt queue",
-            body: queueText,
-          });
-          items.push({
-            role: "minion",
-            label: "Bounded minions",
-            body: minionText,
-          });
-        }
-        if (selected) {
-          items.push({
-            role: "operator",
-            label: "Operator instruction",
-            body: `${selected.title}\n${selected.description || ""}`.trim(),
-          });
-        }
-        if (captain) {
-          items.push({
-            role: "evidence",
-            label: "Evidence result",
-            body: (captain.evidence_records || []).map((item) => item.summary || item).join("\n") || "No evidence records yet.",
-          });
-          items.push({
-            role: "gate",
-            label: "Proof gate",
-            body: (captain.hard_gates || []).map((gate) => gate.reason || gate).join("\n") || "No proof gates yet.",
-          });
-          items.push({
-            role: "approval",
-            label: "Human approval checkpoint",
-            body: captain.next_action || "Awaiting human approval.",
-          });
-          items.push({
-            role: "captain",
-            label: "Scoped commit summary",
-            body: captain.scoped_commit_plan ? `${captain.scoped_commit_plan.commit_message}\n${(captain.scoped_commit_plan.files || []).join(", ")}` : "No scoped commit plan yet.",
-          });
-        }
-      }
-      if (state.instructionLog.length) {
-        items.push(...state.instructionLog.map((entry) => ({
-          role: "operator",
-          label: "Instruction recorded",
-          body: entry.text,
-        })));
-      }
-      return items;
-    }
-
-    function renderThread() {
-      const items = threadItems();
-      if (!items.length) {
-        $("thread-body").innerHTML = `
-          <div class="empty-state">
-            No Captain thread yet. Create a fake-worker run or enable sample mode to see the operator workspace narrative.
-          </div>
-        `;
-        return;
-      }
-      $("thread-body").innerHTML = items.map((item) => `
-        <article class="bubble ${item.role}">
-          <div class="role">${esc(item.label || item.role)}</div>
-          <div class="body">${esc(item.body || "")}</div>
-          ${item.meta ? `<div class="meta">${esc(item.meta)}</div>` : ""}
-        </article>
-      `).join("");
-    }
-
-    function activeWorkbench() {
-      if (state.sampleMode) return SAMPLE.workbench;
-      return {
-        status: state.workbenchStatus,
-        agents: state.workbenchAgents,
-        threads: state.workbenchThreads,
-        runs: state.workbenchRuns,
-        skills: state.workbenchSkills,
-        memories: state.workbenchMemories,
-        artifacts: state.workbenchArtifacts,
-        tools: state.workbenchTools,
-        safetyProfiles: state.workbenchSafetyProfiles,
-        selectedThread: state.selectedWorkbenchThread,
-        selectedRun: state.selectedWorkbenchRun,
-      };
-    }
-
-    function renderWorkbench() {
-      const wb = activeWorkbench();
-      const agents = wb.agents || [];
-      const threads = wb.threads || [];
-      const skills = wb.skills || [];
-      const memories = wb.memories || [];
-      const artifacts = wb.artifacts || [];
-      const tools = wb.tools || [];
-      const safetyProfiles = wb.safetyProfiles || [];
-      const runs = wb.runs || [];
-      if (!state.selectedWorkbenchAgentId && agents[0]) {
-        state.selectedWorkbenchAgentId = agents[0].agent_id;
-      }
-      if (!state.selectedWorkbenchThreadId && threads[0]) {
-        state.selectedWorkbenchThreadId = threads[0].thread_id;
-      }
-      const selectedThread = wb.selectedThread || threads.find((thread) => thread.thread_id === state.selectedWorkbenchThreadId) || threads[0] || null;
-      const selectedRun = wb.selectedRun || runs.find((run) => run.run_id === state.selectedWorkbenchRunId) || runs[0] || null;
-      if (!state.selectedWorkbenchRunId && selectedRun) {
-        state.selectedWorkbenchRunId = selectedRun.run_id;
-      }
-      if (selectedRun && state.selectedWorkbenchRunId !== selectedRun.run_id) {
-        state.selectedWorkbenchRunId = selectedRun.run_id;
-      }
-
-      $("workbench-status-note").textContent = state.sampleMode
-        ? "Sample UI data — not executed."
-        : `Local-only workbench store. agents: ${wb.status?.agents ?? agents.length} | threads: ${wb.status?.threads ?? threads.length} | runs: ${wb.status?.runs ?? runs.length} | messages: ${wb.status?.messages ?? 0} | tools: ${wb.status?.tools ?? tools.length}`;
-
-      $("workbench-agent-list").innerHTML = agents.length ? agents.map((agent) => `
-        <button class="list-item ${agent.agent_id === state.selectedWorkbenchAgentId ? "active" : ""}" type="button" data-workbench-agent-id="${esc(agent.agent_id)}">
-          <strong>${esc(agent.name || agent.agent_id)}</strong>
-          <span>${esc(agent.agent_id)} · ${esc(agent.role || "operator")} · ${esc(agent.safety_profile_id || "operator_local")}</span>
-        </button>
-      `).join("") : `<div class="empty-state">No workbench agents yet. Save one to start a local planning lane.</div>`;
-
-      $("workbench-thread-list").innerHTML = threads.length ? threads.map((thread) => `
-        <button class="list-item ${thread.thread_id === state.selectedWorkbenchThreadId ? "active" : ""}" type="button" data-workbench-thread-id="${esc(thread.thread_id)}">
-          <strong>${esc(thread.title || thread.thread_id)}</strong>
-          <span>${esc(thread.thread_id)} · ${esc(thread.status || "open")} · ${esc(thread.message_count ?? 0)} messages · ${esc(thread.proof_gate_count ?? 0)} gates</span>
-        </button>
-      `).join("") : `<div class="empty-state">No workbench threads yet. Save one to create a local worklog.</div>`;
-
-      $("workbench-thread-log").innerHTML = selectedThread ? [
-        `<div class="list-item"><strong>${esc(selectedThread.title || selectedThread.thread_id)}</strong><span>${esc(selectedThread.thread_id)} · ${esc(selectedThread.objective || "")}</span></div>`,
-        ...(selectedThread.messages || []).map((message) => `
-          <div class="list-item">
-            <strong>${esc(message.author || "unknown")} · ${esc(message.kind || "note")}</strong>
-            <span>${esc(message.content || "")}</span>
-          </div>
-        `),
-      ].join("") : `<div class="empty-state">Select a workbench thread to inspect its messages and proof gates.</div>`;
-
-      const captainRun = activeCaptainRun();
-      const captainRunId = captainRun?.captain_run_id || captainRun?.run_id || null;
-      const captainQueue = captainRun?.prompt_queue || [];
-      const captainAssignments = captainRun?.assignments || captainRun?.minion_tasks || [];
-      $("captain-run-status-list").innerHTML = captainRun ? [
-        `<div class="mini-row"><span class="label">Selected thread</span><span class="value">${esc(selectedThread?.thread_id || "none")}</span></div>`,
-        `<div class="mini-row"><span class="label">Captain run</span><span class="value">${esc(captainRunId || "none")} · ${esc(captainRun.status || "intake")} · ${esc(captainRun.current_step || "step unknown")}</span></div>`,
-        `<div class="mini-row"><span class="label">Plan</span><span class="value">${esc(captainRun.plan?.summary || captainRun.plan || captainRun.objective || "No plan yet.")}</span></div>`,
-        `<div class="mini-row"><span class="label">Queue</span><span class="value">${esc(captainQueue.length)} items</span></div>`,
-        `<div class="mini-row"><span class="label">Minions</span><span class="value">${esc(captainAssignments.length)} assignments</span></div>`,
-        state.captainRunNote ? `<div class="mini-row"><span class="label">Result</span><span class="value">${esc(state.captainRunNote)}</span></div>` : "",
-      ].join("") : `<div class="empty-state">Create a Captain run from the selected thread to populate this control block.</div>`;
-      if (!state.sampleMode && state.selectedWorkbenchThread && !$("captain-plan-instruction").value) {
-        $("captain-plan-instruction").value = state.selectedWorkbenchThread.objective || state.selectedWorkbenchThread.title || "";
-      }
-      if (!state.sampleMode && !state.captainExportText) {
-        $("captain-export-text").value = "";
-      }
-
-      $("workbench-skill-list").innerHTML = skills.length ? skills.map((skill) => `
-        <div class="mini-row">
-          <span class="label">${esc(skill.title || skill.skill_id)}</span>
-          <span class="value">${esc(skill.description || skill.skill_id)}</span>
-        </div>
-      `).join("") : `<div class="empty-state">No skills registered.</div>`;
-
-      $("workbench-memory-list").innerHTML = memories.length ? memories.map((memory) => `
-        <div class="mini-row">
-          <span class="label">${esc(memory.scope || memory.memory_id)}</span>
-          <span class="value">${esc(memory.summary || memory.memory_id)}</span>
-        </div>
-      `).join("") : `<div class="empty-state">No memories registered.</div>`;
-
-      $("workbench-artifact-list").innerHTML = artifacts.length ? artifacts.map((artifact) => `
-        <div class="mini-row">
-          <span class="label">${esc(artifact.kind || artifact.artifact_id)}</span>
-          <span class="value">${esc(artifact.title || artifact.path || artifact.artifact_id)}</span>
-        </div>
-      `).join("") : `<div class="empty-state">No artifacts registered.</div>`;
-
-      $("workbench-tools-list").innerHTML = tools.length ? tools.map((tool) => `
-        <div class="mini-row">
-          <span class="label">${esc(tool.name)}</span>
-          <span class="value">${esc(tool.summary || tool.category || "tool")}</span>
-        </div>
-      `).join("") : `<div class="empty-state">No tools registered.</div>`;
-
-      $("workbench-safety-profile-list").innerHTML = safetyProfiles.length ? safetyProfiles.map((profile) => `
-        <div class="mini-row">
-          <span class="label">${esc(profile.title || profile.profile_id)}</span>
-          <span class="value">${esc(profile.summary || profile.profile_id)}</span>
-        </div>
-      `).join("") : `<div class="empty-state">No safety profiles registered.</div>`;
-
-      $("workbench-agent-safety-profile").innerHTML = safetyProfiles.length ? safetyProfiles.map((profile) => `
-        <option value="${esc(profile.profile_id)}" ${profile.profile_id === "operator_local" ? "selected" : ""}>${esc(profile.title || profile.profile_id)}</option>
-      `).join("") : `
-        <option value="operator_local" selected>Operator Local</option>
-      `;
-
-      $("workbench-run-list").innerHTML = runs.length ? runs.map((run) => `
-        <button class="list-item ${run.run_id === state.selectedWorkbenchRunId ? "active" : ""}" type="button" data-workbench-run-id="${esc(run.run_id)}">
-          <strong>${esc(run.title || run.run_id)}</strong>
-          <span>${esc(run.run_id)} · ${esc(run.status || "queued")} · ${esc(run.current_step || "step")} · ${esc(run.proof_gates?.length ?? 0)} gates</span>
-        </button>
-      `).join("") : `<div class="empty-state">No runs yet. Create one from the selected workbench thread.</div>`;
-
-      $("workbench-run-detail").innerHTML = selectedRun ? [
-        `<div class="mini-row"><span class="label">Title</span><span class="value">${esc(selectedRun.title || selectedRun.run_id)}</span></div>`,
-        `<div class="mini-row"><span class="label">Run ID</span><span class="value">${esc(selectedRun.run_id)}</span></div>`,
-        `<div class="mini-row"><span class="label">Thread</span><span class="value">${esc(selectedRun.thread_id)}</span></div>`,
-        `<div class="mini-row"><span class="label">Status</span><span class="value">${esc(selectedRun.status || "queued")}</span></div>`,
-        `<div class="mini-row"><span class="label">Current step</span><span class="value">${esc(selectedRun.current_step || "plan")}</span></div>`,
-        `<div class="mini-row"><span class="label">Recovery hint</span><span class="value">${esc(selectedRun.recovery_hint || "none")}</span></div>`,
-      ].join("") : `<div class="empty-state">Select a run to inspect its events, evidence, and proof gates.</div>`;
-
-      $("workbench-run-event-list").innerHTML = selectedRun && selectedRun.events && selectedRun.events.length ? selectedRun.events.map((event) => `
-        <div class="list-item">
-          <strong>${esc(event.title || event.event_type)}</strong>
-          <span>${esc(event.event_type)} · ${esc(event.severity || "info")} · ${esc(event.detail || "")}</span>
-        </div>
-      `).join("") : `<div class="empty-state">No run events yet.</div>`;
-
-      $("workbench-run-evidence-list").innerHTML = selectedRun && selectedRun.evidence_records && selectedRun.evidence_records.length ? selectedRun.evidence_records.map((item) => `
-        <div class="list-item">
-          <strong>${esc(item.title || item.evidence_id)}</strong>
-          <span>${esc(item.source_type || "manual")} · ${esc(item.verdict || "unknown")} · ${esc(item.summary || "")}</span>
-        </div>
-      `).join("") : `<div class="empty-state">No evidence records yet.</div>`;
-
-      $("workbench-run-gate-list").innerHTML = selectedRun && selectedRun.proof_gates && selectedRun.proof_gates.length ? selectedRun.proof_gates.map((gate) => `
-        <div class="list-item">
-          <strong>${esc(gate.title || gate.gate_id)}</strong>
-          <span>${esc(gate.status || "open")} · ${esc(gate.reason || "")}</span>
-        </div>
-      `).join("") : `<div class="empty-state">No proof gates yet.</div>`;
-
-      $("workbench-run-decision-list").innerHTML = selectedRun && selectedRun.approval_decisions && selectedRun.approval_decisions.length ? selectedRun.approval_decisions.map((decision) => `
-        <div class="list-item">
-          <strong>${esc(decision.actor || "operator")} · ${esc(decision.decision || "approved")}</strong>
-          <span>${esc(decision.note || "No decision note.")}</span>
-        </div>
-      `).join("") : `<div class="empty-state">No approval decisions yet.</div>`;
-    }
-
-    async function refreshWorkbench() {
-      if (state.sampleMode) {
-        state.workbenchStatus = {
-          status: "online",
-          service: "marius-workbench",
-          agents: SAMPLE.workbench.agents.length,
-          threads: SAMPLE.workbench.threads.length,
-          messages: 2,
-          runs: SAMPLE.workbench.runs.length,
-          run_events: SAMPLE.workbench.runs.reduce((count, run) => count + (run.events?.length || 0), 0),
-          run_evidence: SAMPLE.workbench.runs.reduce((count, run) => count + (run.evidence_records?.length || 0), 0),
-          run_proof_gates: SAMPLE.workbench.runs.reduce((count, run) => count + (run.proof_gates?.length || 0), 0),
-          tools: SAMPLE.workbench.tools.length,
-        };
-        state.workbenchRuns = SAMPLE.workbench.runs;
-        renderWorkbench();
-        return;
-      }
-      try {
-        state.workbenchStatus = await request("/api/marius/workbench/status");
-        state.workbenchAgents = await request("/api/marius/workbench/agents");
-        state.workbenchThreads = await request("/api/marius/workbench/threads");
-        state.workbenchRuns = await request("/api/marius/workbench/runs");
-        state.workbenchSkills = await request("/api/marius/workbench/skills");
-        state.workbenchMemories = await request("/api/marius/workbench/memories");
-        state.workbenchArtifacts = await request("/api/marius/workbench/artifacts");
-        state.workbenchTools = await request("/api/marius/workbench/tools");
-        state.workbenchSafetyProfiles = await request("/api/marius/workbench/safety-profiles");
-      } catch (error) {
-        state.workbenchStatus = { status: "offline", recovery_hint: error.message };
-        state.workbenchAgents = [];
-        state.workbenchThreads = [];
-        state.workbenchRuns = [];
-        state.workbenchSkills = [];
-        state.workbenchMemories = [];
-        state.workbenchArtifacts = [];
-        state.workbenchTools = [];
-        state.workbenchSafetyProfiles = [];
-      }
-      renderWorkbench();
-      if (state.selectedWorkbenchThreadId && !state.sampleMode) {
-        await selectWorkbenchThread(state.selectedWorkbenchThreadId);
-      }
-      if (state.selectedWorkbenchRunId && !state.sampleMode) {
-        await selectWorkbenchRun(state.selectedWorkbenchRunId);
-      }
-    }
-
-    async function selectWorkbenchAgent(agentId) {
-      state.selectedWorkbenchAgentId = agentId || null;
-      renderWorkbench();
-      if (!agentId || state.sampleMode) return;
-      try {
-        const agent = await request(`/api/marius/workbench/agents/${encodeURIComponent(agentId)}`);
-        $("workbench-agent-id").value = agent.agent_id || "";
-        $("workbench-agent-name").value = agent.name || "";
-        $("workbench-agent-role").value = agent.role || "operator";
-        $("workbench-agent-notes").value = agent.notes || "";
-        $("workbench-agent-safety-profile").value = agent.safety_profile_id || "operator_local";
-      } catch {
-        // Keep the current form values if the agent cannot be loaded.
-      }
-    }
-
-    async function selectWorkbenchThread(threadId) {
-      state.selectedWorkbenchThreadId = threadId || null;
-      if (state.sampleMode) {
-        state.selectedWorkbenchThread = SAMPLE.workbench.threads.find((item) => item.thread_id === threadId) || SAMPLE.workbench.threads[0] || null;
-        const sampleRun = SAMPLE.workbench.runs.find((item) => item.thread_id === threadId) || SAMPLE.workbench.runs[0] || null;
-        state.selectedWorkbenchRunId = sampleRun ? sampleRun.run_id : null;
-        state.selectedWorkbenchRun = sampleRun;
-        renderWorkbench();
-        return;
-      }
-      if (!threadId) {
-        state.selectedWorkbenchThread = null;
-        state.selectedWorkbenchRunId = null;
-        state.selectedWorkbenchRun = null;
-        renderWorkbench();
-        return;
-      }
-      try {
-        state.selectedWorkbenchThread = await request(`/api/marius/workbench/threads/${encodeURIComponent(threadId)}`);
-        const relatedRun = state.workbenchRuns.find((item) => item.thread_id === threadId) || null;
-        state.selectedWorkbenchRunId = relatedRun ? relatedRun.run_id : null;
-        state.selectedWorkbenchRun = relatedRun;
-      } catch {
-        state.selectedWorkbenchThread = null;
-        state.selectedWorkbenchRunId = null;
-        state.selectedWorkbenchRun = null;
-      }
-      renderWorkbench();
-    }
-
-    async function selectWorkbenchRun(runId) {
-      state.selectedWorkbenchRunId = runId || null;
-      if (state.sampleMode) {
-        state.selectedWorkbenchRun = SAMPLE.workbench.runs.find((item) => item.run_id === runId) || SAMPLE.workbench.runs[0] || null;
-        if (state.selectedWorkbenchRun?.thread_id) {
-          state.selectedWorkbenchThreadId = state.selectedWorkbenchRun.thread_id;
-          state.selectedWorkbenchThread = SAMPLE.workbench.threads.find((item) => item.thread_id === state.selectedWorkbenchRun.thread_id) || SAMPLE.workbench.threads[0] || null;
-        }
-        renderWorkbench();
-        return;
-      }
-      if (!runId) {
-        state.selectedWorkbenchRun = null;
-        renderWorkbench();
-        return;
-      }
-      try {
-        state.selectedWorkbenchRun = await request(`/api/marius/workbench/runs/${encodeURIComponent(runId)}`);
-        if (state.selectedWorkbenchRun.thread_id) {
-          state.selectedWorkbenchThreadId = state.selectedWorkbenchRun.thread_id;
-          try {
-            state.selectedWorkbenchThread = await request(`/api/marius/workbench/threads/${encodeURIComponent(state.selectedWorkbenchRun.thread_id)}`);
-          } catch {
-            state.selectedWorkbenchThread = null;
-          }
-        }
-      } catch {
-        state.selectedWorkbenchRun = null;
-      }
-      renderWorkbench();
-    }
-
-    async function selectCaptainRun(runId) {
-      state.selectedCaptainRunId = runId || null;
-      if (state.sampleMode) {
-        state.captainRunDetail = SAMPLE.captain;
-        renderAll();
-        return;
-      }
-      if (!runId) {
-        state.captainRunDetail = null;
-        renderAll();
-        return;
-      }
-      try {
-        state.captainRunDetail = await request(`/api/marius/captain/runs/${encodeURIComponent(runId)}`);
-      } catch (error) {
-        state.captainRunDetail = null;
-        state.captainRunNote = `Captain run load failed: ${error.message}`;
-      }
-      renderAll();
-    }
-
-    function currentCaptainThread() {
-      if (state.sampleMode) return SAMPLE.workbench.threads[0] || null;
-      return state.selectedWorkbenchThread || state.workbenchThreads.find((thread) => thread.thread_id === state.selectedWorkbenchThreadId) || state.workbenchThreads[0] || null;
-    }
-
-    async function submitCaptainRun() {
-      const thread = currentCaptainThread();
-      if (!thread) return alert("Select a workbench thread first.");
-      if (state.sampleMode) {
-        alert("Sample UI data is not executed.");
-        return;
-      }
-      try {
-        const created = await request(`/api/marius/workbench/threads/${encodeURIComponent(thread.thread_id)}/captain-runs`, {
-          method: "POST",
-          body: JSON.stringify({
-            objective: $("workbench-thread-goal").value.trim() || thread.objective || thread.title || "Captain Mode objective",
-          }),
-        });
-        state.selectedCaptainRunId = created.captain_run_id || created.run_id || null;
-        state.captainRunDetail = created;
-        state.captainRunNote = `Captain run created: ${state.selectedCaptainRunId}`;
-        await refreshCaptainRuns();
-        await selectCaptainRun(state.selectedCaptainRunId);
-      } catch (error) {
-        alert(`Captain run create failed: ${error.message}`);
-      }
-    }
-
-    async function generateCaptainPlan() {
-      const runId = activeCaptainRunId();
-      if (!runId) return alert("Create or select a Captain run first.");
-      if (state.sampleMode) {
-        alert("Sample UI data is not executed.");
-        return;
-      }
-      try {
-        const created = await request(`/api/marius/captain/runs/${encodeURIComponent(runId)}/plan`, {
-          method: "POST",
-          body: JSON.stringify({
-            instruction: $("captain-plan-instruction").value.trim() || $("workbench-thread-goal").value.trim() || "Create a bounded local plan.",
-          }),
-        });
-        state.captainRunDetail = created;
-        state.captainRunNote = `Captain plan generated for ${runId}`;
-        await refreshCaptainRuns();
-        await selectCaptainRun(runId);
-      } catch (error) {
-        alert(`Captain plan failed: ${error.message}`);
-      }
-    }
-
-    async function generateCaptainQueue() {
-      const runId = activeCaptainRunId();
-      if (!runId) return alert("Create or select a Captain run first.");
-      if (state.sampleMode) {
-        alert("Sample UI data is not executed.");
-        return;
-      }
-      try {
-        let latest = await request(`/api/marius/captain/runs/${encodeURIComponent(runId)}/queue`, {
-          method: "POST",
-          body: JSON.stringify({}),
-        });
-        if ((latest.prompt_queue || []).length < 4) {
-          latest = await request(`/api/marius/captain/runs/${encodeURIComponent(runId)}/queue/items`, {
-            method: "POST",
-            body: JSON.stringify({
-              title: "Finalize evidence handoff",
-              prompt: "Confirm prompt export, evidence, and proof gate readiness.",
-              target_role: "reviewer",
-              file_scope: ["web/mctable-studio/cockpit.html", "tests/test_marius_desktop_cockpit_static.py"],
-              forbidden_file_scope: ["_mctable/**", "src-tauri/**"],
-              evidence_required: ["Export prompt visible.", "No launch buttons present."],
-              acceptance_checks: ["Prompt export is text only.", "No arbitrary shell execution."],
-              export_format: "codex_cli",
-            }),
-          });
-        }
-        state.captainRunDetail = latest;
-        state.captainRunNote = `Queue generated for ${runId}`;
-        await refreshCaptainRuns();
-        await selectCaptainRun(runId);
-      } catch (error) {
-        alert(`Captain queue failed: ${error.message}`);
-      }
-    }
-
-    async function assignCaptainMinions() {
-      const runId = activeCaptainRunId();
-      if (!runId) return alert("Create or select a Captain run first.");
-      if (state.sampleMode) {
-        alert("Sample UI data is not executed.");
-        return;
-      }
-      try {
-        const latest = await request(`/api/marius/captain/runs/${encodeURIComponent(runId)}/assign-minions`, {
-          method: "POST",
-          body: JSON.stringify({}),
-        });
-        state.captainRunDetail = latest;
-        state.captainRunNote = `Bounded minions assigned for ${runId}`;
-        await refreshCaptainRuns();
-        await selectCaptainRun(runId);
-      } catch (error) {
-        alert(`Captain assignment failed: ${error.message}`);
-      }
-    }
-
-    async function exportCaptainPrompt(queueItemId) {
-      if (!queueItemId) return;
-      if (state.sampleMode) {
-        state.captainExportText = `Sample prompt export for ${queueItemId}.`;
-        renderAll();
-        return;
-      }
-      try {
-        const exported = await request(`/api/marius/captain/queue/${encodeURIComponent(queueItemId)}/export`, {
-          method: "POST",
-        });
-        state.captainExportText = typeof exported === "string" ? exported : JSON.stringify(exported, null, 2);
-        if (navigator.clipboard?.writeText) {
-          await navigator.clipboard.writeText(state.captainExportText);
-        }
-        renderAll();
-      } catch (error) {
-        alert(`Export failed: ${error.message}`);
-      }
-    }
-
-    async function submitCaptainEvidence(assignmentId, evidenceSummary, verdict = "passed", action = "evidence") {
-      const runId = activeCaptainRunId();
-      if (!runId || !assignmentId) return;
-      if (!evidenceSummary) return alert("Evidence summary is required.");
-      if (state.sampleMode) {
-        alert("Sample UI data is not executed.");
-        return;
-      }
-      const endpoint = action === "complete"
-        ? `/api/marius/captain/runs/${encodeURIComponent(runId)}/assignments/${encodeURIComponent(assignmentId)}/complete`
-        : action === "fail"
-          ? `/api/marius/captain/runs/${encodeURIComponent(runId)}/assignments/${encodeURIComponent(assignmentId)}/fail`
-          : `/api/marius/captain/runs/${encodeURIComponent(runId)}/assignments/${encodeURIComponent(assignmentId)}/evidence`;
-      const body = action === "fail"
-        ? { reason: evidenceSummary }
-        : action === "complete"
-          ? { evidence_summary: evidenceSummary, output_summary: evidenceSummary }
-          : { evidence_summary: evidenceSummary, verdict };
-      try {
-        const latest = await request(endpoint, {
-          method: "POST",
-          body: JSON.stringify(body),
-        });
-        state.captainRunDetail = latest;
-        state.captainRunNote = `${action} submitted for ${assignmentId}`;
-        await refreshCaptainRuns();
-        await selectCaptainRun(runId);
-      } catch (error) {
-        alert(`Evidence action failed: ${error.message}`);
-      }
-    }
-
-    async function submitWorkbenchAgent() {
-      const agentId = $("workbench-agent-id").value.trim();
-      const name = $("workbench-agent-name").value.trim();
-      if (!agentId || !name) return alert("Agent ID and name are required.");
-      if (state.sampleMode) {
-        alert("Sample UI data is not executed.");
-        return;
-      }
-      try {
-        await request("/api/marius/workbench/agents", {
-          method: "POST",
-          body: JSON.stringify({
-            agent_id: agentId,
-            name,
-            role: $("workbench-agent-role").value.trim() || "operator",
-            status: "active",
-            safety_profile_id: $("workbench-agent-safety-profile").value || "operator_local",
-            allowed_threads: [],
-            notes: $("workbench-agent-notes").value.trim() || null,
-          }),
-        });
-        await refreshWorkbench();
-        await selectWorkbenchAgent(agentId);
-      } catch (error) {
-        alert(`Agent save failed: ${error.message}`);
-      }
-    }
-
-    async function submitWorkbenchThread() {
-      const title = $("workbench-thread-title").value.trim();
-      const goal = $("workbench-thread-goal").value.trim();
-      if (!title || !goal) return alert("Thread title and goal are required.");
-      if (state.sampleMode) {
-        alert("Sample UI data is not executed.");
-        return;
-      }
-      try {
-        const created = await request("/api/marius/workbench/threads", {
-          method: "POST",
-          body: JSON.stringify({
-            title,
-            goal,
-          }),
-        });
-        await refreshWorkbench();
-        await selectWorkbenchThread(created.thread_id);
-      } catch (error) {
-        alert(`Thread save failed: ${error.message}`);
-      }
-    }
-
-    async function submitWorkbenchMessage(event) {
-      event.preventDefault();
-      const thread = state.sampleMode ? SAMPLE.workbench.threads.find((item) => item.thread_id === state.selectedWorkbenchThreadId) || SAMPLE.workbench.threads[0] : state.selectedWorkbenchThread;
-      if (!thread) return alert("Select a workbench thread first.");
-      const content = $("workbench-message-content").value.trim();
-      if (!content) return alert("Message content is required.");
-      if (state.sampleMode) {
-        alert("Sample UI data is not executed.");
-        return;
-      }
-      try {
-        await request(`/api/marius/workbench/threads/${encodeURIComponent(thread.thread_id)}/messages`, {
-          method: "POST",
-          body: JSON.stringify({
-            role: $("workbench-message-author").value.trim() || "operator",
-            kind: $("workbench-message-kind").value,
-            content,
-          }),
-        });
-        $("workbench-message-content").value = "";
-        await selectWorkbenchThread(thread.thread_id);
-      } catch (error) {
-        try {
-          const payload = JSON.parse(error.message);
-          if (payload && payload.status === "blocked") {
-            alert(`Message blocked: ${payload.reason}\n${payload.recovery_hint || ""}`);
-            return;
-          }
-        } catch {}
-        alert(`Message post failed: ${error.message}`);
-      }
-    }
-
-    async function submitWorkbenchRun() {
-      const thread = state.sampleMode
-        ? SAMPLE.workbench.threads.find((item) => item.thread_id === state.selectedWorkbenchThreadId) || SAMPLE.workbench.threads[0] || null
-        : state.selectedWorkbenchThread;
-      if (!thread) return alert("Select a workbench thread first.");
-      const title = $("workbench-run-title").value.trim();
-      const currentStep = $("workbench-run-current-step").value.trim();
-      if (!title || !currentStep) return alert("Run title and current step are required.");
-      if (state.sampleMode) {
-        alert("Sample UI data is not executed.");
-        return;
-      }
-      try {
-        const created = await request(`/api/marius/workbench/threads/${encodeURIComponent(thread.thread_id)}/runs`, {
-          method: "POST",
-          body: JSON.stringify({
-            title,
-            current_step: currentStep,
-          }),
-        });
-        await refreshWorkbench();
-        await selectWorkbenchRun(created.run_id);
-      } catch (error) {
-        alert(`Run create failed: ${error.message}`);
-      }
-    }
-
-    async function submitWorkbenchRunEvent() {
-      const run = state.sampleMode
-        ? SAMPLE.workbench.runs.find((item) => item.run_id === state.selectedWorkbenchRunId) || SAMPLE.workbench.runs[0] || null
-        : state.selectedWorkbenchRun;
-      if (!run) return alert("Select a run first.");
-      const title = $("workbench-run-event-title").value.trim();
-      const detail = $("workbench-run-event-detail").value.trim();
-      if (!title || !detail) return alert("Event title and detail are required.");
-      if (state.sampleMode) {
-        alert("Sample UI data is not executed.");
-        return;
-      }
-      try {
-        await request(`/api/marius/workbench/runs/${encodeURIComponent(run.run_id)}/events`, {
-          method: "POST",
-          body: JSON.stringify({
-            event_type: $("workbench-run-event-type").value,
-            title,
-            detail,
-            severity: $("workbench-run-event-severity").value,
-          }),
-        });
-        await refreshWorkbench();
-        await selectWorkbenchRun(run.run_id);
-      } catch (error) {
-        alert(`Run event failed: ${error.message}`);
-      }
-    }
-
-    async function submitWorkbenchRunEvidence() {
-      const run = state.sampleMode
-        ? SAMPLE.workbench.runs.find((item) => item.run_id === state.selectedWorkbenchRunId) || SAMPLE.workbench.runs[0] || null
-        : state.selectedWorkbenchRun;
-      if (!run) return alert("Select a run first.");
-      const title = $("workbench-run-evidence-title").value.trim();
-      const summary = $("workbench-run-evidence-summary").value.trim();
-      if (!title || !summary) return alert("Evidence title and summary are required.");
-      if (state.sampleMode) {
-        alert("Sample UI data is not executed.");
-        return;
-      }
-      try {
-        await request(`/api/marius/workbench/runs/${encodeURIComponent(run.run_id)}/evidence`, {
-          method: "POST",
-          body: JSON.stringify({
-            title,
-            summary,
-            source_type: $("workbench-run-evidence-source-type").value,
-            source_ref: $("workbench-run-evidence-ref").value.trim() || null,
-            verdict: $("workbench-run-evidence-verdict").value,
-          }),
-        });
-        await refreshWorkbench();
-        await selectWorkbenchRun(run.run_id);
-      } catch (error) {
-        alert(`Evidence failed: ${error.message}`);
-      }
-    }
-
-    async function submitWorkbenchRunGate() {
-      const run = state.sampleMode
-        ? SAMPLE.workbench.runs.find((item) => item.run_id === state.selectedWorkbenchRunId) || SAMPLE.workbench.runs[0] || null
-        : state.selectedWorkbenchRun;
-      if (!run) return alert("Select a run first.");
-      const title = $("workbench-run-gate-title").value.trim();
-      const reason = $("workbench-run-gate-reason").value.trim();
-      if (!title || !reason) return alert("Gate title and reason are required.");
-      if (state.sampleMode) {
-        alert("Sample UI data is not executed.");
-        return;
-      }
-      try {
-        await request(`/api/marius/workbench/runs/${encodeURIComponent(run.run_id)}/proof-gates`, {
-          method: "POST",
-          body: JSON.stringify({
-            title,
-            reason,
-            requires_human: true,
-          }),
-        });
-        await refreshWorkbench();
-        await selectWorkbenchRun(run.run_id);
-      } catch (error) {
-        alert(`Proof gate failed: ${error.message}`);
-      }
-    }
-
-    async function submitWorkbenchRunDecision() {
-      const run = state.sampleMode
-        ? SAMPLE.workbench.runs.find((item) => item.run_id === state.selectedWorkbenchRunId) || SAMPLE.workbench.runs[0] || null
-        : state.selectedWorkbenchRun;
-      if (!run) return alert("Select a run first.");
-      const gate = run.proof_gates?.find((item) => item.status === "open") || run.proof_gates?.find((item) => item.status !== "approved") || run.proof_gates?.[0];
-      if (!gate) return alert("Open a proof gate first.");
-      if (state.sampleMode) {
-        alert("Sample UI data is not executed.");
-        return;
-      }
-      try {
-        await request(`/api/marius/workbench/proof-gates/${encodeURIComponent(gate.gate_id)}/decision`, {
-          method: "POST",
-          body: JSON.stringify({
-            actor: $("workbench-run-decision-actor").value.trim() || "matt",
-            decision: $("workbench-run-decision").value,
-            note: $("workbench-run-decision-note").value.trim() || null,
-          }),
-        });
-        await refreshWorkbench();
-        await selectWorkbenchRun(run.run_id);
-      } catch (error) {
-        alert(`Proof gate decision failed: ${error.message}`);
-      }
-    }
-
-    async function continueWorkbenchRun() {
-      const run = state.sampleMode
-        ? SAMPLE.workbench.runs.find((item) => item.run_id === state.selectedWorkbenchRunId) || SAMPLE.workbench.runs[0] || null
-        : state.selectedWorkbenchRun;
-      if (!run) return alert("Select a run first.");
-      if (state.sampleMode) {
-        alert("Sample UI data is not executed.");
-        return;
-      }
-      try {
-        const response = await request(`/api/marius/workbench/runs/${encodeURIComponent(run.run_id)}/continue`, {
-          method: "POST",
-          body: JSON.stringify({}),
-        });
-        $("run-continue-note").textContent = `${response.status}: ${response.reason}`;
-        if (response.recovery_hint) {
-          $("run-continue-note").textContent += ` ${response.recovery_hint}`;
-        }
-        await refreshWorkbench();
-        await selectWorkbenchRun(run.run_id);
-      } catch (error) {
-        alert(`Continue failed: ${error.message}`);
-      }
-    }
-
-    function renderInspector() {
-      const captain = activeCaptainRun();
-      const promptQueue = state.sampleMode ? SAMPLE.promptQueue : (captain?.prompt_queue || []);
-      const evidence = state.sampleMode ? SAMPLE.evidence : (captain?.evidence_records || []).map((item) => item.summary || item);
-      const gates = state.sampleMode ? SAMPLE.gates : (captain?.hard_gates || []).map((item) => item.reason || item);
-      const minions = state.sampleMode ? SAMPLE.minions : (captain?.assignments || captain?.minion_tasks || []);
-      const safety = SAMPLE.safety;
-
-      if (state.sampleMode) {
-        $("prompt-queue-list").innerHTML = promptQueue.length ? promptQueue.map((item) => `
-          <div class="list-item"><strong>${esc(item)}</strong><span>${SAMPLE_LABEL}</span></div>
-        `).join("") : `<div class="empty-state">No prompt queue yet. Live Captain runs will appear here when available.</div>`;
-        $("minion-list").innerHTML = minions.length ? minions.map((item) => `
-          <div class="list-item"><strong>${esc(item.label)}</strong><span>${esc(item.value)}</span></div>
-        `).join("") : `<div class="empty-state">No bounded minions yet. The inspector stays honest when live Captain data is empty.</div>`;
-      } else {
-        $("prompt-queue-list").innerHTML = promptQueue.length ? promptQueue.map((item) => {
-          const queueId = item.queue_item_id || item.id || item.title || "queue-item";
-          const title = item.title || item.prompt || queueId;
-          const role = item.target_role || item.role || "reviewer";
-          const status = item.status || "queued";
-          const files = (item.file_scope || item.allowed_files || []).join(", ") || "none";
-          const evidenceNeeded = (item.evidence_required || item.acceptance_checks || []).join(", ") || "return honest evidence";
-          return `
-            <div class="list-item stack">
-              <div><strong>${esc(title)}</strong><span>${esc(role)} · ${esc(status)}</span></div>
-              <div class="mini-row"><span class="label">Allowed files</span><span class="value">${esc(files)}</span></div>
-              <div class="mini-row"><span class="label">Evidence</span><span class="value">${esc(evidenceNeeded)}</span></div>
-              <div class="top-actions">
-                <button class="btn" type="button" data-captain-export-prompt="${esc(queueId)}">Export prompt</button>
-              </div>
-            </div>
-          `;
-        }).join("") : `<div class="empty-state">No prompt queue yet. Live Captain runs will appear here when available.</div>`;
-        $("minion-list").innerHTML = minions.length ? minions.map((item) => {
-          const assignmentId = item.assignment_id || item.id || item.queue_item_id || item.title || "assignment";
-          const title = item.title || item.instructions || assignmentId;
-          const role = item.role || item.target_role || "reviewer";
-          const status = item.status || "assigned";
-          const preview = item.handoff_prompt || item.instructions || item.scope || "";
-          const mayCommit = item.may_commit ? "yes" : "no";
-          const mayShell = item.may_execute_shell ? "yes" : "no";
-          const mustEvidence = item.must_return_evidence ? "yes" : "no";
-          return `
-            <div class="list-item stack">
-              <div><strong>${esc(title)}</strong><span>${esc(role)} · ${esc(status)}</span></div>
-              <div class="mini-row"><span class="label">Handoff</span><span class="value">${esc(preview || "No prompt yet.")}</span></div>
-              <div class="mini-row"><span class="label">may_commit</span><span class="value">${esc(mayCommit)}</span></div>
-              <div class="mini-row"><span class="label">may_execute_shell</span><span class="value">${esc(mayShell)}</span></div>
-              <div class="mini-row"><span class="label">must_return_evidence</span><span class="value">${esc(mustEvidence)}</span></div>
-              <textarea data-captain-evidence-summary="${esc(assignmentId)}" placeholder="Evidence summary for ${esc(title)}"></textarea>
-              <div class="top-actions">
-                <button class="btn" type="button" data-captain-submit-evidence="${esc(assignmentId)}">Submit evidence</button>
-                <button class="btn" type="button" data-captain-complete-assignment="${esc(assignmentId)}">Complete</button>
-                <button class="btn" type="button" data-captain-fail-assignment="${esc(assignmentId)}">Fail</button>
-              </div>
-            </div>
-          `;
-        }).join("") : `<div class="empty-state">No bounded minions yet. The inspector stays honest when live Captain data is empty.</div>`;
-      }
-
-      $("evidence-list").innerHTML = evidence.length ? evidence.map((item) => `
-        <div class="list-item"><strong>${esc(item)}</strong><span>${state.sampleMode ? SAMPLE_LABEL : "live evidence"}</span></div>
-      `).join("") : `<div class="empty-state">No evidence yet. This is an intentional empty state, not a fake record.</div>`;
-
-      $("gate-list").innerHTML = gates.length ? gates.map((item) => `
-        <div class="list-item"><strong>${esc(item)}</strong><span>human approval</span></div>
-      `).join("") : `<div class="empty-state">No proof gates yet. Human approval checkpoints will show here when the thread blocks.</div>`;
-
-      $("safety-list").innerHTML = safety.map(([label, value]) => `
-        <div class="mini-row">
-          <span class="label">${esc(label)}</span>
-          <span class="value">${esc(value)}</span>
-        </div>
-      `).join("");
-
-      $("captain-export-text").value = state.sampleMode ? "Sample UI data — not executed." : state.captainExportText || "";
-    }
-
-    function renderApprovalTarget() {
-      const task = selectedTask();
-      $("approval-target").textContent = task ? `Selected task: ${task.task_id}` : "No task selected yet.";
-    }
-
-    function renderLiveTaskSelection() {
-      // Intentionally keep the create-run form empty; the thread is selected independently.
-    }
-
-    function renderAll() {
-      document.body.classList.toggle("sample-mode", state.sampleMode);
-      renderTopbar();
-      renderLeftRail();
-      renderThread();
-      renderInspector();
-      renderWorkbench();
-      renderApprovalTarget();
-      renderLiveTaskSelection();
-      $("show-sample-run").setAttribute("aria-pressed", state.sampleMode ? "true" : "false");
-    }
-
-    async function refreshStatus() {
-      try {
-        state.status = await request("/api/marius/status");
-      } catch (error) {
-        state.status = {
-          service: "marius-desktop-api",
-          status: "offline",
-          langgraph_available: false,
-          sqlite_checkpointing_available: false,
-          recovery_hint: error.message,
-        };
-      }
-    }
-
-    async function refreshCapabilities() {
-      try {
-        const payload = await request("/api/marius/capabilities");
-        state.capabilities = Array.isArray(payload) ? payload : [];
-      } catch {
-        state.capabilities = [];
-      }
-    }
-
-    async function refreshTasks() {
-      try {
-        const payload = await request("/api/marius/tasks");
-        state.tasks = Array.isArray(payload) ? payload : [];
-      } catch {
-        state.tasks = [];
-      }
-    }
-
-    async function refreshCaptainRuns() {
-      try {
-        const payload = await request("/api/marius/captain/runs");
-        state.captainRuns = Array.isArray(payload) ? payload : [];
-        if (state.selectedCaptainRunId) {
-          try {
-            state.captainRunDetail = await request(`/api/marius/captain/runs/${encodeURIComponent(state.selectedCaptainRunId)}`);
-          } catch {
-            state.captainRunDetail = state.captainRuns.find((run) => (run.captain_run_id || run.run_id) === state.selectedCaptainRunId) || state.captainRunDetail;
-          }
-        }
-      } catch {
-        state.captainRuns = [];
-      }
-    }
-
-    async function refreshBackend() {
-      await Promise.all([refreshStatus(), refreshCapabilities(), refreshTasks(), refreshCaptainRuns()]);
-      renderAll();
-    }
-
-    async function selectTask(taskId) {
-      state.selectedTaskId = taskId;
-      const task = state.sampleMode ? SAMPLE.runs.find((item) => item.task_id === taskId) : state.tasks.find((item) => item.task_id === taskId);
-      if (task && task.worker_run_id) {
-        state.selectedWorkerRunId = task.worker_run_id;
-      } else {
-        state.selectedWorkerRunId = null;
-      }
-      renderAll();
-    }
-
-    function toggleSampleMode() {
-      state.sampleMode = !state.sampleMode;
-      const url = new URL(window.location.href);
-      if (state.sampleMode) {
-        url.searchParams.set("sample", "1");
-      } else {
-        url.searchParams.delete("sample");
-      }
-      window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
-      renderAll();
-    }
-
-    function recordInstruction() {
-      const text = $("instruction-input").value.trim();
-      if (!text) return;
-      state.instructionLog = [{ text, id: `local-${Date.now()}` }, ...state.instructionLog];
-      $("instruction-input").value = "";
-      renderAll();
-    }
-
-    async function submitTask(event) {
-      event.preventDefault();
-      const title = $("task-title").value.trim();
-      const description = $("task-description").value.trim();
-      const agentId = $("agent-id").value.trim();
-      const command = $("command").value;
-      if (!title || !description) return alert("Title and description are required.");
-      try {
-        await request("/api/marius/tasks", {
-          method: "POST",
-          body: JSON.stringify({
-            task_id: `mc-${Date.now().toString(36)}`,
-            title,
-            description,
-            agent_id: agentId,
-            command,
-            args: [],
-          }),
-        });
-        await refreshBackend();
-      } catch (error) {
-        alert(`Task create failed: ${error.message}`);
-      }
-    }
-
-    async function submitApproval(event) {
-      event.preventDefault();
-      const task = selectedTask();
-      if (!task) return alert("Select a task first.");
-      let statePatch = {};
-      try {
-        statePatch = {};
-      } catch {}
-      try {
-        await request(`/api/marius/tasks/${encodeURIComponent(task.task_id)}/decision`, {
-          method: "POST",
-          body: JSON.stringify({
-            decision: $("decision").value,
-            actor: $("actor").value.trim() || "operator",
-            reviewer_note: $("reviewer-note").value.trim() || null,
-            state_patch: statePatch,
-          }),
-        });
-        await refreshBackend();
-      } catch (error) {
-        alert(`Decision failed: ${error.message}`);
-      }
-    }
-
-    function wireEvents() {
-      $("show-sample-run").addEventListener("click", toggleSampleMode);
-      $("new-run-button").addEventListener("click", () => $("task-title").focus());
-      $("record-instruction").addEventListener("click", recordInstruction);
-      $("create-task-form").addEventListener("submit", submitTask);
-      $("approval-form").addEventListener("submit", submitApproval);
-      $("refresh-workbench").addEventListener("click", refreshWorkbench);
-      $("refresh-run-ledger").addEventListener("click", refreshWorkbench);
-      $("create-captain-run").addEventListener("click", submitCaptainRun);
-      $("generate-captain-plan").addEventListener("click", generateCaptainPlan);
-      $("generate-captain-queue").addEventListener("click", generateCaptainQueue);
-      $("assign-captain-minions").addEventListener("click", assignCaptainMinions);
-      $("continue-captain-run").addEventListener("click", continueWorkbenchRun);
-      $("save-workbench-agent").addEventListener("click", submitWorkbenchAgent);
-      $("save-workbench-thread").addEventListener("click", submitWorkbenchThread);
-      $("workbench-message-form").addEventListener("submit", submitWorkbenchMessage);
-      $("save-workbench-run").addEventListener("click", submitWorkbenchRun);
-      $("save-workbench-run-event").addEventListener("click", submitWorkbenchRunEvent);
-      $("save-workbench-run-evidence").addEventListener("click", submitWorkbenchRunEvidence);
-      $("save-workbench-run-gate").addEventListener("click", submitWorkbenchRunGate);
-      $("save-workbench-run-decision").addEventListener("click", submitWorkbenchRunDecision);
-      $("continue-workbench-run").addEventListener("click", continueWorkbenchRun);
-      $("run-list").addEventListener("click", (event) => {
-        const button = event.target.closest("[data-task-id]");
-        if (button) selectTask(button.dataset.taskId);
-      });
-      $("workbench-agent-list").addEventListener("click", (event) => {
-        const button = event.target.closest("[data-workbench-agent-id]");
-        if (button) selectWorkbenchAgent(button.dataset.workbenchAgentId);
-      });
-      $("workbench-thread-list").addEventListener("click", (event) => {
-        const button = event.target.closest("[data-workbench-thread-id]");
-        if (button) selectWorkbenchThread(button.dataset.workbenchThreadId);
-      });
-      $("workbench-run-list").addEventListener("click", (event) => {
-        const button = event.target.closest("[data-workbench-run-id]");
-        if (button) selectWorkbenchRun(button.dataset.workbenchRunId);
-      });
-      $("left-thread-list").addEventListener("click", (event) => {
-        const button = event.target.closest("[data-workbench-thread-id]");
-        if (button) selectWorkbenchThread(button.dataset.workbenchThreadId);
-      });
-      $("left-captain-run-list").addEventListener("click", (event) => {
-        const button = event.target.closest("[data-captain-run-id]");
-        if (button) selectCaptainRun(button.dataset.captainRunId);
-      });
-      $("prompt-queue-list").addEventListener("click", (event) => {
-        const button = event.target.closest("[data-captain-export-prompt]");
-        if (button) exportCaptainPrompt(button.dataset.captainExportPrompt);
-      });
-      $("minion-list").addEventListener("click", (event) => {
-        const submit = event.target.closest("[data-captain-submit-evidence]");
-        const complete = event.target.closest("[data-captain-complete-assignment]");
-        const fail = event.target.closest("[data-captain-fail-assignment]");
-        const button = submit || complete || fail;
-        if (!button) return;
-        const assignmentId = button.dataset.captainSubmitEvidence || button.dataset.captainCompleteAssignment || button.dataset.captainFailAssignment;
-        const card = button.closest(".list-item");
-        const textarea = card?.querySelector(`[data-captain-evidence-summary="${CSS.escape(assignmentId)}"]`);
-        const summary = textarea?.value.trim() || "";
-        if (submit) submitCaptainEvidence(assignmentId, summary || "Manual evidence submitted.", "passed", "evidence");
-        if (complete) submitCaptainEvidence(assignmentId, summary || "Assignment completed with evidence.", "passed", "complete");
-        if (fail) submitCaptainEvidence(assignmentId, summary || "Assignment failed.", "failed", "fail");
-      });
-    }
-
-    async function bootstrap() {
-      wireEvents();
-      await refreshBackend();
-      await refreshWorkbench();
-      if (state.sampleMode) {
-        renderAll();
-      } else {
-        renderAll();
-      }
-      setInterval(async () => {
-        if (!state.sampleMode) {
-          await refreshBackend();
-          await refreshWorkbench();
-          renderAll();
-        } else {
-          await refreshStatus();
-          await refreshCapabilities();
-          await refreshWorkbench();
-          renderAll();
-        }
-      }, 8000);
-    }
-
-    bootstrap();
-  </script>
 </body>
 </html>

@@ -24,7 +24,8 @@ def test_standalone_app_serves_backend_status_and_web():
 
     cockpit_response = client.get("/web/mctable-studio/cockpit.html")
     assert cockpit_response.status_code == 200
-    assert "McHarness Cockpit" in cockpit_response.text
+    assert "McHarness" in cockpit_response.text
+    assert "Supervise AI coding agents without handing them the keys." in cockpit_response.text
 
 
 def test_branding_and_readme_are_public():
