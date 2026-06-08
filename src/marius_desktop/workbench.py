@@ -206,6 +206,10 @@ class WorkbenchRunProofGateDecisionRequest(BaseModel):
     note: Optional[str] = None
 
 
+class WorkbenchCaptainRunCreateRequest(BaseModel):
+    objective: str = Field(min_length=1)
+
+
 class WorkbenchRunEvent(BaseModel):
     event_id: str
     run_id: str
@@ -1206,6 +1210,16 @@ def post_thread_proof_gate_decision(
 ) -> dict[str, Any]:
     try:
         return STORE.decide_proof_gate(thread_id, gate_id, payload)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.post("/threads/{thread_id}/captain-runs", response_model=dict[str, Any])
+def create_thread_captain_run(thread_id: str, payload: WorkbenchCaptainRunCreateRequest) -> dict[str, Any]:
+    try:
+        from .captain import create_captain_state_machine_run
+
+        return create_captain_state_machine_run(thread_id, payload.objective).model_dump(mode="json")
     except Exception as exc:
         raise _http_error(exc)
 

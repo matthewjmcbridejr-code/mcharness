@@ -1,19 +1,23 @@
 import shutil
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
 from src.marius_desktop.captain import CAPTAIN_ROOT
+from src.marius_desktop.workbench import WORKBENCH_ROOT
 from src.server.api import app
 
 
 @pytest.fixture(autouse=True)
 def clean_captain_store():
-    if CAPTAIN_ROOT.exists():
-        shutil.rmtree(CAPTAIN_ROOT)
+    for directory in [CAPTAIN_ROOT, WORKBENCH_ROOT]:
+        if directory.exists():
+            shutil.rmtree(directory)
     yield
-    if CAPTAIN_ROOT.exists():
-        shutil.rmtree(CAPTAIN_ROOT)
+    for directory in [CAPTAIN_ROOT, WORKBENCH_ROOT]:
+        if directory.exists():
+            shutil.rmtree(directory)
 
 
 def test_captain_run_serializes():
@@ -237,3 +241,172 @@ def test_command_execution_requests_are_blocked():
     )
     assert response.status_code == 501
     assert "not_implemented" in response.json()["detail"]
+
+
+def test_captain_state_machine_models_serialize_and_persist():
+    from src.marius_desktop.captain import CaptainPlan, CaptainState, CaptainTransition, MinionAssignment, PromptQueueItem
+
+    now = datetime(2026, 6, 7, tzinfo=timezone.utc)
+    state = CaptainState(
+        captain_run_id="captain_abc123",
+        thread_id="thread_abc123",
+        run_id="captain_abc123",
+        status="planning",
+        objective="Polish the cockpit UI",
+        current_step="plan",
+        created_at=now,
+        updated_at=now,
+    )
+    plan = CaptainPlan(
+        plan_id="plan_abc123",
+        captain_run_id=state.captain_run_id,
+        summary="Deterministic plan",
+        assumptions=["Local only"],
+        steps=["Step one", "Step two"],
+        acceptance_criteria=["Prove persistence"],
+        risks=["Human gate"],
+        requires_human_gate=True,
+        created_at=now,
+    )
+    queue_item = PromptQueueItem(
+        queue_item_id="queue_abc123",
+        captain_run_id=state.captain_run_id,
+        title="Queue item",
+        prompt="Review the plan",
+        priority=1,
+        target_role="reviewer",
+        allowed_files=["README.md"],
+        forbidden_actions=["shell"],
+        acceptance_checks=["Persist the record"],
+        created_at=now,
+        updated_at=now,
+    )
+    assignment = MinionAssignment(
+        assignment_id="assign_abc123",
+        captain_run_id=state.captain_run_id,
+        queue_item_id=queue_item.queue_item_id,
+        role="reviewer",
+        title="Queue item",
+        instructions="Review the plan",
+        evidence_required=["Persist the record"],
+        created_at=now,
+        updated_at=now,
+    )
+    transition = CaptainTransition(
+        transition_id="transition_abc123",
+        captain_run_id=state.captain_run_id,
+        from_status="intake",
+        to_status="planning",
+        reason="Created the initial plan",
+        created_at=now,
+    )
+
+    state.plan = plan
+    state.prompt_queue = [queue_item]
+    state.assignments = [assignment]
+    state.transitions = [transition]
+
+    encoded = state.model_dump_json()
+    decoded = CaptainState.model_validate_json(encoded)
+    assert decoded.captain_run_id == "captain_abc123"
+    assert decoded.plan.summary == "Deterministic plan"
+    assert decoded.prompt_queue[0].prompt == "Review the plan"
+    assert decoded.assignments[0].queue_item_id == queue_item.queue_item_id
+    assert decoded.transitions[0].to_status == "planning"
+
+
+def test_captain_state_machine_flow_records_transitions_queue_and_gates():
+    client = TestClient(app)
+
+    thread_response = client.post(
+        "/api/marius/workbench/threads",
+        json={
+            "thread_id": "thread_captain_state",
+            "title": "Captain state thread",
+            "objective": "Model the public Captain Mode state machine.",
+        },
+    )
+    assert thread_response.status_code == 200
+
+    create_response = client.post(
+        "/api/marius/workbench/threads/thread_captain_state/captain-runs",
+        json={"objective": "Polish the cockpit UI for public demo"},
+    )
+    assert create_response.status_code == 200
+    state = create_response.json()
+    assert state["captain_run_id"] == state["run_id"]
+    assert state["status"] == "intake"
+
+    state_response = client.get(f"/api/marius/captain/runs/{state['captain_run_id']}")
+    assert state_response.status_code == 200
+    assert state_response.json()["objective"] == "Polish the cockpit UI for public demo"
+
+    plan_response = client.post(
+        f"/api/marius/captain/runs/{state['captain_run_id']}/plan",
+        json={"instruction": "Create a bounded plan with tests and proof gates."},
+    )
+    assert plan_response.status_code == 200
+    planned = plan_response.json()
+    assert planned["status"] == "planning"
+    assert planned["plan"]["requires_human_gate"] is True
+
+    queue_response = client.post(f"/api/marius/captain/runs/{state['captain_run_id']}/queue")
+    assert queue_response.status_code == 200
+    queued = queue_response.json()
+    assert queued["status"] == "blocked_on_gate"
+    assert len(queued["prompt_queue"]) >= 1
+    assert queued["proof_gate_id"]
+
+    assignments_response = client.post(f"/api/marius/captain/runs/{state['captain_run_id']}/assign-minions")
+    assert assignments_response.status_code == 200
+    assigned = assignments_response.json()
+    assert len(assigned["assignments"]) == len(assigned["prompt_queue"])
+    assert assigned["status"] in {"blocked_on_gate", "waiting_for_evidence"}
+
+    queue_list = client.get(f"/api/marius/captain/runs/{state['captain_run_id']}/queue")
+    assert queue_list.status_code == 200
+    assert len(queue_list.json()) == len(assigned["prompt_queue"])
+
+    assignments_list = client.get(f"/api/marius/captain/runs/{state['captain_run_id']}/assignments")
+    assert assignments_list.status_code == 200
+    assert len(assignments_list.json()) == len(assigned["assignments"])
+
+    transitions_response = client.get(f"/api/marius/captain/runs/{state['captain_run_id']}/transitions")
+    assert transitions_response.status_code == 200
+    assert len(transitions_response.json()) >= 4
+
+    workbench_run = client.get(f"/api/marius/workbench/runs/{state['run_id']}")
+    assert workbench_run.status_code == 200
+    assert workbench_run.json()["proof_gates"]
+
+    blocked_continue = client.post(f"/api/marius/captain/runs/{state['captain_run_id']}/continue")
+    assert blocked_continue.status_code == 200
+    blocked_payload = blocked_continue.json()
+    assert blocked_payload["status"] == "blocked"
+    assert "Approve/reject" in blocked_payload["recovery_hint"]
+
+    gate_id = blocked_payload["state"]["proof_gate_id"]
+    approved_gate = client.post(
+        f"/api/marius/workbench/proof-gates/{gate_id}/decision",
+        json={"actor": "operator", "decision": "approved", "note": "Approved locally."},
+    )
+    assert approved_gate.status_code == 200
+
+    ready_continue = client.post(f"/api/marius/captain/runs/{state['captain_run_id']}/continue")
+    assert ready_continue.status_code == 200
+    ready_payload = ready_continue.json()
+    assert ready_payload["status"] in {"safe_noop", "ready_to_continue"}
+    assert ready_payload["state"]["status"] in {"ready_to_continue", "queued"}
+
+
+def test_captain_state_machine_descriptor_is_local_only():
+    client = TestClient(app)
+    response = client.get("/api/marius/captain/state-machine")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema"] == "mcharness.captain.v0.2"
+    assert payload["local_only"] is True
+    assert payload["fake_worker_only"] is True
+    assert payload["real_external_agent_launch_disabled"] is True
+    assert payload["public_worker_launch_disabled"] is True
+    assert payload["arbitrary_shell_execution_disabled"] is True

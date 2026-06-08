@@ -4,7 +4,7 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -15,8 +15,14 @@ from .contracts import (
     EvidenceRecord,
     HardGate,
     MinionTask,
-    PromptQueueItem,
+    PromptQueueItem as WorkflowPromptQueueItem,
     ScopedCommitPlan,
+)
+from .workbench import (
+    STORE as WORKBENCH_STORE,
+    WorkbenchRunCreateRequest,
+    WorkbenchRunEventCreateRequest,
+    WorkbenchRunProofGateCreateRequest,
 )
 
 MCTABLE_ROOT = Path("_mctable")
@@ -63,7 +69,7 @@ def _update_run(run_id: str, updater) -> CaptainRun:
 class CaptainRunCreateRequest(BaseModel):
     objective: str
     next_action: str = "inspect"
-    prompt_queue: list[PromptQueueItem] = Field(default_factory=list)
+    prompt_queue: list[WorkflowPromptQueueItem] = Field(default_factory=list)
     minion_tasks: list[MinionTask] = Field(default_factory=list)
     evidence_records: list[EvidenceRecord] = Field(default_factory=list)
     hard_gates: list[HardGate] = Field(default_factory=list)
@@ -105,6 +111,296 @@ class CaptainTemplateRunRequest(BaseModel):
     command_execution_request: bool = False
 
 
+class CaptainState(BaseModel):
+    captain_run_id: str
+    thread_id: str
+    run_id: str
+    status: Literal[
+        "intake",
+        "planning",
+        "queued",
+        "assigning",
+        "waiting_for_evidence",
+        "blocked_on_gate",
+        "ready_to_continue",
+        "completed",
+        "failed",
+        "cancelled",
+    ] = "intake"
+    objective: str
+    current_step: str
+    created_at: datetime
+    updated_at: datetime
+    recovery_hint: Optional[str] = None
+    plan: Optional["CaptainPlan"] = None
+    prompt_queue: list["PromptQueueItem"] = Field(default_factory=list)
+    assignments: list["MinionAssignment"] = Field(default_factory=list)
+    transitions: list["CaptainTransition"] = Field(default_factory=list)
+    proof_gate_id: Optional[str] = None
+
+
+class CaptainPlan(BaseModel):
+    plan_id: str
+    captain_run_id: str
+    summary: str
+    assumptions: list[str] = Field(default_factory=list)
+    steps: list[str] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    requires_human_gate: bool = True
+    created_at: datetime
+
+
+class PromptQueueItem(BaseModel):
+    queue_item_id: str
+    captain_run_id: str
+    title: str
+    prompt: str
+    status: Literal["queued", "assigned", "evidence_required", "blocked", "completed", "cancelled"] = "queued"
+    priority: int = 1
+    target_role: Literal["ui_inspector", "safety_auditor", "test_runner", "implementer", "docs_writer", "reviewer"] = "reviewer"
+    allowed_files: list[str] = Field(default_factory=list)
+    forbidden_actions: list[str] = Field(default_factory=list)
+    acceptance_checks: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class MinionAssignment(BaseModel):
+    assignment_id: str
+    captain_run_id: str
+    queue_item_id: str
+    role: Literal["ui_inspector", "safety_auditor", "test_runner", "implementer", "docs_writer", "reviewer"]
+    title: str
+    instructions: str
+    status: Literal["assigned", "waiting", "evidence_submitted", "blocked", "completed", "failed"] = "assigned"
+    evidence_required: list[str] = Field(default_factory=list)
+    output_summary: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CaptainTransition(BaseModel):
+    transition_id: str
+    captain_run_id: str
+    from_status: str
+    to_status: str
+    reason: str
+    created_at: datetime
+
+
+class CaptainRunStateMachineCreateRequest(BaseModel):
+    objective: str = Field(min_length=1)
+
+
+class CaptainPlanRequest(BaseModel):
+    instruction: str = Field(min_length=1)
+
+
+STATE_MACHINE_DIR = CAPTAIN_ROOT / "state_machine"
+
+
+def _state_path(captain_run_id: str) -> Path:
+    return STATE_MACHINE_DIR / f"{captain_run_id}.json"
+
+
+def _safe_captain_id(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:8]}"
+
+
+def _load_state(captain_run_id: str) -> CaptainState:
+    path = _state_path(captain_run_id)
+    if not path.exists():
+        raise FileNotFoundError(captain_run_id)
+    return CaptainState.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def _save_state(state: CaptainState) -> CaptainState:
+    STATE_MACHINE_DIR.mkdir(parents=True, exist_ok=True)
+    _state_path(state.captain_run_id).write_text(state.model_dump_json(indent=2), encoding="utf-8")
+    return state
+
+
+def _update_state(captain_run_id: str, updater) -> CaptainState:
+    with FILE_LOCK:
+        state = _load_state(captain_run_id)
+        updated = updater(state)
+        updated.updated_at = _now()
+        return _save_state(updated)
+
+
+def _record_transition(state: CaptainState, from_status: str, to_status: str, reason: str) -> CaptainTransition:
+    transition = CaptainTransition(
+        transition_id=f"transition_{uuid.uuid4().hex[:8]}",
+        captain_run_id=state.captain_run_id,
+        from_status=from_status,
+        to_status=to_status,
+        reason=reason,
+        created_at=_now(),
+    )
+    state.transitions.append(transition)
+    return transition
+
+
+def _link_workbench_run(state: CaptainState) -> None:
+    try:
+        WORKBENCH_STORE.get_thread(state.thread_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Workbench thread {state.thread_id} not found.") from exc
+
+    try:
+        run = WORKBENCH_STORE.get_run(state.run_id)
+    except Exception:
+        WORKBENCH_STORE.create_run(
+            state.thread_id,
+            WorkbenchRunCreateRequest(
+                run_id=state.run_id,
+                title=f"Captain run: {state.objective}",
+                current_step=state.current_step,
+                status="queued",
+                recovery_hint=None,
+            ),
+        )
+    else:
+        run.title = f"Captain run: {state.objective}"
+        run.current_step = state.current_step
+        run.updated_at = _now()
+        WORKBENCH_STORE._save_run(run)
+
+
+def _append_workbench_event(
+    state: CaptainState,
+    *,
+    event_type: str,
+    title: str,
+    detail: str,
+    severity: str = "info",
+) -> None:
+    WORKBENCH_STORE.append_run_event(
+        state.run_id,
+        WorkbenchRunEventCreateRequest(
+            event_type=event_type,  # type: ignore[arg-type]
+            title=title,
+            detail=detail,
+            severity=severity,  # type: ignore[arg-type]
+        ),
+    )
+
+
+def _generate_plan(state: CaptainState, instruction: str) -> CaptainPlan:
+    objective_words = [word.strip(".,:;!?") for word in state.objective.split()[:6] if word.strip(".,:;!?")]
+    instruction_words = [word.strip(".,:;!?") for word in instruction.split()[:6] if word.strip(".,:;!?")]
+    summary = f"Plan for {state.objective.lower()} based on {instruction.lower()}."
+    return CaptainPlan(
+        plan_id=f"plan_{uuid.uuid4().hex[:8]}",
+        captain_run_id=state.captain_run_id,
+        summary=summary,
+        assumptions=[
+            "Work stays local and supervised.",
+            "No real external agent launch occurs.",
+        ],
+        steps=[
+            "Intake the objective and confirm scope.",
+            f"Queue bounded work items for {' '.join(objective_words) or 'the objective'}.",
+            f"Assign minions and gather evidence for {' '.join(instruction_words) or 'the instruction'}.",
+            "Open a human proof gate before continuation.",
+        ],
+        acceptance_criteria=[
+            "Captain state serializes and persists.",
+            "Run ledger events are appended for each transition.",
+            "Continuation stays blocked until proof gates are approved.",
+        ],
+        risks=[
+            "Human approval is required before continuation.",
+            "No real execution path is wired in Captain Mode.",
+        ],
+        requires_human_gate=True,
+        created_at=_now(),
+    )
+
+
+def _generate_queue_items(state: CaptainState, plan: CaptainPlan) -> list[PromptQueueItem]:
+    roles = ["reviewer", "test_runner", "docs_writer"]
+    files = [
+        ["README.md", "docs/architecture.md"],
+        ["tests/test_marius_desktop_captain.py", "tests/test_marius_desktop_workbench.py"],
+        ["web/mctable-studio/cockpit.html", "docs/workbench_core.md"],
+    ]
+    prompts = [
+        f"Review the captain state machine for {state.objective}.",
+        "Collect proof that the run ledger and gate flow stay local-only.",
+        "Summarize the proof and update the operator notes.",
+    ]
+    checks = [
+        ["CaptainState persists", "transition recorded"],
+        ["proof gate blocks continuation", "no command execution"],
+        ["notes remain honest", "runtime artifacts stay ignored"],
+    ]
+    items: list[PromptQueueItem] = []
+    for index, role in enumerate(roles, start=1):
+        items.append(
+            PromptQueueItem(
+                queue_item_id=f"queue_{uuid.uuid4().hex[:8]}",
+                captain_run_id=state.captain_run_id,
+                title=f"Queue item {index}",
+                prompt=prompts[index - 1],
+                status="queued",
+                priority=index,
+                target_role=role,  # type: ignore[arg-type]
+                allowed_files=files[index - 1],
+                forbidden_actions=[
+                    "arbitrary shell execution",
+                    "real external agent launch",
+                    "public worker launch",
+                ],
+                acceptance_checks=checks[index - 1],
+                created_at=_now(),
+                updated_at=_now(),
+            )
+        )
+    return items
+
+
+def _generate_assignments(state: CaptainState) -> list[MinionAssignment]:
+    assignments: list[MinionAssignment] = []
+    for queue_item in state.prompt_queue:
+        assignments.append(
+            MinionAssignment(
+                assignment_id=f"assign_{uuid.uuid4().hex[:8]}",
+                captain_run_id=state.captain_run_id,
+                queue_item_id=queue_item.queue_item_id,
+                role=queue_item.target_role,
+                title=queue_item.title,
+                instructions=queue_item.prompt,
+                status="assigned",
+                evidence_required=list(queue_item.acceptance_checks),
+                created_at=_now(),
+                updated_at=_now(),
+            )
+        )
+    return assignments
+
+
+def _state_has_open_gate(state: CaptainState) -> bool:
+    try:
+        run = WORKBENCH_STORE.get_run(state.run_id)
+    except Exception:
+        return False
+    return any(gate.status == "open" for gate in run.proof_gates)
+
+
+def _state_has_blocking_gate(state: CaptainState) -> bool:
+    try:
+        run = WORKBENCH_STORE.get_run(state.run_id)
+    except Exception:
+        return False
+    return any(gate.status in {"open", "rejected", "blocked"} for gate in run.proof_gates)
+
+
+def _state_view(state: CaptainState) -> dict[str, Any]:
+    return state.model_dump(mode="json")
+
+
 def _safe_gate(reason: str, triggered_by: str = "captain") -> HardGate:
     return HardGate(
         gate_id=f"gate_{uuid.uuid4().hex[:8]}",
@@ -123,12 +419,12 @@ def _template_library() -> dict[str, CaptainTemplate]:
             title="Release QA",
             objective="Verify the release candidate and collect proof.",
             prompt_queue=[
-                PromptQueueItem(
+                WorkflowPromptQueueItem(
                     prompt_id="review_status",
                     title="Review backend status and capabilities",
                     notes="Check the local API, worker runner, and cockpit target wording.",
                 ),
-                PromptQueueItem(
+                WorkflowPromptQueueItem(
                     prompt_id="compile_report",
                     title="Compile the release report",
                     notes="Summarize what was proven and what remains unproven.",
@@ -167,12 +463,12 @@ def _template_library() -> dict[str, CaptainTemplate]:
             title="UI Polish",
             objective="Tune cockpit wording and status presentation.",
             prompt_queue=[
-                PromptQueueItem(
+                WorkflowPromptQueueItem(
                     prompt_id="check_status_strip",
                     title="Check the status strip wording",
                     notes="Use the live backend target and current service state.",
                 ),
-                PromptQueueItem(
+                WorkflowPromptQueueItem(
                     prompt_id="review_shell",
                     title="Review the desktop shell copy",
                     notes="Keep the wrapper honest and local-only.",
@@ -202,12 +498,12 @@ def _template_library() -> dict[str, CaptainTemplate]:
             title="Docs Audit",
             objective="Cross-check the public docs against verified backend behavior.",
             prompt_queue=[
-                PromptQueueItem(
+                WorkflowPromptQueueItem(
                     prompt_id="compare_docs",
                     title="Compare docs and live behavior",
                     notes="Confirm that the docs match the verified API and shell behavior.",
                 ),
-                PromptQueueItem(
+                WorkflowPromptQueueItem(
                     prompt_id="note_gaps",
                     title="Record honest gaps",
                     notes="List the remaining unproven items without overstating them.",
@@ -235,12 +531,12 @@ def _template_library() -> dict[str, CaptainTemplate]:
             title="Test Triage",
             objective="Separate passing checks from failing checks and record the delta.",
             prompt_queue=[
-                PromptQueueItem(
+                WorkflowPromptQueueItem(
                     prompt_id="run_focus",
                     title="Run the focused acceptance set",
                     notes="Use the smallest test slice that proves the change.",
                 ),
-                PromptQueueItem(
+                WorkflowPromptQueueItem(
                     prompt_id="record_delta",
                     title="Record the test delta",
                     notes="Capture only verified failures and fixes.",
@@ -264,12 +560,12 @@ def _template_library() -> dict[str, CaptainTemplate]:
             title="Marathon Queue",
             objective="Prepare the next prompt queue for a long local sprint.",
             prompt_queue=[
-                PromptQueueItem(
+                WorkflowPromptQueueItem(
                     prompt_id="load_queue",
                     title="Load the next queue item",
                     notes="Work one prompt at a time and keep the scope narrow.",
                 ),
-                PromptQueueItem(
+                WorkflowPromptQueueItem(
                     prompt_id="verify_commit",
                     title="Verify the scoped commit",
                     notes="Stage only the allowed files and confirm the tree is clean.",
@@ -423,10 +719,12 @@ def create_captain_run(req: CaptainRunCreateRequest) -> CaptainRun:
     return _save_run(run)
 
 
-@router.get("/runs/{run_id}", response_model=CaptainRun)
-def get_captain_run(run_id: str) -> CaptainRun:
+@router.get("/runs/{run_id}", response_model=dict[str, Any])
+def get_captain_run(run_id: str) -> dict[str, Any]:
     try:
-        return _load_run(run_id)
+        if _state_path(run_id).exists():
+            return _state_view(_load_state(run_id))
+        return _load_run(run_id).model_dump(mode="json")
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Captain run {run_id} not found.") from exc
 
@@ -518,3 +816,281 @@ def set_next_action(run_id: str, req: CaptainNextRequest) -> CaptainRun:
         raise
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Captain run {run_id} not found.") from exc
+
+
+@router.get("/state-machine")
+def get_captain_state_machine() -> dict[str, Any]:
+    return {
+        "schema": "mcharness.captain.v0.2",
+        "local_only": True,
+        "fake_worker_only": True,
+        "real_external_agent_launch_disabled": True,
+        "public_worker_launch_disabled": True,
+        "arbitrary_shell_execution_disabled": True,
+        "workflow": [
+            "operator_instruction",
+            "captain_intake",
+            "plan",
+            "prompt_queue",
+            "bounded_minion_assignments",
+            "evidence_requirements",
+            "proof_gates",
+            "human_decision",
+            "blocked_or_safe_noop_continuation",
+        ],
+        "statuses": [
+            "intake",
+            "planning",
+            "queued",
+            "assigning",
+            "waiting_for_evidence",
+            "blocked_on_gate",
+            "ready_to_continue",
+            "completed",
+            "failed",
+            "cancelled",
+        ],
+    }
+
+
+def create_captain_state_machine_run(thread_id: str, objective: str) -> CaptainState:
+    captain_run_id = _safe_captain_id("captain")
+    now = _now()
+    state = CaptainState(
+        captain_run_id=captain_run_id,
+        thread_id=thread_id,
+        run_id=captain_run_id,
+        status="intake",
+        objective=objective,
+        current_step="intake",
+        created_at=now,
+        updated_at=now,
+    )
+    _link_workbench_run(state)
+    _record_transition(state, "created", "intake", "Captain intake created from a workbench thread.")
+    _append_workbench_event(
+        state,
+        event_type="note",
+        title="Captain intake",
+        detail=f"Objective: {objective}",
+        severity="info",
+    )
+    return _save_state(state)
+
+
+@router.post("/runs/{captain_run_id}/plan", response_model=CaptainState)
+def plan_captain_run(captain_run_id: str, req: CaptainPlanRequest) -> CaptainState:
+    def _plan(state: CaptainState) -> CaptainState:
+        before = state.status
+        state.plan = _generate_plan(state, req.instruction)
+        state.current_step = "plan"
+        state.status = "planning"
+        _record_transition(state, before, state.status, f"Planned from instruction: {req.instruction}")
+        _append_workbench_event(
+            state,
+            event_type="plan",
+            title="Captain plan",
+            detail=state.plan.summary,
+            severity="info",
+        )
+        try:
+            run = WORKBENCH_STORE.get_run(state.run_id)
+            run.current_step = state.current_step
+            run.updated_at = _now()
+            WORKBENCH_STORE._save_run(run)
+        except Exception:
+            pass
+        return state
+
+    try:
+        return _update_state(captain_run_id, _plan)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Captain run {captain_run_id} not found.") from exc
+
+
+@router.post("/runs/{captain_run_id}/queue", response_model=CaptainState)
+def queue_captain_run(captain_run_id: str) -> CaptainState:
+    def _queue(state: CaptainState) -> CaptainState:
+        if state.plan is None:
+            raise HTTPException(status_code=409, detail="Captain plan is required before queue generation.")
+        before = state.status
+        if not state.prompt_queue:
+            state.prompt_queue = _generate_queue_items(state, state.plan)
+        state.current_step = "queue"
+        state.status = "queued"
+        _record_transition(state, before, state.status, "Generated bounded prompt queue items.")
+        for item in state.prompt_queue:
+            _append_workbench_event(
+                state,
+                event_type="note",
+                title=item.title,
+                detail=f"{item.prompt} Acceptance checks: {', '.join(item.acceptance_checks)}.",
+                severity="info",
+            )
+        if state.plan.requires_human_gate:
+            gate = WORKBENCH_STORE.open_run_proof_gate(
+                state.run_id,
+                WorkbenchRunProofGateCreateRequest(
+                    title="Captain human approval",
+                    reason="Captain plan requires human approval before continuation.",
+                    requires_human=True,
+                ),
+            )
+            state.proof_gate_id = gate.gate_id
+            before_gate = state.status
+            state.status = "blocked_on_gate"
+            _record_transition(state, before_gate, state.status, "Opened a human proof gate.")
+            _append_workbench_event(
+                state,
+                event_type="proof_gate",
+                title=gate.title,
+                detail=gate.reason,
+                severity="blocked",
+            )
+        try:
+            run = WORKBENCH_STORE.get_run(state.run_id)
+            run.current_step = state.current_step
+            run.updated_at = _now()
+            WORKBENCH_STORE._save_run(run)
+        except Exception:
+            pass
+        return state
+
+    try:
+        return _update_state(captain_run_id, _queue)
+    except HTTPException:
+        raise
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Captain run {captain_run_id} not found.") from exc
+
+
+@router.get("/runs/{captain_run_id}/queue", response_model=list[PromptQueueItem])
+def get_captain_queue(captain_run_id: str) -> list[PromptQueueItem]:
+    try:
+        return _load_state(captain_run_id).prompt_queue
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Captain run {captain_run_id} not found.") from exc
+
+
+@router.post("/runs/{captain_run_id}/assign-minions", response_model=CaptainState)
+def assign_captain_minions(captain_run_id: str) -> CaptainState:
+    def _assign(state: CaptainState) -> CaptainState:
+        if not state.prompt_queue:
+            raise HTTPException(status_code=409, detail="Prompt queue is required before minion assignment.")
+        before = state.status
+        if not state.assignments:
+            state.assignments = _generate_assignments(state)
+        state.current_step = "assign"
+        state.status = "blocked_on_gate" if _state_has_open_gate(state) else "waiting_for_evidence"
+        _record_transition(state, before, state.status, "Created bounded minion assignments.")
+        for assignment in state.assignments:
+            _append_workbench_event(
+                state,
+                event_type="minion_assignment",
+                title=assignment.title,
+                detail=f"{assignment.role}: {assignment.instructions}",
+                severity="info",
+            )
+        try:
+            run = WORKBENCH_STORE.get_run(state.run_id)
+            run.current_step = state.current_step
+            run.updated_at = _now()
+            WORKBENCH_STORE._save_run(run)
+        except Exception:
+            pass
+        return state
+
+    try:
+        return _update_state(captain_run_id, _assign)
+    except HTTPException:
+        raise
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Captain run {captain_run_id} not found.") from exc
+
+
+@router.get("/runs/{captain_run_id}/assignments", response_model=list[MinionAssignment])
+def get_captain_assignments(captain_run_id: str) -> list[MinionAssignment]:
+    try:
+        return _load_state(captain_run_id).assignments
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Captain run {captain_run_id} not found.") from exc
+
+
+@router.post("/runs/{captain_run_id}/continue")
+def continue_captain_run(captain_run_id: str) -> dict[str, Any]:
+    def _continue(state: CaptainState) -> dict[str, Any]:
+        if _state_has_open_gate(state):
+            before = state.status
+            state.status = "blocked_on_gate"
+            _record_transition(state, before, state.status, "Continuation blocked by open proof gates.")
+            _append_workbench_event(
+                state,
+                event_type="blocked",
+                title="Continuation blocked",
+                detail="Approve/reject the open proof gates before continuing.",
+                severity="blocked",
+            )
+            return {
+                "status": "blocked",
+                "reason": "Open proof gates block continuation.",
+                "recovery_hint": "Approve/reject the open proof gates before continuing.",
+                "state": _state_view(state),
+            }
+        if _state_has_blocking_gate(state):
+            before = state.status
+            state.status = "blocked_on_gate"
+            _record_transition(state, before, state.status, "Rejected or edit-requested proof gates block continuation.")
+            _append_workbench_event(
+                state,
+                event_type="blocked",
+                title="Continuation blocked",
+                detail="Resolve the rejected or edit-requested proof gates before continuing.",
+                severity="blocked",
+            )
+            return {
+                "status": "blocked",
+                "reason": "Rejected or edit-requested proof gates block continuation.",
+                "recovery_hint": "Resolve the proof gates before continuing.",
+                "state": _state_view(state),
+            }
+        before = state.status
+        if state.prompt_queue or state.assignments or state.plan:
+            state.status = "ready_to_continue"
+            reason = "Captain plan and proof gates are ready; no execution will occur."
+            status = "ready_to_continue"
+        else:
+            state.status = "queued"
+            reason = "Continuation is not wired to real execution in the public RC."
+            status = "safe_noop"
+        _record_transition(state, before, state.status, reason)
+        _append_workbench_event(
+            state,
+            event_type="note",
+            title="Safe noop",
+            detail=reason,
+            severity="info",
+        )
+        return {
+            "status": status,
+            "reason": reason,
+            "recovery_hint": "Use fake-worker-only tasks or record manual evidence.",
+            "state": _state_view(state),
+        }
+
+    try:
+        with FILE_LOCK:
+            state = _load_state(captain_run_id)
+            payload = _continue(state)
+            state.updated_at = _now()
+            _save_state(state)
+            return payload
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Captain run {captain_run_id} not found.") from exc
+
+
+@router.get("/runs/{captain_run_id}/transitions", response_model=list[CaptainTransition])
+def get_captain_transitions(captain_run_id: str) -> list[CaptainTransition]:
+    try:
+        return _load_state(captain_run_id).transitions
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Captain run {captain_run_id} not found.") from exc

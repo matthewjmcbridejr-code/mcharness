@@ -25,7 +25,7 @@ The internal Python module name currently remains `src/marius_desktop` to avoid 
 - Unsafe legacy worker-launch routes remain disabled.
 - Workbench Core routes exist for agents, threads, messages, skills, memories, artifacts, tools, and safety profiles.
 - Run Ledger v0.1 adds runs, run events, evidence records, proof gates, and approval decisions.
-- Captain Mode models supervised agentic work with prompt queues, bounded minions, evidence, hard gates, human review, and scoped commits.
+- Captain Mode v0.2 adds a deterministic state machine with prompt queues, bounded minions, evidence requirements, proof gates, human approval, and safe continuation.
 - The minimal web cockpit exists.
 - The minimal Tauri shell is verified with `cargo check`.
 
@@ -68,6 +68,8 @@ curl -s -i http://127.0.0.1:8123/api/marius/workbench/threads/<thread_id>/messag
 ```
 
 Workbench runtime JSON stays ignored under `_mctable/workbench/`.
+
+Captain Mode state machine smoke commands are documented in [docs/captain_mode.md](docs/captain_mode.md).
 
 ## Tauri shell status
 
