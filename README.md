@@ -43,6 +43,10 @@ Open the cockpit at:
 http://127.0.0.1:8000/web/mctable-studio/cockpit.html
 ```
 
+## Showcase cockpit
+
+The cockpit is a Hermes-style operator workspace with a toggleable sample run for screenshots and short demos. Sample mode is labeled `Sample UI data — not executed.` and does not trigger worker launches or mutate backend state.
+
 ## Tauri shell status
 
 The Tauri shell is a thin local wrapper around the cockpit. It does not add workflow logic or agent launch paths. See [docs/marius_desktop_tauri.md](docs/marius_desktop_tauri.md).
@@ -54,4 +58,3 @@ The Tauri shell is a thin local wrapper around the cockpit. It does not add work
 - No live trading.
 - No fabricated screenshots or adoption claims.
 - No public production-readiness claim.
-

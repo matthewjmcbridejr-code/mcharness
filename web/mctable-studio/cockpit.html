@@ -4,104 +4,140 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>McHarness Cockpit</title>
-  <meta name="description" content="Local McHarness cockpit for the real /api/marius backend." />
+  <meta name="description" content="McHarness agentic harness cockpit for supervised AI work." />
   <style>
     :root {
-      color-scheme: dark;
-      --bg: #07111f;
-      --panel: #0e1a2b;
-      --panel-2: #132238;
-      --line: rgba(130, 165, 206, 0.18);
-      --text: #e8f0fb;
-      --muted: #9db0c8;
-      --faint: #6f86a4;
-      --accent: #57c7ff;
-      --accent-2: #f4b860;
-      --good: #6be675;
-      --warn: #f0c44c;
-      --bad: #ff7b7b;
-      --shadow: 0 18px 60px rgba(0, 0, 0, 0.32);
-      --radius: 16px;
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --panel: rgba(255, 255, 255, 0.92);
+      --panel-strong: rgba(249, 250, 252, 0.98);
+      --line: rgba(33, 52, 89, 0.12);
+      --text: #102033;
+      --muted: #5f6d82;
+      --faint: #7b8799;
+      --accent: #2456ff;
+      --accent-2: #0c9b7a;
+      --accent-3: #8c4bff;
+      --good: #0d8f5d;
+      --warn: #b68100;
+      --bad: #c92b4c;
+      --shadow: 0 18px 48px rgba(27, 44, 79, 0.08);
+      --radius: 18px;
       --radius-sm: 12px;
       --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    *, *::before, *::after { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
     body {
       margin: 0;
-      min-height: 100vh;
       font-family: var(--sans);
       color: var(--text);
       background:
-        radial-gradient(circle at top left, rgba(87, 199, 255, 0.15), transparent 30%),
-        radial-gradient(circle at top right, rgba(244, 184, 96, 0.12), transparent 26%),
-        linear-gradient(180deg, #06101d 0%, var(--bg) 42%, #050b15 100%);
+        radial-gradient(circle at top left, rgba(36, 86, 255, 0.10), transparent 28%),
+        radial-gradient(circle at top right, rgba(12, 155, 122, 0.08), transparent 24%),
+        linear-gradient(180deg, #eef2f8 0%, #f7f8fc 28%, var(--bg) 100%);
     }
+    button, input, select, textarea { font: inherit; color: inherit; }
     a { color: var(--accent); }
-    button, input, select, textarea {
-      font: inherit;
-      color: inherit;
-    }
-    .shell {
-      max-width: 1440px;
-      margin: 0 auto;
-      padding: 24px;
-    }
-    .hero {
+    h1, h2, h3, p { margin: 0; }
+    .app-shell {
+      min-height: 100vh;
       display: grid;
-      gap: 18px;
-      grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.9fr);
-      align-items: stretch;
-      margin-bottom: 20px;
+      grid-template-rows: auto 1fr auto;
     }
-    .panel {
-      border: 1px solid var(--line);
-      background: linear-gradient(180deg, rgba(19, 34, 56, 0.95), rgba(9, 16, 28, 0.98));
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      overflow: hidden;
-    }
-    .hero-card {
-      padding: 24px;
-    }
-    .eyebrow {
-      color: var(--accent-2);
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      font-size: 0.72rem;
-      font-weight: 700;
-      margin-bottom: 12px;
-    }
-    h1, h2, h3, h4, p { margin: 0; }
-    h1 {
-      font-size: clamp(2rem, 3vw, 3.15rem);
-      line-height: 1;
-      max-width: 11ch;
-      margin-bottom: 12px;
-    }
-    .lede {
-      max-width: 70ch;
-      color: var(--muted);
-      font-size: 0.98rem;
-      line-height: 1.6;
-    }
-    .status-strip {
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
       display: flex;
       flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(246, 248, 252, 0.85);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.75) inset;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 220px;
+    }
+    .brand-mark {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      background:
+        linear-gradient(135deg, rgba(36, 86, 255, 0.95), rgba(140, 75, 255, 0.92));
+      box-shadow: 0 10px 22px rgba(36, 86, 255, 0.22);
+      position: relative;
+      flex: none;
+    }
+    .brand-mark::after {
+      content: "";
+      position: absolute;
+      inset: 10px;
+      border-radius: 8px;
+      border: 2px solid rgba(255,255,255,0.82);
+    }
+    .brand-title {
+      display: grid;
+      gap: 2px;
+    }
+    .brand-title strong {
+      font-size: 1rem;
+      letter-spacing: 0.01em;
+    }
+    .brand-title span {
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+    .top-actions {
+      display: flex;
+      align-items: center;
       gap: 10px;
-      margin-top: 18px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.82);
+      color: var(--text);
+      border-radius: 11px;
+      padding: 9px 13px;
+      cursor: pointer;
+      box-shadow: 0 1px 0 rgba(255,255,255,0.7) inset;
+    }
+    .btn:hover { border-color: rgba(36, 86, 255, 0.28); }
+    .btn.primary {
+      background: linear-gradient(180deg, rgba(36, 86, 255, 0.95), rgba(36, 86, 255, 0.84));
+      color: white;
+      border-color: transparent;
+    }
+    .btn.ghost {
+      background: transparent;
+    }
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-left: auto;
     }
     .chip {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.03);
+      padding: 7px 11px;
       border-radius: 999px;
-      padding: 8px 12px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.88);
+      font-size: 0.81rem;
       color: var(--muted);
-      font-size: 0.88rem;
+      max-width: 100%;
+      overflow-wrap: anywhere;
     }
     .chip strong { color: var(--text); }
     .chip .dot {
@@ -109,384 +145,347 @@
       height: 8px;
       border-radius: 50%;
       background: var(--muted);
-      box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.03);
+      flex: none;
     }
     .chip.good .dot { background: var(--good); }
     .chip.warn .dot { background: var(--warn); }
     .chip.bad .dot { background: var(--bad); }
-    .meta-grid {
-      display: grid;
-      gap: 12px;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      padding: 18px;
-    }
-    .meta-box {
-      padding: 14px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.03);
-    }
-    .meta-box .label {
-      color: var(--faint);
-      text-transform: uppercase;
-      letter-spacing: 0.14em;
-      font-size: 0.68rem;
-      margin-bottom: 6px;
-    }
-    .meta-box .value {
-      font-size: 1rem;
-      line-height: 1.35;
-      overflow-wrap: anywhere;
-      word-break: break-word;
-    }
-    .target-value {
+    .chip.mono { font-family: var(--mono); }
+    .backend-target {
+      max-width: 30vw;
       font-family: var(--mono);
-      font-size: 0.88rem;
+      font-size: 0.78rem;
     }
-    .layout {
+    .workspace {
       display: grid;
-      gap: 18px;
-      grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.3fr);
+      grid-template-columns: 300px minmax(0, 1fr) 340px;
+      gap: 16px;
+      padding: 16px;
       align-items: start;
     }
-    .stack {
+    .rail, .thread, .inspector {
       display: grid;
-      gap: 18px;
+      gap: 12px;
+      align-content: start;
+      min-width: 0;
     }
-    .section {
-      padding: 18px;
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: linear-gradient(180deg, var(--panel), var(--panel-strong));
+      box-shadow: var(--shadow);
+      overflow: hidden;
     }
+    .section { padding: 14px; }
     .section-head {
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 14px;
+      align-items: start;
+      gap: 10px;
+      margin-bottom: 12px;
     }
     .section-head h2 {
-      font-size: 1.02rem;
+      font-size: 0.96rem;
       letter-spacing: 0.01em;
     }
-    .section-head small { color: var(--muted); }
-    .button-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
+    .section-head small { color: var(--muted); line-height: 1.45; }
+    .section-note {
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.5;
     }
-    .btn {
-      border: 1px solid var(--line);
-      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+    .sample-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(36, 86, 255, 0.18);
+      background: rgba(36, 86, 255, 0.08);
+      color: #2346a6;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      white-space: nowrap;
+    }
+    .sample-banner {
+      border-radius: 16px;
+      padding: 12px 14px;
+      border: 1px solid rgba(140, 75, 255, 0.20);
+      background: linear-gradient(135deg, rgba(140, 75, 255, 0.10), rgba(36, 86, 255, 0.08));
       color: var(--text);
-      border-radius: 11px;
-      padding: 10px 14px;
-      cursor: pointer;
-      transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+      font-size: 0.86rem;
+      line-height: 1.45;
     }
-    .btn:hover { transform: translateY(-1px); border-color: rgba(87, 199, 255, 0.38); }
-    .btn.primary {
-      background: linear-gradient(180deg, rgba(87, 199, 255, 0.24), rgba(87, 199, 255, 0.08));
-      border-color: rgba(87, 199, 255, 0.32);
+    .sample-banner strong { display: block; margin-bottom: 4px; }
+    .stack { display: grid; gap: 12px; }
+    .nav-list, .list {
+      display: grid;
+      gap: 8px;
     }
-    .btn.good {
-      background: linear-gradient(180deg, rgba(107, 230, 117, 0.22), rgba(107, 230, 117, 0.08));
-      border-color: rgba(107, 230, 117, 0.35);
+    .nav-item, .list-item {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.86);
+      border-radius: 14px;
+      padding: 11px 12px;
+      text-align: left;
     }
-    .btn.bad {
-      background: linear-gradient(180deg, rgba(255, 123, 123, 0.22), rgba(255, 123, 123, 0.08));
-      border-color: rgba(255, 123, 123, 0.35);
+    .nav-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
     }
-    .btn.secondary {
-      background: rgba(255,255,255,0.03);
+    .nav-item strong, .list-item strong { font-size: 0.92rem; }
+    .nav-item span, .list-item span { color: var(--muted); font-size: 0.8rem; }
+    .nav-item.active, .list-item.active {
+      border-color: rgba(36, 86, 255, 0.28);
+      background: rgba(36, 86, 255, 0.07);
+    }
+    .mini-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .mini-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.74);
+      padding: 9px 11px;
+      font-size: 0.84rem;
+    }
+    .mini-row .label { color: var(--muted); }
+    .mini-row .value { font-family: var(--mono); color: var(--text); overflow-wrap:anywhere; }
+    .thread-panel {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: calc(100vh - 96px);
+    }
+    .thread-header {
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.82), rgba(255,255,255,0.72));
+    }
+    .thread-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: start;
+      flex-wrap: wrap;
+    }
+    .thread-title h1 {
+      font-size: clamp(1.5rem, 2.3vw, 2.2rem);
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+    }
+    .thread-title p {
+      color: var(--muted);
+      line-height: 1.55;
+      margin-top: 8px;
+      max-width: 70ch;
+    }
+    .thread-body {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      align-content: start;
+    }
+    .bubble {
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.84);
+      border-radius: 16px;
+      padding: 14px 16px;
+      box-shadow: 0 1px 0 rgba(255,255,255,0.7) inset;
+    }
+    .bubble.operator { border-left: 4px solid var(--accent); }
+    .bubble.captain { border-left: 4px solid var(--accent-2); }
+    .bubble.minion { border-left: 4px solid var(--accent-3); }
+    .bubble.evidence { border-left: 4px solid var(--good); }
+    .bubble.gate { border-left: 4px solid var(--warn); }
+    .bubble.approval { border-left: 4px solid var(--bad); }
+    .bubble .role {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 0.69rem;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .bubble .body {
+      white-space: pre-wrap;
+      line-height: 1.6;
+      color: var(--text);
+      word-break: break-word;
+    }
+    .bubble .meta {
+      margin-top: 10px;
+      color: var(--faint);
+      font-size: 0.78rem;
+      font-family: var(--mono);
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .empty-state {
+      border: 1px dashed rgba(95, 109, 130, 0.25);
+      background: rgba(255,255,255,0.66);
+      border-radius: 16px;
+      padding: 16px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .composer {
+      position: sticky;
+      bottom: 0;
+      z-index: 9;
+      border-top: 1px solid var(--line);
+      background: rgba(246, 248, 252, 0.92);
+      backdrop-filter: blur(12px);
+    }
+    .composer-inner {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 14px 16px 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: end;
+    }
+    .composer-field {
+      display: grid;
+      gap: 8px;
+    }
+    .composer-field label {
+      color: var(--muted);
+      font-size: 0.78rem;
+      letter-spacing: 0.03em;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    textarea, input, select {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.92);
+      padding: 10px 12px;
+      outline: none;
+    }
+    textarea { resize: vertical; min-height: 84px; }
+    .hint {
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.45;
     }
     .form-grid {
       display: grid;
-      gap: 12px;
+      gap: 10px;
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+    .field.full { grid-column: 1 / -1; }
     .field {
       display: grid;
       gap: 6px;
     }
-    .field.full { grid-column: 1 / -1; }
     .field label {
       color: var(--muted);
-      font-size: 0.8rem;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-    }
-    .field input, .field select, .field textarea {
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: rgba(4, 10, 19, 0.55);
-      padding: 11px 12px;
-      outline: none;
-    }
-    .field input[readonly] {
-      color: var(--muted);
-      cursor: not-allowed;
-    }
-    .field textarea {
-      resize: vertical;
-      min-height: 92px;
-    }
-    .hint {
-      color: var(--faint);
-      font-size: 0.82rem;
-      line-height: 1.45;
-    }
-    .hint code, .mono {
-      font-family: var(--mono);
-      font-size: 0.88em;
-    }
-    .cards {
-      display: grid;
-      gap: 12px;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    }
-    .card {
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: rgba(255, 255, 255, 0.03);
-      padding: 14px;
-    }
-    .card .topline {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      align-items: start;
-      margin-bottom: 10px;
-    }
-    .card .name {
-      font-size: 0.98rem;
-      font-weight: 700;
-    }
-    .card .hint {
-      overflow-wrap: anywhere;
-      word-break: break-word;
-    }
-    .badge {
-      font-size: 0.72rem;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      padding: 5px 8px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      color: var(--muted);
-      white-space: nowrap;
-    }
-    .badge.available, .badge.success { color: var(--good); border-color: rgba(107, 230, 117, 0.3); }
-    .badge.unavailable, .badge.disabled, .badge.failed { color: var(--bad); border-color: rgba(255, 123, 123, 0.3); }
-    .badge.warn, .badge.pending { color: var(--warn); border-color: rgba(240, 196, 76, 0.3); }
-    .task-list {
-      display: grid;
-      gap: 10px;
-      max-height: 420px;
-      overflow: auto;
-      padding-right: 4px;
-    }
-    .task-item {
-      width: 100%;
-      text-align: left;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.03);
-      border-radius: 14px;
-      padding: 12px;
-      cursor: pointer;
-    }
-    .task-item.active {
-      border-color: rgba(87, 199, 255, 0.46);
-      background: rgba(87, 199, 255, 0.08);
-    }
-    .task-item .row {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      align-items: center;
-    }
-    .task-item .title { font-weight: 700; margin-bottom: 5px; }
-    .task-item .sub { color: var(--muted); font-size: 0.86rem; }
-    .task-item .footer {
-      margin-top: 8px;
-      color: var(--faint);
       font-size: 0.78rem;
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
     }
-    .detail-grid {
-      display: grid;
-      gap: 12px;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .detail {
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: rgba(255,255,255,0.03);
+    .muted-box {
       padding: 12px;
-      min-height: 90px;
-    }
-    .detail .label {
-      color: var(--faint);
-      font-size: 0.72rem;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      margin-bottom: 7px;
-    }
-    .detail .value {
-      white-space: pre-wrap;
-      word-break: break-word;
-      line-height: 1.5;
-    }
-    pre {
-      margin: 0;
-      padding: 14px;
       border-radius: 14px;
       border: 1px solid var(--line);
-      background: rgba(4, 10, 19, 0.68);
-      overflow: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
-      font-family: var(--mono);
-      font-size: 0.82rem;
-      line-height: 1.5;
-      min-height: 180px;
-    }
-    .split-2 {
-      display: grid;
-      gap: 14px;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .callout {
-      padding: 12px 14px;
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.03);
-      color: var(--muted);
-      font-size: 0.88rem;
-      line-height: 1.5;
-    }
-    .status-line {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-      margin-top: 8px;
-    }
-    .status-pill {
-      padding: 5px 9px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      font-size: 0.74rem;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      color: var(--muted);
-    }
-    .status-pill.good { color: var(--good); border-color: rgba(107, 230, 117, 0.32); }
-    .status-pill.bad { color: var(--bad); border-color: rgba(255, 123, 123, 0.32); }
-    .status-pill.warn { color: var(--warn); border-color: rgba(240, 196, 76, 0.32); }
-    .status-pill.muted { color: var(--muted); }
-    .footer-note {
-      margin-top: 14px;
-      color: var(--faint);
-      font-size: 0.8rem;
-      line-height: 1.45;
+      background: rgba(255,255,255,0.72);
     }
     .hidden { display: none !important; }
-    @media (max-width: 1100px) {
-      .hero, .layout, .split-2, .detail-grid, .form-grid, .meta-grid { grid-template-columns: 1fr; }
-      .shell { padding: 16px; }
-      h1 { max-width: none; }
+    @media (max-width: 1240px) {
+      .workspace { grid-template-columns: 1fr; }
+      .thread-panel { min-height: auto; }
+    }
+    @media (max-width: 720px) {
+      .topbar, .workspace, .composer-inner { padding-left: 12px; padding-right: 12px; }
+      .composer-inner { grid-template-columns: 1fr; }
+      .brand { min-width: 0; }
+      .backend-target { max-width: none; }
+      .form-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <main class="shell">
-    <section class="hero">
-      <article class="panel hero-card">
-        <div class="eyebrow">Local Cockpit Prototype</div>
-        <h1>McHarness Cockpit</h1>
-        <p class="lede">
-          This page is a thin local operator cockpit over the real <span class="mono">/api/marius</span> backend.
-          It shows the honest backend gaps, uses only fake-worker commands, and never exposes an arbitrary command box.
-        </p>
-        <div class="status-strip" id="status-strip">
-          <span class="chip warn"><span class="dot"></span><strong>Loading</strong> backend status</span>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div class="brand-title">
+          <strong>McHarness</strong>
+          <span>Local-first agentic harness for supervised AI work</span>
         </div>
-      </article>
-      <aside class="panel">
-        <div class="meta-grid">
-          <div class="meta-box">
-            <div class="label">Backend target</div>
-            <div class="value target-value" id="backend-target">Resolving backend target</div>
-          </div>
-          <div class="meta-box">
-            <div class="label">API</div>
-            <div class="value" id="api-state">Checking /api/marius/status</div>
-          </div>
-          <div class="meta-box">
-            <div class="label">Worker</div>
-            <div class="value" id="worker-state">Checking worker runner</div>
-          </div>
-          <div class="meta-box">
-            <div class="label">LangGraph</div>
-            <div class="value" id="langgraph-state">Checking capability surface</div>
-          </div>
-          <div class="meta-box">
-            <div class="label">SQLite checkpointing</div>
-            <div class="value" id="sqlite-state">Checking capability surface</div>
-          </div>
-        </div>
-      </aside>
-    </section>
+      </div>
+      <div class="top-actions">
+        <button class="btn primary" id="show-sample-run" type="button">Show sample run</button>
+        <button class="btn ghost" id="new-run-button" type="button">New run</button>
+      </div>
+      <div class="chips" id="status-chips"></div>
+      <div class="chip backend-target" id="active-backend-target"><span class="dot"></span><strong>Active backend target:</strong> resolving...</div>
+    </header>
 
-    <section class="layout">
-      <div class="stack">
+    <main class="workspace">
+      <aside class="rail">
         <section class="panel section">
           <div class="section-head">
             <div>
-              <h2>Status / Capabilities</h2>
-              <small>Live from <span class="mono">/api/marius/status</span> and <span class="mono">/api/marius/capabilities</span></small>
-            </div>
-            <div class="button-row">
-              <button class="btn secondary" id="refresh-all" type="button">Refresh all</button>
+              <h2>Runs / Agents / Minions</h2>
+              <small>Left rail for quick operator navigation</small>
             </div>
           </div>
-          <div class="cards" id="capabilities-list"></div>
-          <div class="callout" id="capabilities-note">
-            The status chips and capability cards both mirror the live /api/marius/status and /api/marius/capabilities payloads so they stay consistent with backend truth.
+          <div class="muted-box">
+            <div class="section-note">
+              <strong>McHarness</strong> keeps supervised work local-first, proof-gated, and fake-worker-only.
+            </div>
+          </div>
+          <div style="margin-top: 12px;" class="section-note">Pinned sections</div>
+          <div class="nav-list" id="pinned-nav">
+            <div class="nav-item active"><strong>Captain Mode</strong><span>thread</span></div>
+            <div class="nav-item"><strong>Minions</strong><span>bounded</span></div>
+            <div class="nav-item"><strong>Evidence</strong><span>proof</span></div>
+            <div class="nav-item"><strong>Gates</strong><span>human approval</span></div>
+            <div class="nav-item"><strong>Runs</strong><span>worker traces</span></div>
           </div>
         </section>
 
         <section class="panel section">
           <div class="section-head">
             <div>
-              <h2>Create Task</h2>
-              <small>Uses <span class="mono">POST /api/marius/tasks</span>. The command field is a fixed dropdown only.</small>
+              <h2>New run</h2>
+              <small>Fake-worker-only task creation</small>
             </div>
-            <button class="btn secondary" id="regen-task-id" type="button">Generate task id</button>
           </div>
-          <form id="create-task-form">
+          <form id="create-task-form" class="stack">
             <div class="form-grid">
               <div class="field">
-                <label for="task-id">Task ID (generated)</label>
-                <input id="task-id" name="task_id" type="text" readonly />
+                <label for="task-title">Title</label>
+                <input id="task-title" type="text" placeholder="Polish cockpit UI" autocomplete="off" />
               </div>
               <div class="field">
                 <label for="agent-id">Agent ID</label>
-                <input id="agent-id" name="agent_id" type="text" placeholder="agent-1" autocomplete="off" />
-              </div>
-              <div class="field full">
-                <label for="task-title">Title</label>
-                <input id="task-title" name="title" type="text" placeholder="Example: Verify local cockpit" autocomplete="off" />
+                <input id="agent-id" type="text" placeholder="agent-1" autocomplete="off" />
               </div>
               <div class="field full">
                 <label for="task-description">Description</label>
-                <textarea id="task-description" name="description" placeholder="Describe the work the fake worker should simulate"></textarea>
+                <textarea id="task-description" placeholder="Describe the supervised work to simulate"></textarea>
               </div>
               <div class="field full">
                 <label for="command">Command</label>
-                <select id="command" name="command">
+                <select id="command">
                   <option value="fake-worker-success">fake-worker-success</option>
                   <option value="fake-worker-fail">fake-worker-fail</option>
                   <option value="fake-worker-sleep">fake-worker-sleep</option>
@@ -494,81 +493,123 @@
                 <div class="hint">No arbitrary command input. The backend only accepts allowlisted fake-worker commands here.</div>
               </div>
             </div>
-            <div class="button-row" style="margin-top: 14px;">
-              <button class="btn primary" type="submit">Create Task</button>
-              <span class="hint">The cockpit sends the live request and then refreshes the task list.</span>
+            <div class="top-actions">
+              <button class="btn primary" type="submit">Create run</button>
+              <span class="hint">Sends <span class="mono">POST /api/marius/tasks</span>.</span>
             </div>
           </form>
         </section>
-      </div>
 
-      <div class="stack">
         <section class="panel section">
           <div class="section-head">
             <div>
-              <h2>Tasks</h2>
-              <small>Loaded from <span class="mono">GET /api/marius/tasks</span></small>
+              <h2>Runs</h2>
+              <small>Live tasks and sample demo runs</small>
             </div>
-            <button class="btn secondary" id="refresh-tasks" type="button">Refresh tasks</button>
           </div>
-          <div class="task-list" id="tasks-list"></div>
+          <div class="list" id="run-list"></div>
         </section>
 
         <section class="panel section">
           <div class="section-head">
             <div>
-              <h2>Task Details</h2>
-              <small>Current step, proof, worker run, and recovery hint</small>
+              <h2>Agents / Minions</h2>
+              <small>Bounded crew for the current thread</small>
             </div>
           </div>
-          <div class="detail-grid" id="task-details">
-            <div class="detail"><div class="label">Current step</div><div class="value" id="detail-step">Select a task</div></div>
-            <div class="detail"><div class="label">Status</div><div class="value" id="detail-status">Select a task</div></div>
-            <div class="detail"><div class="label">Proof status</div><div class="value" id="detail-proof">Select a task</div></div>
-            <div class="detail"><div class="label">Worker run id</div><div class="value" id="detail-run-id">Select a task</div></div>
-            <div class="detail full" style="grid-column: 1 / -1;">
-              <div class="label">Recovery hint</div>
-              <div class="value" id="detail-hint">Select a task</div>
-            </div>
-          </div>
+          <div class="mini-list" id="left-minion-list"></div>
         </section>
 
         <section class="panel section">
           <div class="section-head">
             <div>
-              <h2>Runs / Logs</h2>
-              <small>Reads persisted run data from <span class="mono">/api/marius/worker-runs/{run_id}</span> and <span class="mono">/logs</span></small>
-            </div>
-            <button class="btn secondary" id="refresh-run" type="button">Refresh run</button>
-          </div>
-          <div class="split-2">
-            <div class="detail">
-              <div class="label">Run status</div>
-              <div class="value" id="run-status">No run selected</div>
-              <div class="status-line" id="run-pills"></div>
-            </div>
-            <div class="detail">
-              <div class="label">Persisted logs</div>
-              <div class="value" id="run-meta">No run selected</div>
+              <h2>Sample run list</h2>
+              <small>Demo-only entries for screenshots</small>
             </div>
           </div>
-          <div style="margin-top: 14px;">
-            <pre id="run-logs">Select a task with a worker run to load persisted logs.</pre>
+          <div class="list" id="sample-run-list"></div>
+        </section>
+      </aside>
+
+      <section class="thread panel thread-panel">
+        <div class="thread-header">
+          <div class="thread-title">
+            <div>
+              <h1>Captain thread / worklog</h1>
+              <p>Operator instruction, Captain plan, minion assignment, evidence result, proof gate, human approval checkpoint, and scoped commits live in one thread. This is an agentic harness, not a chatbot.</p>
+            </div>
+            <div class="sample-badge" id="thread-sample-badge">Live thread</div>
           </div>
+          <div class="section-note" style="margin-top: 10px;" id="thread-summary">
+            Live mode follows the backend. Sample mode shows a complete story when you need a screenshot narrative.
+          </div>
+        </div>
+        <div class="thread-body" id="thread-body"></div>
+      </section>
+
+      <aside class="inspector">
+        <section class="panel section">
+          <div class="section-head">
+            <div>
+              <h2>Prompt Queue</h2>
+              <small>Current planning queue</small>
+            </div>
+          </div>
+          <div class="list" id="prompt-queue-list"></div>
         </section>
 
         <section class="panel section">
           <div class="section-head">
             <div>
-              <h2>Approval Panel</h2>
-              <small>Posts to <span class="mono">/api/marius/tasks/{task_id}/decision</span></small>
+              <h2>Bounded Minions</h2>
+              <small>Scoped work, not autonomous launch</small>
             </div>
           </div>
-          <form id="approval-form">
+          <div class="list" id="minion-list"></div>
+        </section>
+
+        <section class="panel section">
+          <div class="section-head">
+            <div>
+              <h2>Evidence</h2>
+              <small>Proof records before action</small>
+            </div>
+          </div>
+          <div class="list" id="evidence-list"></div>
+        </section>
+
+        <section class="panel section">
+          <div class="section-head">
+            <div>
+              <h2>Proof Gates</h2>
+              <small>Human approval checkpoints</small>
+            </div>
+          </div>
+          <div class="list" id="gate-list"></div>
+        </section>
+
+        <section class="panel section">
+          <div class="section-head">
+            <div>
+              <h2>Safety Rail</h2>
+              <small>Local-only, fake-worker-only, no shell execution</small>
+            </div>
+          </div>
+          <div class="mini-list" id="safety-list"></div>
+        </section>
+
+        <section class="panel section">
+          <div class="section-head">
+            <div>
+              <h2>Human approval</h2>
+              <small>Decision checkpoint for live tasks</small>
+            </div>
+          </div>
+          <form id="approval-form" class="stack">
             <div class="form-grid">
               <div class="field">
                 <label for="decision">Decision</label>
-                <select id="decision" name="decision">
+                <select id="decision">
                   <option value="approve">approve</option>
                   <option value="reject">reject</option>
                   <option value="edit_state">edit_state</option>
@@ -576,197 +617,119 @@
               </div>
               <div class="field">
                 <label for="actor">Actor</label>
-                <input id="actor" name="actor" type="text" value="operator" autocomplete="off" />
+                <input id="actor" type="text" value="operator" autocomplete="off" />
               </div>
               <div class="field full">
                 <label for="reviewer-note">Reviewer note</label>
-                <textarea id="reviewer-note" name="reviewer_note" placeholder="Optional note for approve/reject decisions"></textarea>
-              </div>
-              <div class="field full">
-                <label for="state-patch">State patch JSON</label>
-                <textarea id="state-patch" name="state_patch" spellcheck="false">{}</textarea>
-                <div class="hint">Used only for <span class="mono">edit_state</span>. The UI does not invent task state; it only sends what you type.</div>
+                <textarea id="reviewer-note" placeholder="Optional note for the checkpoint"></textarea>
               </div>
             </div>
-            <div class="button-row" style="margin-top: 14px;">
-              <button class="btn good" type="submit">Submit Decision</button>
+            <div class="top-actions">
+              <button class="btn" id="submit-decision" type="submit">Submit decision</button>
               <span class="hint" id="approval-target">No task selected yet.</span>
             </div>
           </form>
         </section>
-      </div>
-    </section>
+      </aside>
+    </main>
 
-    <section class="panel section" style="margin-top: 18px;">
-      <div class="section-head">
+    <section class="composer">
+      <div class="composer-inner">
+        <div class="composer-field">
+          <label for="instruction-input">Instruction composer</label>
+          <textarea id="instruction-input" placeholder="Tell Captain what to plan next..."></textarea>
+          <div class="hint">Instructions are recorded as supervised planning input. No arbitrary shell execution.</div>
+        </div>
         <div>
-          <h2>Captain Mode</h2>
-          <small>Captain Mode models supervised work. Real external agent launch is disabled.</small>
+          <button class="btn primary" id="record-instruction" type="button">Record instruction</button>
         </div>
-        <button class="btn secondary" id="refresh-captain" type="button">Refresh Captain</button>
-      </div>
-      <div class="split-2">
-        <div class="callout">
-          <strong>Templates</strong>
-          <p id="captain-template-status" style="margin-top: 6px;">Loading Captain templates from <span class="mono">/api/marius/captain/templates</span>...</p>
-          <div class="field" style="margin-top: 12px;">
-            <label for="captain-template-select">Built-in template</label>
-            <select id="captain-template-select">
-              <option value="">Loading templates...</option>
-            </select>
-            <div class="hint">Creates a CaptainRun from JSON only. No commands are executed here.</div>
-          </div>
-          <div class="button-row" style="margin-top: 12px;">
-            <button class="btn secondary" id="refresh-captain-templates" type="button">Refresh templates</button>
-            <button class="btn primary" id="create-captain-run" type="button">Create run from template</button>
-          </div>
-        </div>
-        <div class="callout">
-          <strong>Selected template preview</strong>
-          <div id="captain-template-preview" style="margin-top: 8px; white-space: pre-wrap;">No template selected yet.</div>
-        </div>
-      </div>
-      <div class="callout" id="captain-empty">
-        No CaptainRun exists yet. This panel will stay empty until the local API creates one.
-      </div>
-      <div class="field" style="margin-top: 12px;">
-        <label for="captain-run-select">Captain run</label>
-        <select id="captain-run-select">
-          <option value="">No CaptainRun loaded</option>
-        </select>
-      </div>
-      <div class="detail-grid" id="captain-details" style="margin-top: 12px;">
-        <div class="detail"><div class="label">Sprint goal</div><div class="value" id="captain-goal">No CaptainRun exists yet.</div></div>
-        <div class="detail"><div class="label">Prompt queue</div><div class="value" id="captain-prompt-queue">No CaptainRun exists yet.</div></div>
-        <div class="detail"><div class="label">Minion tasks</div><div class="value" id="captain-minions">No CaptainRun exists yet.</div></div>
-        <div class="detail"><div class="label">Evidence records</div><div class="value" id="captain-evidence">No CaptainRun exists yet.</div></div>
-        <div class="detail"><div class="label">Hard gates</div><div class="value" id="captain-gates">No CaptainRun exists yet.</div></div>
-        <div class="detail"><div class="label">Scoped commit plan</div><div class="value" id="captain-commit-plan">No CaptainRun exists yet.</div></div>
-        <div class="detail" style="grid-column: 1 / -1;"><div class="label">Next action</div><div class="value" id="captain-next-action">No CaptainRun exists yet.</div></div>
-      </div>
-      <div class="split-2" style="margin-top: 12px;">
-        <div class="callout">
-          <strong>Manual evidence</strong>
-          <div class="field" style="margin-top: 12px;">
-            <label for="captain-evidence-kind">Kind</label>
-            <input id="captain-evidence-kind" type="text" placeholder="manual_observation" />
-          </div>
-          <div class="field" style="margin-top: 10px;">
-            <label for="captain-evidence-summary">Summary</label>
-            <input id="captain-evidence-summary" type="text" placeholder="What happened during the sprint?" />
-          </div>
-          <div class="field" style="margin-top: 10px;">
-            <label for="captain-evidence-status">Status</label>
-            <input id="captain-evidence-status" type="text" placeholder="recorded" />
-          </div>
-          <div class="field" style="margin-top: 10px;">
-            <label for="captain-evidence-command-text">Command text only</label>
-            <textarea id="captain-evidence-command-text" placeholder="Optional command text as evidence only, never executed."></textarea>
-            <div class="hint">This text is stored as evidence only. It never runs.</div>
-          </div>
-          <div class="field" style="margin-top: 10px;">
-            <label for="captain-evidence-details">Details</label>
-            <textarea id="captain-evidence-details" placeholder="Optional supporting detail"></textarea>
-          </div>
-          <div class="button-row" style="margin-top: 10px;">
-            <button class="btn good" id="submit-captain-evidence" type="button">Record evidence</button>
-            <span class="hint" id="captain-evidence-target">Select a Captain run first.</span>
-          </div>
-        </div>
-        <div class="callout">
-          <strong>Hard gate</strong>
-          <div class="field" style="margin-top: 12px;">
-            <label for="captain-gate-kind">Kind</label>
-            <input id="captain-gate-kind" type="text" placeholder="manual_review" />
-          </div>
-          <div class="field" style="margin-top: 10px;">
-            <label for="captain-gate-reason">Reason</label>
-            <textarea id="captain-gate-reason" placeholder="Why the hard gate was triggered"></textarea>
-          </div>
-          <div class="field" style="margin-top: 10px;">
-            <label for="captain-gate-triggered-by">Triggered by</label>
-            <input id="captain-gate-triggered-by" type="text" value="operator" />
-          </div>
-          <div class="button-row" style="margin-top: 10px;">
-            <button class="btn bad" id="submit-captain-gate" type="button">Trigger hard gate</button>
-            <span class="hint" id="captain-gate-target">Select a Captain run first.</span>
-          </div>
-        </div>
-      </div>
-      <div class="callout" style="margin-top: 12px;">
-        <strong>Gate decision</strong>
-        <div class="field" style="margin-top: 12px;">
-          <label for="captain-gate-select">Gate</label>
-          <select id="captain-gate-select">
-            <option value="">No gate selected</option>
-          </select>
-        </div>
-        <div class="split-2" style="margin-top: 10px;">
-          <div class="field">
-            <label for="captain-gate-decision">Decision</label>
-            <select id="captain-gate-decision">
-              <option value="approve">approve</option>
-              <option value="reject">reject</option>
-              <option value="edit_state">edit_state</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="captain-gate-actor">Actor</label>
-            <input id="captain-gate-actor" type="text" value="operator" />
-          </div>
-        </div>
-        <div class="field" style="margin-top: 10px;">
-          <label for="captain-gate-note">Reviewer note</label>
-          <textarea id="captain-gate-note" placeholder="Optional note for the gate decision"></textarea>
-        </div>
-        <div class="button-row" style="margin-top: 10px;">
-          <button class="btn secondary" id="submit-captain-gate-decision" type="button">Record gate decision</button>
-          <span class="hint" id="captain-gate-decision-target">Select a Captain run and gate first.</span>
-        </div>
-      </div>
-      <div class="callout" id="captain-safety" style="margin-top: 12px;">
-        Safety status: local-only, no real agent launch, no arbitrary command execution, and planned acceptance commands are stored as text only.
       </div>
     </section>
-
-    <section class="panel section" style="margin-top: 18px;">
-      <div class="section-head">
-        <div>
-          <h2>Safety Panel</h2>
-          <small>Prototype guardrails and backend truth</small>
-        </div>
-      </div>
-      <div class="cards" id="safety-cards">
-        <div class="card"><div class="topline"><div class="name">No public worker launch</div><span class="badge unavailable">disabled</span></div><div class="hint">There is no public launch UI and no arbitrary worker execution path in this cockpit.</div></div>
-        <div class="card"><div class="topline"><div class="name">Fake-worker-only</div><span class="badge available">allowed</span></div><div class="hint">The command dropdown only exposes <span class="mono">fake-worker-success</span>, <span class="mono">fake-worker-fail</span>, and <span class="mono">fake-worker-sleep</span>.</div></div>
-        <div class="card"><div class="topline"><div class="name">No shell=True</div><span class="badge available">verified</span></div><div class="hint">The worker runner uses the existing allowlisted subprocess path and does not expose a shell command box.</div></div>
-        <div class="card"><div class="topline"><div class="name">MCP local-only</div><span class="badge available">verified</span></div><div class="hint">The MCP layer is local and stdio-scoped, not a remote public interface.</div></div>
-        <div class="card"><div class="topline"><div class="name">Real agents disabled</div><span class="badge unavailable">blocked</span></div><div class="hint">AGY, Grok, Codex, and Claude are not launched from this cockpit.</div></div>
-        <div class="card"><div class="topline"><div class="name">Honest backend gaps</div><span class="badge warn">visible</span></div><div class="hint">Live API status can show LangGraph and SQLite checkpointing as unavailable when the backend really reports that state. The cockpit mirrors the payload instead of hiding it.</div></div>
-        <div class="card"><div class="topline"><div class="name">Captain Mode</div><span class="badge available">ready</span></div><div class="hint">Captain Mode stores prompt queues, minion tasks, evidence records, hard gates, and next actions through <span class="mono">/api/marius/captain/runs</span>. Planned acceptance commands are text only, and there is no real agent launch button.</div></div>
-      </div>
-      <div class="footer-note" id="safety-status">
-        This prototype is deliberately thin: it renders the live backend state, persists nothing itself, and avoids any hidden mock data.
-      </div>
-    </section>
-  </main>
+  </div>
 
   <script>
-    const DEFAULT_BACKEND_URL = "http://127.0.0.1:8000";
-    const SAFE_TUNNEL_HOST_SUFFIXES = [
-      "ngrok-free.app",
-      "trycloudflare.com",
-      "loca.lt",
-      "localtunnel.me",
-    ];
+    const DEFAULT_TAURI_BACKEND = "http://127.0.0.1:8000";
+    const SAMPLE_LABEL = "Sample UI data — not executed.";
+    const SAFE_BACKEND_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
-    function isAllowedBackendUrl(rawValue) {
+    const SAMPLE = {
+      runs: [
+        { task_id: "sample-ui-01", title: "Polish cockpit UI", status: "paused", proof_status: "needs_review", current_step: "human_review_gate" },
+        { task_id: "sample-ui-02", title: "Debug failing test", status: "running", proof_status: "pending", current_step: "bounded_minion_review" },
+        { task_id: "sample-ui-03", title: "Ship release notes", status: "queued", proof_status: "not_required", current_step: "prompt_queue" },
+        { task_id: "sample-ui-04", title: "Review provider adapter", status: "completed", proof_status: "approved", current_step: "scoped_commit" },
+      ],
+      minions: [
+        { label: "UI Inspector", value: "bounded / design-safe" },
+        { label: "Safety Auditor", value: "verifies no real launch" },
+        { label: "Test Runner", value: "checks static proofs" },
+      ],
+      promptQueue: [
+        "Audit current cockpit",
+        "Replace layout with operator workspace",
+        "Verify safety copy",
+        "Capture screenshot",
+      ],
+      evidence: [
+        "Static cockpit tests passed",
+        "Backend verifier passed",
+        "No real agent launch controls",
+        "No arbitrary command input",
+      ],
+      gates: [
+        "Human must approve before README screenshot update",
+      ],
+      thread: [
+        { role: "operator", label: "Operator instruction", body: "Please turn the cockpit into a polished operator workspace for the public export." },
+        { role: "captain", label: "Captain plan", body: "I will keep the backend unchanged, split the interface into rails, and preserve fake-worker-only task creation." },
+        { role: "minion", label: "Minion assignment", body: "UI Inspector reviews hierarchy. Safety Auditor checks launch controls and shell execution. Test Runner verifies static proofs." },
+        { role: "evidence", label: "Evidence result", body: "Static cockpit checks pass and the UI tells the truth about local-first safety." },
+        { role: "gate", label: "Proof gate", body: "Human approval required before the showcase update is finalized." },
+        { role: "approval", label: "Human approval checkpoint", body: "approve / reject / edit_state remains the only workflow decision surface." },
+        { role: "captain", label: "Scoped commit summary", body: "Scoped UI changes only; no backend behavior changes." },
+      ],
+      safety: [
+        ["Real external agent launch", "disabled"],
+        ["Arbitrary shell execution", "disabled"],
+        ["Fake-worker-only current RC", "enabled"],
+        ["Local MCP", "local-only"],
+        ["No shell execution", "verified"],
+      ],
+      captain: {
+        objective: "Polish cockpit UI for public demo",
+        status: "active",
+        prompt_queue: SAMPLE_LABEL,
+        minion_tasks: SAMPLE_LABEL,
+        evidence_records: SAMPLE_LABEL,
+        hard_gates: SAMPLE_LABEL,
+        scoped_commit_plan: SAMPLE_LABEL,
+        next_action: "Wait for human approval before updating public docs.",
+      },
+    };
+
+    const state = {
+      status: null,
+      capabilities: [],
+      tasks: [],
+      captainRuns: [],
+      selectedTaskId: null,
+      selectedCaptainRunId: null,
+      selectedWorkerRunId: null,
+      instructionLog: [],
+      sampleMode: new URLSearchParams(window.location.search).get("sample") === "1",
+      backendTarget: null,
+    };
+
+    const $ = (id) => document.getElementById(id);
+    const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    })[c]);
+
+    function isSafeLocalBackend(rawValue) {
       try {
         const url = new URL(rawValue);
         if (!["http:", "https:"].includes(url.protocol)) return false;
-        const host = url.hostname.toLowerCase();
-        if (host === "127.0.0.1" || host === "localhost" || host === "::1") return true;
-        return SAFE_TUNNEL_HOST_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`));
+        return SAFE_BACKEND_HOSTS.has(url.hostname);
       } catch {
         return false;
       }
@@ -774,58 +737,24 @@
 
     function resolveBackendUrl() {
       const params = new URLSearchParams(window.location.search);
-      const candidates = [
-        params.get("backend"),
-        params.get("api"),
-        window.localStorage.getItem("mariusDesktopBackendUrl"),
-        DEFAULT_BACKEND_URL,
-      ];
-
-      for (const candidate of candidates) {
-        if (candidate && isAllowedBackendUrl(candidate)) {
-          const normalized = candidate.replace(/\/$/, "");
-          try {
-            window.localStorage.setItem("mariusDesktopBackendUrl", normalized);
-          } catch {
-            /* localStorage may be unavailable in some shells */
-          }
-          return normalized;
-        }
+      const override = params.get("backend") || params.get("api") || window.localStorage.getItem("mariusDesktopBackendUrl");
+      const browserMode = window.location.protocol !== "file:" && window.location.origin && window.location.origin !== "null";
+      if (browserMode && !override) {
+        return window.location.origin.replace(/\/$/, "");
       }
-
-      return DEFAULT_BACKEND_URL;
+      if (override && isSafeLocalBackend(override)) {
+        const normalized = override.replace(/\/$/, "");
+        try { window.localStorage.setItem("mariusDesktopBackendUrl", normalized); } catch {}
+        return normalized;
+      }
+      if (browserMode) {
+        return window.location.origin.replace(/\/$/, "");
+      }
+      return DEFAULT_TAURI_BACKEND.replace(/\/$/, "");
     }
 
     const API_BASE = resolveBackendUrl();
-
-    const commandOptions = ["fake-worker-success", "fake-worker-fail", "fake-worker-sleep"];
-    const state = {
-      capabilities: [],
-      status: null,
-      tasks: [],
-      captainTemplates: [],
-      captainTemplatesError: null,
-      captainRuns: [],
-      backendTarget: API_BASE,
-      selectedTaskId: null,
-      selectedRunId: null,
-      selectedTask: null,
-      selectedRun: null,
-      selectedCaptainTemplateId: null,
-      selectedCaptainTemplate: null,
-      selectedCaptainRunId: null,
-      selectedCaptainRun: null,
-      selectedCaptainGateId: null,
-    };
-
-    const el = (id) => document.getElementById(id);
-    const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    })[c]);
+    state.backendTarget = API_BASE;
 
     function apiUrl(path) {
       return `${API_BASE}${path}`;
@@ -839,701 +768,399 @@
       const text = await response.text();
       let payload = null;
       if (text) {
-        try {
-          payload = JSON.parse(text);
-        } catch {
-          payload = text;
-        }
+        try { payload = JSON.parse(text); } catch { payload = text; }
       }
       if (!response.ok) {
-        const message = payload && typeof payload === "object" ? JSON.stringify(payload) : String(payload || response.statusText);
-        throw new Error(message);
+        const detail = payload && typeof payload === "object" ? JSON.stringify(payload) : String(payload || response.statusText);
+        throw new Error(detail);
       }
       return payload;
     }
 
-    function statusBadgeClass(status) {
-      if (["available", "success", "approved", "completed", "active"].includes(status)) return "good";
-      if (["unavailable", "disabled", "failed", "blocked", "rejected"].includes(status)) return "bad";
-      if (["pending", "needs_review", "paused", "running", "warn"].includes(status)) return "warn";
+    function statusClass(value) {
+      if (["online", "available", "approved", "completed", "enabled", "local-only", "fake-worker-only", "success"].includes(value)) return "good";
+      if (["offline", "unavailable", "disabled", "blocked", "failed", "rejected"].includes(value)) return "bad";
+      if (["pending", "paused", "queued", "running", "needs_review"].includes(value)) return "warn";
       return "";
     }
 
-    function generateTaskId() {
-      const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-      el("task-id").value = `md-${suffix}`;
+    function sampleModeLabel() {
+      return state.sampleMode ? `<span class="sample-badge">${SAMPLE_LABEL}</span>` : "";
     }
 
-    function renderStatusStrip() {
-      const strip = el("status-strip");
-      const status = state.status || {};
-      const lookup = Object.fromEntries(state.capabilities.map((cap) => [cap.name, cap]));
-      const langgraph = lookup.langgraph || {};
-      const sqlite = lookup.sqlite_checkpointing || {};
-      const worker = lookup.worker_runner || {};
-      const items = [
-        { label: "Backend", value: state.backendTarget || DEFAULT_BACKEND_URL, note: "active target" },
-        { label: "API", value: status.status || "unknown", note: status.service || "marius-desktop-api" },
-        { label: "Worker", value: worker.status || "unknown", note: worker.summary || "fake-worker-only" },
-        {
-          label: "LangGraph",
-          value: langgraph.status || "unknown",
-          note: langgraph.summary || "Checking capability surface",
-        },
-        {
-          label: "SQLite",
-          value: sqlite.status || "unknown",
-          note: sqlite.summary || "Checking capability surface",
-        },
+    function currentCapabilities() {
+      return state.capabilities && state.capabilities.length ? state.capabilities : [
+        { name: "langgraph", status: state.status?.langgraph_available ? "available" : "unavailable", summary: "Live backend report" },
+        { name: "sqlite_checkpointing", status: state.status?.sqlite_checkpointing_available ? "available" : "unavailable", summary: "Live backend report" },
+        { name: "mcp", status: "local-only", summary: "Local MCP layer" },
       ];
-      strip.innerHTML = items.map((item) => {
-        const cls = statusBadgeClass(item.value);
-        return `<span class="chip ${cls}"><span class="dot"></span><strong>${esc(item.label)}:</strong> ${esc(item.value)} <span style="color: var(--faint);">(${esc(item.note)})</span></span>`;
-      }).join("");
     }
 
-    function renderCapabilities() {
-      const list = el("capabilities-list");
-      if (!state.capabilities.length) {
-        list.innerHTML = `<div class="card"><div class="topline"><div class="name">Loading capability surface</div><span class="badge warn">pending</span></div><div class="hint">Waiting for /api/marius/capabilities.</div></div>`;
+    function activeTasks() {
+      return state.sampleMode ? SAMPLE.runs : state.tasks;
+    }
+
+    function activeCaptainRun() {
+      if (state.sampleMode) return SAMPLE.captain;
+      return state.captainRuns.find((run) => run.run_id === state.selectedCaptainRunId) || state.captainRuns[0] || null;
+    }
+
+    function selectedTask() {
+      if (state.sampleMode) return SAMPLE.runs.find((task) => task.task_id === state.selectedTaskId) || SAMPLE.runs[0];
+      return state.tasks.find((task) => task.task_id === state.selectedTaskId) || null;
+    }
+
+    function renderTopbar() {
+      const caps = currentCapabilities();
+      const lookup = Object.fromEntries(caps.map((cap) => [cap.name, cap]));
+      const backend = state.status?.status || "offline";
+      const backendNote = state.status?.service || "marius-desktop-api";
+      const chipData = [
+        { label: "Backend", value: backend, note: backendNote, kind: backend === "online" ? "good" : "bad" },
+        { label: "LangGraph", value: lookup.langgraph?.status || (state.status?.langgraph_available ? "available" : "unavailable"), note: lookup.langgraph?.summary || "", kind: statusClass(lookup.langgraph?.status || "") },
+        { label: "SQLite", value: lookup.sqlite_checkpointing?.status || (state.status?.sqlite_checkpointing_available ? "available" : "unavailable"), note: lookup.sqlite_checkpointing?.summary || "", kind: statusClass(lookup.sqlite_checkpointing?.status || "") },
+        { label: "MCP", value: "local-only", note: "stdio tools only", kind: "good" },
+        { label: "Fake-worker-only", value: "enabled", note: "allowlisted commands only", kind: "good" },
+        { label: "Local-first", value: "yes", note: "browser same-origin when served", kind: "good" },
+      ];
+      $("status-chips").innerHTML = chipData.map((item) => `
+        <span class="chip ${item.kind}">
+          <span class="dot"></span>
+          <strong>${esc(item.label)}:</strong> ${esc(item.value)}
+          ${item.note ? `<span style="color: var(--faint);">(${esc(item.note)})</span>` : ""}
+        </span>
+      `).join("");
+      $("active-backend-target").innerHTML = `<span class="dot"></span><strong>Active backend target:</strong> ${esc(state.backendTarget || API_BASE)}`;
+      $("thread-sample-badge").textContent = state.sampleMode ? SAMPLE_LABEL : "Live thread";
+      $("thread-sample-badge").className = `sample-badge ${state.sampleMode ? "" : ""}`;
+      $("thread-summary").textContent = state.sampleMode
+        ? "Sample mode is active. The workspace is fully populated with demo-only data and nothing is executed."
+        : "Live mode follows the backend. Sample mode can be toggled for screenshots if the live queue is empty.";
+      $("show-sample-run").textContent = state.sampleMode ? "Hide sample run" : "Show sample run";
+    }
+
+    function renderLeftRail() {
+      $("run-list").innerHTML = activeTasks().length ? activeTasks().map((task) => `
+        <button class="list-item ${task.task_id === state.selectedTaskId ? "active" : ""}" type="button" data-task-id="${esc(task.task_id)}">
+          <strong>${esc(task.title || task.task_id)}</strong>
+          <span>${esc(task.status || "unknown")} · ${esc(task.current_step || "step unknown")}</span>
+        </button>
+      `).join("") : `
+        <div class="empty-state">No live runs yet. Create a fake-worker run above, or toggle sample mode to fill this rail with a demo run list.</div>
+      `;
+      $("run-list").querySelectorAll("[data-task-id]").forEach((button) => {
+        button.addEventListener("click", () => {
+          state.selectedTaskId = button.dataset.taskId;
+          state.selectedWorkerRunId = null;
+          renderAll();
+        });
+      });
+
+      const selectedCaptain = activeCaptainRun();
+      const minions = state.sampleMode
+        ? SAMPLE.minions
+        : (selectedCaptain?.minion_tasks || []).map((item) => ({
+            label: item.role || item.minion_id || "Minion",
+            value: item.scope || item.status || "bounded",
+          }));
+      $("left-minion-list").innerHTML = minions.length ? minions.map((item) => `
+        <div class="mini-row">
+          <span class="label">${esc(item.label)}</span>
+          <span class="value">${esc(item.value)}</span>
+        </div>
+      `).join("") : `<div class="empty-state">No minions yet. Captain Mode will populate bounded minions once a run is active.</div>`;
+
+      const sampleRuns = state.sampleMode ? SAMPLE.runs : [];
+      $("sample-run-list").innerHTML = sampleRuns.length ? sampleRuns.map((run) => `
+        <button class="list-item ${run.task_id === state.selectedTaskId ? "active" : ""}" type="button">
+          <strong>${esc(run.title)}</strong>
+          <span>${esc(run.status)} · ${esc(run.proof_status)} · demo</span>
+        </button>
+      `).join("") : `<div class="empty-state">Toggle <strong>Show sample run</strong> to see the demo-only run list.</div>`;
+    }
+
+    function threadItems() {
+      const items = [];
+      if (state.sampleMode) {
+        items.push(...SAMPLE.thread);
+      } else {
+        const selected = selectedTask();
+        const captain = activeCaptainRun();
+        if (selected) {
+          items.push({
+            role: "operator",
+            label: "Operator instruction",
+            body: `${selected.title}\n${selected.description || ""}`.trim(),
+          });
+        }
+        if (captain) {
+          items.push({
+            role: "captain",
+            label: "Captain plan",
+            body: captain.objective,
+          });
+          items.push({
+            role: "minion",
+            label: "Minion assignment",
+            body: (captain.minion_tasks || []).map((task) => `${task.role || task.minion_id}: ${task.scope}`).join("\n") || "No minions recorded yet.",
+          });
+          items.push({
+            role: "evidence",
+            label: "Evidence result",
+            body: (captain.evidence_records || []).map((item) => item.summary).join("\n") || "No evidence records yet.",
+          });
+          items.push({
+            role: "gate",
+            label: "Proof gate",
+            body: (captain.hard_gates || []).map((gate) => gate.reason).join("\n") || "No proof gates yet.",
+          });
+          items.push({
+            role: "approval",
+            label: "Human approval checkpoint",
+            body: captain.next_action || "Awaiting human approval.",
+          });
+          items.push({
+            role: "captain",
+            label: "Scoped commit summary",
+            body: captain.scoped_commit_plan ? `${captain.scoped_commit_plan.commit_message}\n${(captain.scoped_commit_plan.files || []).join(", ")}` : "No scoped commit plan yet.",
+          });
+        }
+      }
+      if (state.instructionLog.length) {
+        items.push(...state.instructionLog.map((entry) => ({
+          role: "operator",
+          label: "Instruction recorded",
+          body: entry.text,
+        })));
+      }
+      return items;
+    }
+
+    function renderThread() {
+      const items = threadItems();
+      if (!items.length) {
+        $("thread-body").innerHTML = `
+          <div class="empty-state">
+            No Captain thread yet. Create a fake-worker run or enable sample mode to see the operator workspace narrative.
+          </div>
+        `;
         return;
       }
-      list.innerHTML = state.capabilities.map((cap) => `
-        <article class="card">
-          <div class="topline">
-            <div class="name">${esc(cap.name)}</div>
-            <span class="badge ${statusBadgeClass(cap.status)}">${esc(cap.status)}</span>
-          </div>
-          <div class="hint">${esc(cap.summary)}</div>
-          ${cap.recovery_hint ? `<div class="hint" style="margin-top:8px;"><span class="mono">Hint:</span> ${esc(cap.recovery_hint)}</div>` : ""}
+      $("thread-body").innerHTML = items.map((item) => `
+        <article class="bubble ${item.role}">
+          <div class="role">${esc(item.label || item.role)}</div>
+          <div class="body">${esc(item.body || "")}</div>
+          ${item.meta ? `<div class="meta">${esc(item.meta)}</div>` : ""}
         </article>
       `).join("");
-
-      const lookup = Object.fromEntries(state.capabilities.map((cap) => [cap.name, cap]));
-      el("langgraph-state").textContent = `${lookup.langgraph?.status || "unknown"} - ${lookup.langgraph?.summary || ""}`;
-      el("sqlite-state").textContent = `${lookup.sqlite_checkpointing?.status || "unknown"} - ${lookup.sqlite_checkpointing?.summary || ""}`;
-      el("worker-state").textContent = `${lookup.worker_runner?.status || "unknown"} - ${lookup.worker_runner?.summary || ""}`;
-      renderStatusStrip();
     }
 
-    function renderTasks() {
-      const list = el("tasks-list");
-      if (!state.tasks.length) {
-        list.innerHTML = `<div class="callout">No tasks yet. Create one above to prove the live /api/marius backend is working.</div>`;
-        return;
-      }
-      list.innerHTML = state.tasks.map((task) => {
-        const active = task.task_id === state.selectedTaskId ? "active" : "";
-        return `
-          <button class="task-item ${active}" type="button" data-task-id="${esc(task.task_id)}">
-            <div class="title">${esc(task.title || task.task_id)}</div>
-            <div class="sub">${esc(task.task_id)}</div>
-            <div class="footer">
-              <span>step: ${esc(task.current_step || "unknown")}</span>
-              <span class="badge ${statusBadgeClass(task.status)}">${esc(task.status)}</span>
-            </div>
-          </button>
-        `;
-      }).join("");
-      list.querySelectorAll("[data-task-id]").forEach((button) => {
-        button.addEventListener("click", () => selectTask(button.dataset.taskId));
-      });
+    function renderInspector() {
+      const captain = activeCaptainRun();
+      const promptQueue = state.sampleMode ? SAMPLE.promptQueue : (captain?.prompt_queue || []);
+      const evidence = state.sampleMode ? SAMPLE.evidence : (captain?.evidence_records || []).map((item) => item.summary);
+      const gates = state.sampleMode ? SAMPLE.gates : (captain?.hard_gates || []).map((item) => item.reason);
+      const minions = state.sampleMode ? SAMPLE.minions : (captain?.minion_tasks || []).map((item) => ({ label: item.role || item.minion_id, value: item.scope }));
+      const safety = SAMPLE.safety;
+
+      $("prompt-queue-list").innerHTML = promptQueue.length ? promptQueue.map((item) => `
+        <div class="list-item"><strong>${esc(item)}</strong><span>${state.sampleMode ? SAMPLE_LABEL : "live queue"}</span></div>
+      `).join("") : `<div class="empty-state">No prompt queue yet. Live Captain runs will appear here when available.</div>`;
+
+      $("minion-list").innerHTML = minions.length ? minions.map((item) => `
+        <div class="list-item"><strong>${esc(item.label)}</strong><span>${esc(item.value)}</span></div>
+      `).join("") : `<div class="empty-state">No bounded minions yet. The inspector stays honest when live Captain data is empty.</div>`;
+
+      $("evidence-list").innerHTML = evidence.length ? evidence.map((item) => `
+        <div class="list-item"><strong>${esc(item)}</strong><span>${state.sampleMode ? SAMPLE_LABEL : "live evidence"}</span></div>
+      `).join("") : `<div class="empty-state">No evidence yet. This is an intentional empty state, not a fake record.</div>`;
+
+      $("gate-list").innerHTML = gates.length ? gates.map((item) => `
+        <div class="list-item"><strong>${esc(item)}</strong><span>human approval</span></div>
+      `).join("") : `<div class="empty-state">No proof gates yet. Human approval checkpoints will show here when the thread blocks.</div>`;
+
+      $("safety-list").innerHTML = safety.map(([label, value]) => `
+        <div class="mini-row">
+          <span class="label">${esc(label)}</span>
+          <span class="value">${esc(value)}</span>
+        </div>
+      `).join("");
     }
 
-    function formatCaptainItems(items, emptyMessage) {
-      if (!items || !items.length) return emptyMessage;
-      return items.map((item) => {
-        if (typeof item === "string") return `• ${item}`;
-        const parts = Object.entries(item).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : value}`);
-        return `• ${parts.join(" | ")}`;
-      }).join("\n");
+    function renderApprovalTarget() {
+      const task = selectedTask();
+      $("approval-target").textContent = task ? `Selected task: ${task.task_id}` : "No task selected yet.";
     }
 
-    function renderCaptainTemplatePreview(template) {
-      const preview = el("captain-template-preview");
-      if (!template) {
-        preview.textContent = state.captainTemplates.length
-          ? "Select a Captain template to preview its prompt queue, minions, hard gates, and acceptance commands."
-          : "No Captain templates loaded yet.";
-        el("create-captain-run").disabled = true;
-        return;
-      }
-      const promptQueue = formatCaptainItems(
-        template.prompt_queue,
-        "none",
-      );
-      const minionTasks = formatCaptainItems(
-        template.minion_tasks,
-        "none",
-      );
-      const hardGates = formatCaptainItems(
-        template.hard_gates,
-        "none",
-      );
-      preview.textContent = [
-        `template_id: ${template.template_id || "none"}`,
-        `title: ${template.title || "none"}`,
-        `objective: ${template.objective || "none"}`,
-        `prompt_queue: ${promptQueue}`,
-        `minion_tasks: ${minionTasks}`,
-        `hard_gates: ${hardGates}`,
-        `planned_acceptance_commands: ${(template.planned_acceptance_commands || []).join(" | ") || "none"}`,
-      ].join("\n");
-      el("create-captain-run").disabled = false;
+    function renderLiveTaskSelection() {
+      // Intentionally keep the create-run form empty; the thread is selected independently.
     }
 
-    function renderCaptainTemplates() {
-      const select = el("captain-template-select");
-      const status = el("captain-template-status");
-      if (!state.captainTemplates.length) {
-        select.innerHTML = `<option value="">No Captain templates loaded</option>`;
-        status.textContent = state.captainTemplatesError
-          ? `Template endpoints unavailable: ${state.captainTemplatesError}`
-          : "Template endpoints returned no templates. The cockpit can still show existing Captain runs.";
-        renderCaptainTemplatePreview(null);
-        return;
-      }
-      select.innerHTML = state.captainTemplates.map((template) => {
-        const selected = template.template_id === state.selectedCaptainTemplateId ? "selected" : "";
-        return `<option value="${esc(template.template_id)}" ${selected}>${esc(template.title || template.template_id)} (${esc(template.template_id)})</option>`;
-      }).join("");
-      if (!state.selectedCaptainTemplateId || !state.captainTemplates.some((template) => template.template_id === state.selectedCaptainTemplateId)) {
-        state.selectedCaptainTemplateId = state.captainTemplates[0].template_id;
-      }
-      state.selectedCaptainTemplate = state.captainTemplates.find((template) => template.template_id === state.selectedCaptainTemplateId) || state.captainTemplates[0];
-      status.textContent = `Loaded ${state.captainTemplates.length} Captain templates from /api/marius/captain/templates.`;
-      renderCaptainTemplatePreview(state.selectedCaptainTemplate);
-    }
-
-    async function selectCaptainTemplate(templateId) {
-      state.selectedCaptainTemplateId = templateId || null;
-      state.selectedCaptainTemplate = state.captainTemplates.find((template) => template.template_id === templateId) || null;
-      renderCaptainTemplates();
-    }
-
-    function renderCaptainRuns() {
-      const select = el("captain-run-select");
-      const runs = state.captainRuns;
-      if (!runs.length) {
-        select.innerHTML = `<option value="">No CaptainRun loaded</option>`;
-        el("captain-empty").style.display = "block";
-        [
-          "captain-goal",
-          "captain-prompt-queue",
-          "captain-minions",
-          "captain-evidence",
-          "captain-gates",
-          "captain-commit-plan",
-          "captain-next-action",
-        ].forEach((id) => {
-          el(id).textContent = "No CaptainRun exists yet.";
-        });
-        renderCaptainGateControls(null);
-        return;
-      }
-      select.innerHTML = runs.map((run) => {
-        const selected = run.run_id === state.selectedCaptainRunId ? "selected" : "";
-        return `<option value="${esc(run.run_id)}" ${selected}>${esc(run.objective || run.run_id)} (${esc(run.status)})</option>`;
-      }).join("");
-      el("captain-empty").style.display = "none";
-    }
-
-    function renderCaptainDetails(run) {
-      if (!run) {
-        [
-          "captain-goal",
-          "captain-prompt-queue",
-          "captain-minions",
-          "captain-evidence",
-          "captain-gates",
-          "captain-commit-plan",
-          "captain-next-action",
-        ].forEach((id) => {
-          el(id).textContent = "No CaptainRun exists yet.";
-        });
-        renderCaptainGateControls(null);
-        return;
-      }
-      el("captain-goal").textContent = `${run.objective || "unknown"} (${run.status || "unknown"})`;
-      el("captain-prompt-queue").textContent = formatCaptainItems(
-        run.prompt_queue,
-        "Empty prompt queue. Captain has not queued prompts yet.",
-      );
-      el("captain-minions").textContent = formatCaptainItems(
-        run.minion_tasks,
-        "No minion tasks recorded yet.",
-      );
-      el("captain-evidence").textContent = formatCaptainItems(
-        run.evidence_records,
-        "No evidence records stored yet.",
-      );
-      el("captain-gates").textContent = formatCaptainItems(
-        run.hard_gates,
-        "No hard gates recorded yet.",
-      );
-      el("captain-commit-plan").textContent = run.scoped_commit_plan
-        ? [
-            `commit_message: ${run.scoped_commit_plan.commit_message || "none"}`,
-            `files: ${(run.scoped_commit_plan.files || []).join(", ") || "none"}`,
-            `notes: ${run.scoped_commit_plan.notes || "none"}`,
-          ].join("\n")
-        : "No scoped commit plan recorded yet.";
-      el("captain-next-action").textContent = [
-        `next_action: ${run.next_action || "none"}`,
-        `planned_acceptance_commands: ${(run.planned_acceptance_commands || []).join(" | ") || "none"}`,
-      ].join("\n");
-      renderCaptainGateControls(run);
-    }
-
-    function renderCaptainGateControls(run) {
-      const select = el("captain-gate-select");
-      const evidenceTarget = el("captain-evidence-target");
-      const gateTarget = el("captain-gate-target");
-      const gateDecisionTarget = el("captain-gate-decision-target");
-      const hasRun = Boolean(run && run.run_id);
-      el("submit-captain-evidence").disabled = !hasRun;
-      el("submit-captain-gate").disabled = !hasRun;
-      el("submit-captain-gate-decision").disabled = !hasRun;
-      if (!hasRun) {
-        select.innerHTML = `<option value="">No gate selected</option>`;
-        state.selectedCaptainGateId = null;
-        evidenceTarget.textContent = "Select a Captain run first.";
-        gateTarget.textContent = "Select a Captain run first.";
-        gateDecisionTarget.textContent = "Select a Captain run and gate first.";
-        return;
-      }
-      evidenceTarget.textContent = `Selected Captain run: ${run.run_id}`;
-      gateTarget.textContent = `Selected Captain run: ${run.run_id}`;
-      const gates = run.hard_gates || [];
-      if (!gates.length) {
-        select.innerHTML = `<option value="">No hard gates recorded yet</option>`;
-        state.selectedCaptainGateId = null;
-        gateDecisionTarget.textContent = "No hard gate exists yet for this run.";
-        return;
-      }
-      if (!state.selectedCaptainGateId || !gates.some((gate) => gate.gate_id === state.selectedCaptainGateId)) {
-        state.selectedCaptainGateId = gates[0].gate_id;
-      }
-      select.innerHTML = gates.map((gate) => {
-        const selected = gate.gate_id === state.selectedCaptainGateId ? "selected" : "";
-        return `<option value="${esc(gate.gate_id)}" ${selected}>${esc(gate.kind || gate.gate_id)} (${esc(gate.gate_id)})</option>`;
-      }).join("");
-      gateDecisionTarget.textContent = `Selected gate: ${state.selectedCaptainGateId}`;
-    }
-
-    function renderTaskDetails(task) {
-      if (!task) {
-        el("detail-step").textContent = "Select a task";
-        el("detail-status").textContent = "Select a task";
-        el("detail-proof").textContent = "Select a task";
-        el("detail-run-id").textContent = "Select a task";
-        el("detail-hint").textContent = "Select a task";
-        el("approval-target").textContent = "No task selected yet.";
-        el("run-status").textContent = "No run selected";
-        el("run-meta").textContent = "No run selected";
-        el("run-logs").textContent = "Select a task with a worker run to load persisted logs.";
-        el("run-pills").innerHTML = "";
-        return;
-      }
-      el("detail-step").textContent = task.current_step || "unknown";
-      el("detail-status").textContent = task.status || "unknown";
-      el("detail-proof").textContent = task.proof_status || "unknown";
-      el("detail-run-id").textContent = task.worker_run_id || "none";
-      el("detail-hint").textContent = task.recovery_hint || "none";
-      el("approval-target").textContent = `Selected task: ${task.task_id}`;
-    }
-
-    function renderRun(run, logsText) {
-      if (!run) {
-        el("run-status").textContent = "No run selected";
-        el("run-meta").textContent = "No run selected";
-        el("run-logs").textContent = "Select a task with a worker run to load persisted logs.";
-        el("run-pills").innerHTML = "";
-        return;
-      }
-      el("run-status").textContent = `${run.status} (exit_code=${run.exit_code ?? "null"})`;
-      el("run-meta").textContent = [
-        `run_id: ${run.run_id}`,
-        `task_id: ${run.task_id}`,
-        `agent_id: ${run.agent_id}`,
-        `command: ${run.command}`,
-        `logs_path: ${run.logs_path}`,
-        `started_at: ${run.started_at || "null"}`,
-        `finished_at: ${run.finished_at || "null"}`,
-      ].join("\n");
-      el("run-logs").textContent = logsText || "";
-      el("run-pills").innerHTML = `
-        <span class="status-pill ${statusBadgeClass(run.status)}">${esc(run.status)}</span>
-        <span class="status-pill muted">${run.exit_code === null ? "exit_code=null" : esc(`exit_code=${run.exit_code}`)}</span>
-      `;
+    function renderAll() {
+      renderTopbar();
+      renderLeftRail();
+      renderThread();
+      renderInspector();
+      renderApprovalTarget();
+      renderLiveTaskSelection();
+      $("show-sample-run").setAttribute("aria-pressed", state.sampleMode ? "true" : "false");
     }
 
     async function refreshStatus() {
       try {
         state.status = await request("/api/marius/status");
-        el("api-state").textContent = `${state.status.status} - ${state.status.service}`;
-      } catch (err) {
-        el("api-state").textContent = `unavailable - ${err.message}`;
+      } catch (error) {
+        state.status = {
+          service: "marius-desktop-api",
+          status: "offline",
+          langgraph_available: false,
+          sqlite_checkpointing_available: false,
+          recovery_hint: error.message,
+        };
       }
-      el("backend-target").textContent = state.backendTarget || DEFAULT_BACKEND_URL;
-      renderStatusStrip();
     }
 
     async function refreshCapabilities() {
       try {
         const payload = await request("/api/marius/capabilities");
         state.capabilities = Array.isArray(payload) ? payload : [];
-      } catch (err) {
-        state.capabilities = [
-          { name: "api", status: "unavailable", summary: `Failed to load capability surface: ${err.message}`, recovery_hint: null },
-        ];
+      } catch {
+        state.capabilities = [];
       }
-      renderCapabilities();
     }
 
-    async function refreshTasks(selectId = null) {
+    async function refreshTasks() {
       try {
-        state.tasks = await request("/api/marius/tasks");
-      } catch (err) {
+        const payload = await request("/api/marius/tasks");
+        state.tasks = Array.isArray(payload) ? payload : [];
+      } catch {
         state.tasks = [];
-        el("tasks-list").innerHTML = `<div class="callout">Failed to load tasks: ${esc(err.message)}</div>`;
-        return;
       }
-      renderTasks();
-      if (selectId) {
-        await selectTask(selectId);
-      } else if (!state.selectedTaskId && state.tasks[0]) {
-        await selectTask(state.tasks[0].task_id);
-      } else if (state.selectedTaskId) {
-        const selected = state.tasks.find((task) => task.task_id === state.selectedTaskId);
-        if (selected) {
-          state.selectedTask = selected;
-          renderTaskDetails(selected);
-        }
+    }
+
+    async function refreshCaptainRuns() {
+      try {
+        const payload = await request("/api/marius/captain/runs");
+        state.captainRuns = Array.isArray(payload) ? payload : [];
+      } catch {
+        state.captainRuns = [];
       }
+    }
+
+    async function refreshBackend() {
+      await Promise.all([refreshStatus(), refreshCapabilities(), refreshTasks(), refreshCaptainRuns()]);
+      renderAll();
     }
 
     async function selectTask(taskId) {
       state.selectedTaskId = taskId;
-      renderTasks();
-      try {
-        const task = await request(`/api/marius/tasks/${encodeURIComponent(taskId)}`);
-        state.selectedTask = task;
-        renderTaskDetails(task);
-        if (task.worker_run_id) {
-          state.selectedRunId = task.worker_run_id;
-          await refreshRun(task.worker_run_id);
-        } else {
-          state.selectedRunId = null;
-          renderRun(null, "");
-        }
-      } catch (err) {
-        renderTaskDetails(null);
-        el("detail-hint").textContent = `Failed to load task: ${err.message}`;
+      const task = state.sampleMode ? SAMPLE.runs.find((item) => item.task_id === taskId) : state.tasks.find((item) => item.task_id === taskId);
+      if (task && task.worker_run_id) {
+        state.selectedWorkerRunId = task.worker_run_id;
+      } else {
+        state.selectedWorkerRunId = null;
       }
+      renderAll();
     }
 
-    async function refreshRun(runId = null) {
-      const selectedRunId = runId || state.selectedRunId || state.selectedTask?.worker_run_id;
-      if (!selectedRunId) {
-        renderRun(null, "");
-        return;
+    function toggleSampleMode() {
+      state.sampleMode = !state.sampleMode;
+      const url = new URL(window.location.href);
+      if (state.sampleMode) {
+        url.searchParams.set("sample", "1");
+      } else {
+        url.searchParams.delete("sample");
       }
-      try {
-        const [run, logs] = await Promise.all([
-          request(`/api/marius/worker-runs/${encodeURIComponent(selectedRunId)}`),
-          request(`/api/marius/worker-runs/${encodeURIComponent(selectedRunId)}/logs`),
-        ]);
-        state.selectedRun = run;
-        renderRun(run, logs.logs || "");
-      } catch (err) {
-        renderRun(null, `Failed to load run: ${err.message}`);
-      }
+      window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+      renderAll();
     }
 
-    async function refreshCaptainRuns(selectId = null) {
-      try {
-        state.captainRuns = await request("/api/marius/captain/runs");
-      } catch (err) {
-        state.captainRuns = [];
-        el("captain-empty").textContent = `Failed to load Captain runs: ${err.message}`;
-        el("captain-empty").style.display = "block";
-        renderCaptainDetails(null);
-        renderCaptainRuns();
-        return;
-      }
-      renderCaptainRuns();
-      if (selectId) {
-        await selectCaptainRun(selectId);
-      } else if (!state.selectedCaptainRunId && state.captainRuns[0]) {
-        await selectCaptainRun(state.captainRuns[0].run_id);
-      } else if (state.selectedCaptainRunId) {
-        const selected = state.captainRuns.find((run) => run.run_id === state.selectedCaptainRunId);
-        if (selected) {
-          state.selectedCaptainRun = selected;
-          renderCaptainDetails(selected);
-        }
-      }
-    }
-
-    async function refreshCaptainTemplates(selectId = null) {
-      try {
-        state.captainTemplates = await request("/api/marius/captain/templates");
-        state.captainTemplatesError = null;
-      } catch (err) {
-        state.captainTemplates = [];
-        state.captainTemplatesError = err.message;
-        state.selectedCaptainTemplateId = null;
-        state.selectedCaptainTemplate = null;
-      }
-      if (selectId) {
-        state.selectedCaptainTemplateId = selectId;
-      }
-      renderCaptainTemplates();
-    }
-
-    async function selectCaptainRun(runId) {
-      state.selectedCaptainRunId = runId;
-      renderCaptainRuns();
-      try {
-        const run = await request(`/api/marius/captain/runs/${encodeURIComponent(runId)}`);
-        state.selectedCaptainRun = run;
-        renderCaptainDetails(run);
-      } catch (err) {
-        renderCaptainDetails(null);
-        el("captain-empty").textContent = `Failed to load Captain run: ${err.message}`;
-        el("captain-empty").style.display = "block";
-      }
-    }
-
-    async function createCaptainRunFromTemplate() {
-      const template = state.selectedCaptainTemplate;
-      if (!template) {
-        alert("Select a Captain template first.");
-        return;
-      }
-      try {
-        const run = await request("/api/marius/captain/runs/from-template", {
-          method: "POST",
-          body: JSON.stringify({
-            template,
-            next_action: "inspect",
-          }),
-        });
-        await Promise.all([
-          refreshCaptainTemplates(template.template_id),
-          refreshCaptainRuns(run.run_id),
-        ]);
-        await selectCaptainRun(run.run_id);
-      } catch (err) {
-        alert(`Captain template run failed: ${err.message}`);
-      }
-    }
-
-    async function submitCaptainEvidence() {
-      if (!state.selectedCaptainRunId) {
-        alert("Select a Captain run first.");
-        return;
-      }
-      const summary = el("captain-evidence-summary").value.trim();
-      if (!summary) {
-        alert("Evidence summary is required.");
-        return;
-      }
-      try {
-        await request(`/api/marius/captain/runs/${encodeURIComponent(state.selectedCaptainRunId)}/evidence`, {
-          method: "POST",
-          body: JSON.stringify({
-            kind: el("captain-evidence-kind").value.trim() || null,
-            summary,
-            status: el("captain-evidence-status").value.trim() || null,
-            command_text: el("captain-evidence-command-text").value.trim() || null,
-            details: el("captain-evidence-details").value.trim() || null,
-            captured_by: "operator",
-            artifacts: [],
-          }),
-        });
-        await refreshCaptainRuns(state.selectedCaptainRunId);
-        await selectCaptainRun(state.selectedCaptainRunId);
-      } catch (err) {
-        alert(`Evidence record failed: ${err.message}`);
-      }
-    }
-
-    async function submitCaptainGate() {
-      if (!state.selectedCaptainRunId) {
-        alert("Select a Captain run first.");
-        return;
-      }
-      const reason = el("captain-gate-reason").value.trim();
-      if (!reason) {
-        alert("Gate reason is required.");
-        return;
-      }
-      try {
-        await request(`/api/marius/captain/runs/${encodeURIComponent(state.selectedCaptainRunId)}/gate`, {
-          method: "POST",
-          body: JSON.stringify({
-            kind: el("captain-gate-kind").value.trim() || "manual_review",
-            reason,
-            triggered_by: el("captain-gate-triggered-by").value.trim() || "operator",
-          }),
-        });
-        await refreshCaptainRuns(state.selectedCaptainRunId);
-        await selectCaptainRun(state.selectedCaptainRunId);
-      } catch (err) {
-        alert(`Gate trigger failed: ${err.message}`);
-      }
-    }
-
-    async function submitCaptainGateDecision() {
-      if (!state.selectedCaptainRunId) {
-        alert("Select a Captain run first.");
-        return;
-      }
-      if (!state.selectedCaptainGateId) {
-        alert("Select a Captain gate first.");
-        return;
-      }
-      try {
-        await request(`/api/marius/captain/runs/${encodeURIComponent(state.selectedCaptainRunId)}/gates/${encodeURIComponent(state.selectedCaptainGateId)}/decision`, {
-          method: "POST",
-          body: JSON.stringify({
-            decision: el("captain-gate-decision").value,
-            actor: el("captain-gate-actor").value.trim() || "operator",
-            reviewer_note: el("captain-gate-note").value.trim() || null,
-          }),
-        });
-        await refreshCaptainRuns(state.selectedCaptainRunId);
-        await selectCaptainRun(state.selectedCaptainRunId);
-      } catch (err) {
-        alert(`Gate decision failed: ${err.message}`);
-      }
+    function recordInstruction() {
+      const text = $("instruction-input").value.trim();
+      if (!text) return;
+      state.instructionLog = [{ text, id: `local-${Date.now()}` }, ...state.instructionLog];
+      $("instruction-input").value = "";
+      renderAll();
     }
 
     async function submitTask(event) {
       event.preventDefault();
-      const taskId = el("task-id").value.trim() || generateTaskId();
-      const payload = {
-        task_id: taskId,
-        title: el("task-title").value.trim(),
-        description: el("task-description").value.trim(),
-        command: el("command").value,
-        args: [],
-        agent_id: el("agent-id").value.trim(),
-      };
-      if (!payload.title) {
-        alert("Title is required.");
-        return;
-      }
-      if (!payload.description) {
-        alert("Description is required.");
-        return;
-      }
+      const title = $("task-title").value.trim();
+      const description = $("task-description").value.trim();
+      const agentId = $("agent-id").value.trim();
+      const command = $("command").value;
+      if (!title || !description) return alert("Title and description are required.");
       try {
         await request("/api/marius/tasks", {
           method: "POST",
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            task_id: `mc-${Date.now().toString(36)}`,
+            title,
+            description,
+            agent_id: agentId,
+            command,
+            args: [],
+          }),
         });
-        await refreshTasks(taskId);
-      } catch (err) {
-        alert(`Task create failed: ${err.message}`);
+        await refreshBackend();
+      } catch (error) {
+        alert(`Task create failed: ${error.message}`);
       }
     }
 
     async function submitApproval(event) {
       event.preventDefault();
-      if (!state.selectedTaskId) {
-        alert("Select a task first.");
-        return;
-      }
-      let patch = {};
-      const patchText = el("state-patch").value.trim();
-      if (patchText) {
-        try {
-          patch = JSON.parse(patchText);
-        } catch (err) {
-          alert(`State patch must be valid JSON: ${err.message}`);
-          return;
-        }
-      }
-      const payload = {
-        decision: el("decision").value,
-        actor: el("actor").value.trim() || "operator",
-        reviewer_note: el("reviewer-note").value.trim() || null,
-        state_patch: patch,
-      };
+      const task = selectedTask();
+      if (!task) return alert("Select a task first.");
+      let statePatch = {};
       try {
-        await request(`/api/marius/tasks/${encodeURIComponent(state.selectedTaskId)}/decision`, {
+        statePatch = {};
+      } catch {}
+      try {
+        await request(`/api/marius/tasks/${encodeURIComponent(task.task_id)}/decision`, {
           method: "POST",
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            decision: $("decision").value,
+            actor: $("actor").value.trim() || "operator",
+            reviewer_note: $("reviewer-note").value.trim() || null,
+            state_patch: statePatch,
+          }),
         });
-        await refreshTasks(state.selectedTaskId);
-      } catch (err) {
-        alert(`Decision failed: ${err.message}`);
+        await refreshBackend();
+      } catch (error) {
+        alert(`Decision failed: ${error.message}`);
       }
     }
 
     function wireEvents() {
-      el("refresh-all").addEventListener("click", async () => {
-        await Promise.all([refreshStatus(), refreshCapabilities(), refreshTasks(), refreshCaptainTemplates(), refreshCaptainRuns()]);
-        await refreshRun();
-      });
-      el("refresh-captain").addEventListener("click", () => refreshCaptainRuns(state.selectedCaptainRunId));
-      el("refresh-captain-templates").addEventListener("click", () => refreshCaptainTemplates(state.selectedCaptainTemplateId));
-      el("refresh-tasks").addEventListener("click", () => refreshTasks(state.selectedTaskId));
-      el("refresh-run").addEventListener("click", () => refreshRun());
-      el("create-task-form").addEventListener("submit", submitTask);
-      el("approval-form").addEventListener("submit", submitApproval);
-      el("regen-task-id").addEventListener("click", generateTaskId);
-      el("submit-captain-evidence").addEventListener("click", submitCaptainEvidence);
-      el("submit-captain-gate").addEventListener("click", submitCaptainGate);
-      el("submit-captain-gate-decision").addEventListener("click", submitCaptainGateDecision);
-      el("captain-run-select").addEventListener("change", (event) => {
-        const runId = event.target.value;
-        if (!runId) {
-          state.selectedCaptainRunId = null;
-          state.selectedCaptainRun = null;
-          renderCaptainDetails(null);
-          renderCaptainRuns();
-          return;
-        }
-        selectCaptainRun(runId);
-      });
-      el("captain-gate-select").addEventListener("change", (event) => {
-        state.selectedCaptainGateId = event.target.value || null;
-        const selectedRun = state.selectedCaptainRun || state.captainRuns.find((run) => run.run_id === state.selectedCaptainRunId) || null;
-        renderCaptainGateControls(selectedRun);
-      });
-      el("captain-template-select").addEventListener("change", (event) => {
-        const templateId = event.target.value;
-        if (!templateId) {
-          state.selectedCaptainTemplateId = null;
-          state.selectedCaptainTemplate = null;
-          renderCaptainTemplates();
-          return;
-        }
-        selectCaptainTemplate(templateId);
-      });
-      el("create-captain-run").addEventListener("click", createCaptainRunFromTemplate);
-      el("decision").addEventListener("change", () => {
-        const mode = el("decision").value;
-        el("state-patch").disabled = mode !== "edit_state";
-        el("reviewer-note").placeholder = mode === "edit_state" ? "Optional note for state edit" : "Optional note for approve/reject decisions";
+      $("show-sample-run").addEventListener("click", toggleSampleMode);
+      $("new-run-button").addEventListener("click", () => $("task-title").focus());
+      $("record-instruction").addEventListener("click", recordInstruction);
+      $("create-task-form").addEventListener("submit", submitTask);
+      $("approval-form").addEventListener("submit", submitApproval);
+      $("run-list").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-task-id]");
+        if (button) selectTask(button.dataset.taskId);
       });
     }
 
     async function bootstrap() {
-      generateTaskId();
       wireEvents();
-      await Promise.all([refreshStatus(), refreshCapabilities(), refreshTasks(), refreshCaptainTemplates(), refreshCaptainRuns()]);
-      setInterval(() => {
-        refreshStatus();
-        refreshCapabilities();
-        refreshTasks(state.selectedTaskId);
-        refreshRun();
-        refreshCaptainTemplates(state.selectedCaptainTemplateId);
-        refreshCaptainRuns(state.selectedCaptainRunId);
+      await refreshBackend();
+      if (state.sampleMode) {
+        renderAll();
+      } else {
+        renderAll();
+      }
+      setInterval(async () => {
+        if (!state.sampleMode) {
+          await refreshBackend();
+          renderAll();
+        } else {
+          await refreshStatus();
+          await refreshCapabilities();
+          renderAll();
+        }
       }, 8000);
     }
 

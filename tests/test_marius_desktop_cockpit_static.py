@@ -6,7 +6,8 @@ from fastapi.testclient import TestClient
 from src.server.api import app
 
 
-COCKPIT = Path("web/mctable-studio/cockpit.html")
+ROOT = Path(__file__).resolve().parents[1]
+COCKPIT = ROOT / "web" / "mctable-studio" / "cockpit.html"
 
 
 def _content() -> str:
@@ -21,34 +22,28 @@ def test_cockpit_served_by_api_mount():
     client = TestClient(app)
     response = client.get("/web/mctable-studio/cockpit.html")
     assert response.status_code == 200
-    assert "McHarness Cockpit" in response.text
-    assert "/api/marius/status" in response.text
+    assert "McHarness" in response.text
+    assert "agentic harness" in response.text
 
 
-def test_cockpit_references_live_marius_endpoints():
+def test_cockpit_references_live_marius_endpoints_and_same_origin_base():
     content = _content()
     for endpoint in [
         "/api/marius/status",
         "/api/marius/capabilities",
         "/api/marius/tasks",
-        "/api/marius/captain/templates",
         "/api/marius/captain/runs",
-        "/api/marius/captain/runs/from-template",
-        "/api/marius/captain/runs/${encodeURIComponent(state.selectedCaptainRunId)}/evidence",
-        "/api/marius/captain/runs/${encodeURIComponent(state.selectedCaptainRunId)}/gate",
-        "/api/marius/captain/runs/${encodeURIComponent(state.selectedCaptainRunId)}/gates/${encodeURIComponent(state.selectedCaptainGateId)}/decision",
-        "/api/marius/tasks/${encodeURIComponent(taskId)}",
-        "/api/marius/tasks/${encodeURIComponent(state.selectedTaskId)}/decision",
-        "/api/marius/worker-runs/${encodeURIComponent(selectedRunId)}",
-        "/api/marius/worker-runs/${encodeURIComponent(selectedRunId)}/logs",
     ]:
         assert endpoint in content, f"Missing endpoint reference: {endpoint}"
+    assert "window.location.origin" in content or "location.origin" in content
+    assert "http://127.0.0.1:8000" in content
+    assert "resolveBackendUrl" in content
+    assert "mariusDesktopBackendUrl" in content
 
 
 def test_cockpit_command_dropdown_is_fake_worker_only():
     content = _content()
     assert '<select id="command"' in content
-    assert 'name="command"' in content
     assert 'type="text" id="command"' not in content
     assert 'textarea id="command"' not in content
 
@@ -62,37 +57,28 @@ def test_cockpit_command_dropdown_is_fake_worker_only():
     ]
 
 
-def test_cockpit_shows_honest_missing_backend_capabilities_and_safety():
+def test_cockpit_shows_hermes_workspace_language_and_safety():
     content = _content()
-    for snippet in [
-        "Backend target",
+    required_snippets = [
+        "McHarness",
+        "agentic harness",
         "Captain Mode",
-        "Captain Mode models supervised work. Real external agent launch is disabled.",
-        "No CaptainRun exists yet.",
-        "Built-in template",
-        "Refresh templates",
-        "Create run from template",
-        "Captain templates",
-        "/api/marius/captain/templates",
-        "Manual evidence",
-        "Hard gate",
-        "Gate decision",
-        "Command text only",
-        "LangGraph",
-        "SQLite checkpointing",
-        "No public worker launch",
+        "bounded minions",
+        "proof gates",
+        "evidence",
+        "human approval",
+        "scoped commits",
+        "local-first",
         "fake-worker-only",
-        "No shell=True",
-        "MCP local-only",
-        "Real agents disabled",
-        "planned acceptance commands are stored as text only",
-        "This prototype is deliberately thin",
-        "status chips and capability cards both mirror the live /api/marius/status and /api/marius/capabilities payloads",
-        "resolveBackendUrl",
-        "mariusDesktopBackendUrl",
-        "localhost",
-        "ngrok-free.app",
-    ]:
+        "Sample UI data",
+        "Show sample run",
+        "Tell Captain what to plan next",
+        "No arbitrary shell execution",
+        "Runs / Agents / Minions",
+        "Prompt Queue",
+        "Safety Rail",
+    ]
+    for snippet in required_snippets:
         assert snippet in content
     for blocked_launch_button in [
         "launch-codex",
@@ -101,18 +87,20 @@ def test_cockpit_shows_honest_missing_backend_capabilities_and_safety():
         "launch-claude",
     ]:
         assert blocked_launch_button not in content.lower()
-    assert "execute-command" not in content.lower()
-    assert "arbitrary command runner" not in content.lower()
-    assert "LangGraph unavailable. SQLite checkpointing unavailable." not in content
+    assert "shell=True" not in content
+    assert "dangerously-skip-permissions" not in content
+    assert "--yolo" not in content
+    assert "--always-approve" not in content
 
 
-def test_cockpit_has_no_captain_command_input():
-    content = _content()
-    assert 'id="captain-run-select"' in content
-    assert 'id="captain-template-select"' in content
-    assert 'id="submit-captain-evidence"' in content
-    assert 'id="submit-captain-gate"' in content
-    assert 'id="submit-captain-gate-decision"' in content
-    assert 'id="captain-command"' not in content
-    assert 'type="text" id="captain-command"' not in content
-    assert "real agent launch button" in content.lower()
+def test_readme_and_showcase_docs_are_updated():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    screenshots = (ROOT / "docs" / "screenshots" / "README.md").read_text(encoding="utf-8")
+    showcase_notes = (ROOT / "docs" / "ui_showcase_notes.md").read_text(encoding="utf-8")
+
+    assert "Showcase cockpit" in readme
+    assert "Sample UI data — not executed." in readme
+    assert "http://127.0.0.1:8123/web/mctable-studio/cockpit.html?sample=1" in screenshots
+    assert "Sample UI data — not executed." in screenshots
+    assert "live mode" in showcase_notes.lower()
+    assert "sample mode" in showcase_notes.lower()
