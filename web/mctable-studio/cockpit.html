@@ -158,7 +158,7 @@
     }
     .workspace {
       display: grid;
-      grid-template-columns: 300px minmax(0, 1fr) 340px;
+      grid-template-columns: 280px minmax(0, 1.28fr) 300px;
       gap: 16px;
       padding: 16px;
       align-items: start;
@@ -261,6 +261,22 @@
     }
     .mini-row .label { color: var(--muted); }
     .mini-row .value { font-family: var(--mono); color: var(--text); overflow-wrap:anywhere; }
+    .inspector .list-item {
+      display: grid;
+      gap: 5px;
+      align-items: start;
+      line-height: 1.45;
+    }
+    .inspector .list-item span,
+    .inspector .mini-row .value {
+      line-height: 1.45;
+      text-align: left;
+    }
+    .inspector .mini-row {
+      display: grid;
+      gap: 5px;
+      align-items: start;
+    }
     .thread-panel {
       display: grid;
       grid-template-rows: auto 1fr auto;
@@ -353,7 +369,7 @@
     .composer-inner {
       max-width: 1440px;
       margin: 0 auto;
-      padding: 14px 16px 16px;
+      padding: 10px 16px 12px;
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 12px;
@@ -377,7 +393,8 @@
       padding: 10px 12px;
       outline: none;
     }
-    textarea { resize: vertical; min-height: 84px; }
+    textarea { resize: vertical; min-height: 72px; }
+    .composer textarea { min-height: 58px; resize: none; }
     .hint {
       color: var(--muted);
       font-size: 0.82rem;
@@ -405,6 +422,16 @@
       border-radius: 14px;
       border: 1px solid var(--line);
       background: rgba(255,255,255,0.72);
+    }
+    .sample-mode .rail > .panel:nth-child(2) {
+      opacity: 0.78;
+    }
+    .sample-mode .rail > .panel:nth-child(2) .section-head small,
+    .sample-mode .rail > .panel:nth-child(2) .hint {
+      color: #77839b;
+    }
+    .sample-mode .composer {
+      opacity: 0.96;
     }
     .hidden { display: none !important; }
     @media (max-width: 1240px) {
@@ -539,6 +566,10 @@
               <p>Operator instruction, Captain plan, minion assignment, evidence result, proof gate, human approval checkpoint, and scoped commits live in one thread. This is an agentic harness, not a chatbot.</p>
             </div>
             <div class="sample-badge" id="thread-sample-badge">Live thread</div>
+          </div>
+          <div class="sample-banner hidden" id="sample-mode-banner" aria-live="polite">
+            <strong>Sample UI data — not executed.</strong>
+            <span id="sample-mode-banner-text">Offline preview mode for screenshots and demos.</span>
           </div>
           <div class="section-note" style="margin-top: 10px;" id="thread-summary">
             Live mode follows the backend. Sample mode shows a complete story when you need a screenshot narrative.
@@ -832,11 +863,19 @@
       `).join("");
       $("active-backend-target").innerHTML = `<span class="dot"></span><strong>Active backend target:</strong> ${esc(state.backendTarget || API_BASE)}`;
       $("thread-sample-badge").textContent = state.sampleMode ? SAMPLE_LABEL : "Live thread";
-      $("thread-sample-badge").className = `sample-badge ${state.sampleMode ? "" : ""}`;
       $("thread-summary").textContent = state.sampleMode
         ? "Sample mode is active. The workspace is fully populated with demo-only data and nothing is executed."
         : "Live mode follows the backend. Sample mode can be toggled for screenshots if the live queue is empty.";
       $("show-sample-run").textContent = state.sampleMode ? "Hide sample run" : "Show sample run";
+      const sampleBanner = $("sample-mode-banner");
+      const sampleBannerText = $("sample-mode-banner-text");
+      if (state.sampleMode) {
+        sampleBanner.classList.remove("hidden");
+        sampleBannerText.textContent = "Offline preview mode for screenshots and demos.";
+      } else {
+        sampleBanner.classList.add("hidden");
+        sampleBannerText.textContent = "Live mode follows the backend.";
+      }
     }
 
     function renderLeftRail() {
@@ -997,6 +1036,7 @@
     }
 
     function renderAll() {
+      document.body.classList.toggle("sample-mode", state.sampleMode);
       renderTopbar();
       renderLeftRail();
       renderThread();

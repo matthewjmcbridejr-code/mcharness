@@ -39,6 +39,7 @@ def test_cockpit_references_live_marius_endpoints_and_same_origin_base():
     assert "http://127.0.0.1:8000" in content
     assert "resolveBackendUrl" in content
     assert "mariusDesktopBackendUrl" in content
+    assert "DEFAULT_TAURI_BACKEND" in content
 
 
 def test_cockpit_command_dropdown_is_fake_worker_only():
@@ -77,6 +78,15 @@ def test_cockpit_shows_hermes_workspace_language_and_safety():
         "Runs / Agents / Minions",
         "Prompt Queue",
         "Safety Rail",
+        "Sample UI data — not executed.",
+        "Offline preview mode for screenshots and demos.",
+        "grid-template-columns: 280px minmax(0, 1.28fr) 300px",
+        "thread-panel",
+        "sample-mode-banner",
+        ".sample-mode .rail > .panel:nth-child(2)",
+        ".composer textarea { min-height: 58px; resize: none; }",
+        ".inspector .list-item",
+        ".inspector .mini-row",
     ]
     for snippet in required_snippets:
         assert snippet in content
