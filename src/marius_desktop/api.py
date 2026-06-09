@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import uuid
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Literal, Optional, Any, Dict
@@ -615,6 +616,21 @@ def _start_fake_runner(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
+def _skip_codex_update_prompt(name: str) -> bool:
+    """Auto-dismiss Codex's update screen if it appears on startup.
+    This keeps the private runner on the actual input screen where prompt submission works.
+    """
+    if not name:
+        return False
+    pane = _get_tmux_transcript(name)
+    if "Update available" not in pane and "Skip until next version" not in pane and "Update now" not in pane:
+        return False
+    _safe_cmd(["tmux", "send-keys", "-t", name, "2"], timeout=1.0)
+    _safe_cmd(["tmux", "send-keys", "-t", name, "Enter"], timeout=1.0)
+    time.sleep(1.0)
+    return True
+
+
 def _start_codex_runner(state: dict[str, Any], cwd: str) -> dict[str, Any]:
     """Launch Codex interactively in tmux (pure, no wrapper that forces exit).
     Keeps the tmux session + Codex TUI alive for live monitoring and later prompt injection.
@@ -628,6 +644,8 @@ def _start_codex_runner(state: dict[str, Any], cwd: str) -> dict[str, Any]:
         state["status"] = "waiting_for_codex"
         state["notes"].append("codex interactive tmux session started; will inject prompt after ~10s delay")
         state["attach_command"] = f"tmux attach -t {name}"
+        if _skip_codex_update_prompt(name):
+            state["notes"].append("codex update prompt auto-skipped on startup")
     else:
         state["status"] = "failed"
         state["notes"].append(f"codex tmux start failed: {getattr(res, 'stderr', 'err') if res else 'subprocess err'}")
@@ -652,27 +670,32 @@ ALLOWED_QUICK_REPLY_KEYS: dict[str, str] = {
     "Ctrl+C": "C-c",
 }
 
-ACTIVE_RUNNER_STATUSES = {"running", "waiting_for_codex", "prompt_sent"}
+ACTIVE_RUNNER_STATUSES = {"running", "waiting_for_codex", "prompt_sent", "awaiting_response"}
 
 
 def _runner_transcript_excerpt(state: dict[str, Any], limit: int = 1200) -> str:
-    text = ""
+    text = _runner_transcript_text(state)
+    text = text or ""
+    if len(text) > limit:
+        return text[-limit:]
+    return text
+
+
+def _runner_transcript_text(state: dict[str, Any]) -> str:
+    name = state.get("tmux_session_name", "")
+    if name:
+        live = _get_tmux_transcript(name)
+        if live:
+            return live
     transcript_path = state.get("transcript_file_path")
     if transcript_path:
         p = Path(transcript_path)
         if p.exists():
             try:
-                text = p.read_text(encoding="utf-8")
+                return p.read_text(encoding="utf-8")
             except Exception:
-                text = ""
-    if not text:
-        name = state.get("tmux_session_name", "")
-        if name:
-            text = _get_tmux_transcript(name)
-    text = text or ""
-    if len(text) > limit:
-        return text[-limit:]
-    return text
+                return ""
+    return ""
 
 
 def _send_key_to_codex_runner(session_id: str, key: str) -> dict[str, Any]:
@@ -733,8 +756,10 @@ def _send_prompt_to_codex_runner(session_id: str, prompt_text: str):
     name = state.get("tmux_session_name")
     if not name:
         raise HTTPException(status_code=400, detail="No tmux session for runner")
-    # Use -l for literal text (safe, no shell interp of user prompt)
+    # Use -l for literal text (safe, no shell interp of user prompt).
+    # Codex CLI queues the message, then Tab + Enter submits it.
     _safe_cmd(["tmux", "send-keys", "-t", name, "-l", prompt_text], timeout=5.0)
+    _safe_cmd(["tmux", "send-keys", "-t", name, "Tab"], timeout=2.0)
     _safe_cmd(["tmux", "send-keys", "-t", name, "Enter"], timeout=2.0)
     # append note to transcript file (for final evidence)
     try:
@@ -743,22 +768,30 @@ def _send_prompt_to_codex_runner(session_id: str, prompt_text: str):
             f.write(f"\n# [McHarness injected prompt @ {datetime.now(timezone.utc).isoformat()}]\n{prompt_text}\n")
     except Exception:
         pass
-    state["status"] = "prompt_sent"
-    state["notes"].append("prompt text injected via tmux send-keys -l + Enter; session kept alive for live monitoring")
+    state["status"] = "awaiting_response"
+    state["notes"].append("prompt text injected via tmux send-keys -l + Tab + Enter; waiting for Codex response")
     _save_runner_state(state)
     try:
         run = _run_for_session(session_id)
         _append_run_event(run.get("run_id", ""), "Prompt sent to Codex", "User task prompt injected via safe tmux send-keys", "info", "runner")
     except Exception:
         pass
-    return {"ok": True}
+    return {
+        "ok": True,
+        "session_id": session_id,
+        "runner_id": state.get("runner_id"),
+        "lane_id": state.get("lane_id"),
+        "tmux_session_name": name,
+        "status": state.get("status"),
+        "transcript_excerpt": _runner_transcript_excerpt(state),
+    }
 
 
 @mcharness_router.post("/sessions/{session_id}/runner/send-prompt")
 def post_mcharness_runner_send_prompt(session_id: str, payload: McHarnessRunnerSendPrompt):
     """Smallest safe endpoint to inject the modal prompt into the running codex tmux (after startup delay)."""
-    _send_prompt_to_codex_runner(session_id, payload.prompt)
-    return {"ok": True, "injected": True}
+    result = _send_prompt_to_codex_runner(session_id, payload.prompt)
+    return {**result, "ok": True, "injected": True}
 
 
 @mcharness_router.post("/sessions/{session_id}/runner/send-key")
@@ -1215,20 +1248,13 @@ def get_mcharness_runner_transcript(session_id: str):
     state = _load_runner_state(session_id)
     if not state:
         raise HTTPException(status_code=404, detail="No runner for session")
-    p = Path(state["transcript_file_path"])
-    text = ""
-    if p.exists():
-        text = p.read_text(encoding="utf-8")
-    else:
-        name = state.get("tmux_session_name")
-        if name:
-            text = _get_tmux_transcript(name)
+    text = _runner_transcript_text(state)
     return {
         "session_id": session_id,
         "runner_id": state.get("runner_id"),
         "lane_id": state.get("lane_id"),
         "status": state.get("status"),
-        "transcript_path": str(p),
+        "transcript_path": str(state.get("transcript_file_path", "")),
         "transcript": text,
     }
 

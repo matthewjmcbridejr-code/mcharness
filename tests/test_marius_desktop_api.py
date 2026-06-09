@@ -633,18 +633,70 @@ def test_codex_cli_uses_interactive_tmux_mode_not_exec_wrapper(monkeypatch):
         "lane_id": "codex_cli", "repo_id": "mcharness-public-export"
     })
     assert st.status_code == 200
-    assert st.json()["status"] == "waiting_for_codex"
+    start_body = st.json()
+    assert start_body["status"] == "waiting_for_codex"
+    tmux_name = start_body["tmux_session_name"]
+
+    calls = []
+
+    def fake_safe_cmd(cmd, timeout=2.5, cwd=None):
+        calls.append(tuple(cmd))
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(api_mod, "_safe_cmd", fake_safe_cmd)
+    monkeypatch.setattr(api_mod, "_run_for_session", lambda session_id: {"run_id": "run-queue"})
+    monkeypatch.setattr(api_mod, "_append_run_event", lambda *args, **kwargs: None)
 
     # send
-    send = client.post(f"/api/mcharness/sessions/{sid}/runner/send-prompt", json={"prompt": "TASK_PROMPT_HERE"})
+    prompt = "TASK_PROMPT_HERE\nReturn the single line:\nMCH_CODEX_SUBMIT_PROOF_OK"
+    send = client.post(f"/api/mcharness/sessions/{sid}/runner/send-prompt", json={"prompt": prompt})
     assert send.status_code == 200
+    send_body = send.json()
+    assert send_body["status"] == "awaiting_response"
+    assert send_body["injected"] is True
+    assert calls[:3] == [
+        ("tmux", "send-keys", "-t", tmux_name, "-l", prompt),
+        ("tmux", "send-keys", "-t", tmux_name, "Tab"),
+        ("tmux", "send-keys", "-t", tmux_name, "Enter"),
+    ]
 
     st2 = client.get(f"/api/mcharness/sessions/{sid}/runner/status")
-    assert st2.json()["status"] == "prompt_sent"
+    assert st2.json()["status"] == "awaiting_response"
 
     # stop
     sp = client.post(f"/api/mcharness/sessions/{sid}/runner/stop")
     assert sp.json()["status"] == "stopped"
+
+
+def test_codex_start_auto_skips_update_prompt(monkeypatch):
+    client = TestClient(app)
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
+    import src.marius_desktop.api as api_mod
+
+    calls = []
+
+    def fake_safe_cmd(cmd, timeout=2.5, cwd=None):
+        calls.append(tuple(cmd))
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(api_mod, "_safe_cmd", fake_safe_cmd)
+    monkeypatch.setattr(api_mod, "_get_tmux_transcript", lambda name: "Update available! 0.137.0 -> 0.138.0\nSkip until next version")
+
+    s = client.post("/api/mcharness/sessions", json={
+        "title": "codex-update-skip", "objective": "o", "plan_instruction": "p",
+        "repo_path": "/root/mcharness-public-export", "agent_lane": "codex_cli"
+    })
+    sid = s.json()["session_id"]
+
+    st = client.post(f"/api/mcharness/sessions/{sid}/runner/start", json={
+        "lane_id": "codex_cli", "repo_id": "mcharness-public-export"
+    })
+    assert st.status_code == 200
+    body = st.json()
+    assert body["status"] == "waiting_for_codex"
+    assert any(call[-1] == "2" for call in calls if call[:3] == ("tmux", "send-keys", "-t"))
+    assert any(call[-1] == "Enter" for call in calls if call[:3] == ("tmux", "send-keys", "-t"))
 
 
 def test_runner_send_key_allows_only_quick_reply_keys(monkeypatch, tmp_path):

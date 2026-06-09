@@ -7,6 +7,7 @@
     health: {},
     selectedThreadId: "",
     selectedQueueItemId: "",
+    promptSubmittedAt: 0,
   };
 
   // Helper for API calls (minimal)
@@ -178,10 +179,14 @@
       // 6. wait ~10s then send/inject the prompt (safe endpoint; only the modal prompt)
       setTimeout(async () => {
         try {
-          await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/send-prompt`, {
+          const result = await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/send-prompt`, {
             method: "POST",
             body: { prompt },
           });
+          state.promptSubmittedAt = Date.now();
+          if (result && result.status) {
+            state.health.runner_status = result.status;
+          }
           // refresh monitor to show output
           if (typeof refreshLiveMonitor === "function") await refreshLiveMonitor();
         } catch (e) {
@@ -205,6 +210,7 @@
     const modal = document.getElementById("live-cli-modal");
     if (!modal) return;
     modal.style.display = "flex";
+    state.promptSubmittedAt = state.promptSubmittedAt || 0;
     setQuickReplyStatus("");
     refreshLiveMonitor();
     if (liveAutoRefresh) startMonitorPolling();
@@ -254,6 +260,7 @@
       let friendly = statusText;
       if (statusText === "waiting_for_codex") friendly = "waiting for Codex to load (~10s)";
       else if (statusText === "prompt_sent") friendly = "prompt sent, live output below";
+      else if (statusText === "awaiting_response") friendly = "prompt submitted, waiting for response";
       else if (statusText === "running") friendly = "running (interactive tmux + Codex)";
       if (infoEl) {
         const debug = `exe: codex | cwd: ${status.repo_id || 'n/a'} | tmux: ${status.tmux_session_name || 'n/a'} | attach: ${status.attach_command || 'n/a'}`;
@@ -267,6 +274,12 @@
         // warning if only exit code visible (means launch didn't keep interactive or capture missed TUI)
         if (displayTxt.trim() === "MCH_EXIT_CODE:0" || (displayTxt.trim().length < 30 && displayTxt.includes("EXIT"))) {
           pre.textContent = displayTxt + "\n\n[Warning] Runner exited before producing visible CLI output. Check flags, codex auth, or tmux attach manually.";
+        }
+      }
+      if (statusText === "awaiting_response") {
+        const elapsed = state.promptSubmittedAt ? Date.now() - state.promptSubmittedAt : 0;
+        if (elapsed > 10000) {
+          setQuickReplyStatus("Prompt appears pasted but no Codex response yet. Try Enter quick reply or attach manually.");
         }
       }
       const ts = document.getElementById("modal-timestamp");
