@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>McHarness | Functional Captain Cockpit</title>
+  <meta
+    name="description"
+    content="Functional local Captain cockpit for supervised fake-worker-only McHarness sessions."
+  />
+  <link rel="stylesheet" href="./cockpit-app.css" />
+</head>
+<body>
+  <div class="app">
+    <section class="banner-strip" aria-label="Safety mode">
+      <span class="banner good">SERVER CONTROL PLANE</span>
+      <span class="banner good">ALLOWLISTED CLI LANES ONLY</span>
+      <span class="banner warn">ARBITRARY COMMAND EXECUTION DISABLED</span>
+      <span class="banner bad">PUBLIC REAL AGENT LAUNCH DISABLED</span>
+      <span class="banner warn">FAKE/MANUAL MODE</span>
+    </section>
+
+    <aside class="rail" aria-label="Left rail">
+      <section class="layout-stack">
+        <p class="section-title">McHarness Captain Cockpit</p>
+        <h1 class="page-title">Server-hosted control plane</h1>
+        <p class="lede">
+          Select an allowlisted repo/worktree and CLI lane, then drive the existing Captain loop through prompt export,
+          transcript/result capture, artifacts, evidence, gate decisions, and persisted continuation.
+        </p>
+      </section>
+
+      <section class="layout-stack">
+        <h2 class="section-title">New Session</h2>
+        <form id="new-session-form" class="form-stack">
+          <div class="field">
+            <label for="session-title">Session title</label>
+            <input id="session-title" name="title" required />
+          </div>
+          <div class="field">
+            <label for="repo-select">Repo / worktree</label>
+            <select id="repo-select" name="repoPath" required></select>
+          </div>
+          <div class="field">
+            <label for="lane-select">CLI agent lane</label>
+            <select id="lane-select" name="agentLane" required></select>
+          </div>
+          <div class="field">
+            <label for="session-objective">Objective</label>
+            <textarea id="session-objective" name="objective" required></textarea>
+          </div>
+          <div class="field">
+            <label for="session-plan">Plan instruction</label>
+            <textarea id="session-plan" name="planInstruction" required></textarea>
+          </div>
+          <button class="btn primary" type="submit">New Session</button>
+        </form>
+      </section>
+
+      <section class="layout-stack">
+        <div class="split">
+          <h2 class="section-title">Sessions</h2>
+          <button class="btn" id="refresh-sessions" type="button">Refresh</button>
+        </div>
+        <div id="sessions-list" class="card-list" aria-live="polite"></div>
+      </section>
+
+      <section class="layout-stack">
+        <h2 class="section-title">Prompt Queue</h2>
+        <div id="queue-list" class="card-list"></div>
+      </section>
+
+      <section class="layout-stack">
+        <h2 class="section-title">Artifacts</h2>
+        <div id="artifact-list" class="card-list"></div>
+      </section>
+
+      <section class="layout-stack">
+        <h2 class="section-title">Evidence</h2>
+        <div id="evidence-list" class="card-list"></div>
+      </section>
+
+      <section class="layout-stack">
+        <h2 class="section-title">Gates</h2>
+        <div id="gate-list" class="card-list"></div>
+      </section>
+
+      <section class="layout-stack">
+        <h2 class="section-title">Logs</h2>
+        <div id="log-hint" class="muted">Operator actions are persisted as run events where possible.</div>
+      </section>
+
+      <section class="layout-stack">
+        <h2 class="section-title">Safety</h2>
+        <div id="safety-list" class="safety-list"></div>
+      </section>
+    </aside>
+
+    <main class="panel layout-stack" aria-label="Center panel">
+      <section class="layout-stack">
+        <p class="section-title">Session Worklog Timeline</p>
+        <div id="session-summary" class="card">
+          <h4>No session selected</h4>
+          <p class="muted">Create a session or reopen one from the left rail.</p>
+        </div>
+      </section>
+
+      <section class="layout-stack">
+        <p class="section-title">Task Composer</p>
+        <form id="queue-form" class="form-stack">
+          <div class="field">
+            <label for="queue-title">Queue item title</label>
+            <input id="queue-title" name="title" />
+          </div>
+          <div class="field">
+            <label for="queue-prompt">Prompt</label>
+            <textarea id="queue-prompt" name="prompt"></textarea>
+          </div>
+          <div class="field">
+            <label for="queue-role">Role</label>
+            <select id="queue-role" name="targetRole">
+              <option value="reviewer">reviewer</option>
+              <option value="implementer">implementer</option>
+              <option value="test_runner">test_runner</option>
+              <option value="ui_inspector">ui_inspector</option>
+              <option value="safety_auditor">safety_auditor</option>
+              <option value="docs_writer">docs_writer</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="queue-file-scope">Files/areas to inspect</label>
+            <textarea id="queue-file-scope" name="fileScope" placeholder="One path per line"></textarea>
+          </div>
+          <div class="field">
+            <label for="queue-forbidden-scope">Forbidden files/areas</label>
+            <textarea id="queue-forbidden-scope" name="forbiddenFileScope" placeholder="One path per line"></textarea>
+          </div>
+          <div class="field">
+            <label for="queue-acceptance">Acceptance tests</label>
+            <textarea id="queue-acceptance" name="acceptanceChecks" placeholder="One check per line"></textarea>
+          </div>
+          <div class="field">
+            <label for="queue-evidence">Required evidence</label>
+            <textarea id="queue-evidence" name="evidenceRequired" placeholder="One requirement per line"></textarea>
+          </div>
+          <button class="btn primary" type="submit">Queue Prompt</button>
+        </form>
+      </section>
+
+      <section class="layout-stack queue-preview">
+        <p class="section-title">Prompt Preview</p>
+        <div class="card">
+          <h4 id="preview-title">No queue item selected</h4>
+          <p class="muted">Select a queue item to preview and export the bounded minion prompt.</p>
+          <div class="button-row">
+            <button class="btn" id="preview-load" type="button">Load Preview</button>
+            <button class="btn" id="preview-copy" type="button">Copy .md</button>
+            <button class="btn" id="preview-download" type="button">Download .md</button>
+            <button class="btn" id="preview-mark-exported" type="button">Mark Exported</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="prompt-preview">Prompt export</label>
+          <textarea id="prompt-preview" class="preview" readonly></textarea>
+        </div>
+      </section>
+
+      <section class="layout-stack">
+        <p class="section-title">Evidence Intake</p>
+        <form id="evidence-form" class="form-stack">
+          <div class="field">
+            <label for="assignment-select">Assignment</label>
+            <select id="assignment-select" name="assignmentId"></select>
+          </div>
+          <div class="field">
+            <label for="evidence-verdict">Verdict</label>
+            <select id="evidence-verdict" name="verdict">
+              <option value="passed">passed</option>
+              <option value="unknown">unknown</option>
+              <option value="blocked">blocked</option>
+              <option value="failed">failed</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="evidence-source-ref">Source ref</label>
+            <input id="evidence-source-ref" name="sourceRef" placeholder="Path, note, or worker handle" />
+          </div>
+          <div class="field">
+            <label for="evidence-summary">Evidence summary</label>
+            <textarea id="evidence-summary" name="summary" required></textarea>
+          </div>
+          <div class="field">
+            <label for="evidence-output">Pasted transcript / worker result</label>
+            <textarea id="evidence-output" name="output"></textarea>
+          </div>
+          <div class="field">
+            <label for="git-status-input">Git status</label>
+            <textarea id="git-status-input" name="gitStatus"></textarea>
+          </div>
+          <div class="field">
+            <label for="git-diff-input">Git diff summary</label>
+            <textarea id="git-diff-input" name="gitDiffSummary"></textarea>
+          </div>
+          <div class="field">
+            <label for="test-output-input">Test output</label>
+            <textarea id="test-output-input" name="testOutput"></textarea>
+          </div>
+          <div class="button-row">
+            <button class="btn primary" type="submit">Capture Result + Evidence</button>
+            <button class="btn good" id="complete-assignment" type="button">Complete Assignment</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="layout-stack">
+        <p class="section-title">Activity Log</p>
+        <div id="activity-log" class="timeline"></div>
+      </section>
+    </main>
+
+    <aside class="rail" aria-label="Right rail">
+      <section class="layout-stack">
+        <h2 class="section-title">Run Status</h2>
+        <div id="run-status" class="kv-grid"></div>
+      </section>
+
+      <section class="layout-stack">
+        <h2 class="section-title">Current Gate</h2>
+        <div id="current-gate" class="card">
+          <h4>No gate selected</h4>
+          <p class="muted">Select a session to inspect the current run gate.</p>
+        </div>
+        <div class="field">
+          <label for="gate-note">Gate reason / reviewer note</label>
+          <textarea id="gate-note"></textarea>
+        </div>
+        <div class="right-actions">
+          <button class="btn good" id="gate-approve" type="button">Approve Gate</button>
+          <button class="btn bad" id="gate-reject" type="button">Reject Gate</button>
+          <button class="btn warn" id="gate-more-evidence" type="button">Request More Evidence</button>
+        </div>
+      </section>
+
+      <section class="layout-stack">
+        <h2 class="section-title">Actions</h2>
+        <div class="right-actions">
+          <button class="btn" id="pause-session" type="button">Pause</button>
+          <button class="btn primary" id="resume-session" type="button">Resume</button>
+          <button class="btn bad" id="stop-session" type="button">Stop</button>
+          <button class="btn" id="capture-git-status" type="button">Capture Git Status</button>
+          <button class="btn" id="reload-session" type="button">Reload Session</button>
+        </div>
+      </section>
+
+      <section class="layout-stack">
+        <h2 class="section-title">Safety Mode</h2>
+        <div id="safety-mode" class="card">
+          <p class="mono">SERVER CONTROL PLANE</p>
+          <p class="muted">Allowlisted repo/worktree selection only. CLI lanes are bounded. Public real agent launch remains disabled. Manual-compatible mode is the default.</p>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <script src="./cockpit-app.js"></script>
+</body>
+</html>
