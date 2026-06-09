@@ -339,35 +339,75 @@ def _append_workbench_event(
 
 
 def _render_queue_item_export_text(state: CaptainState, item: PromptQueueItem) -> str:
+    thread_title = state.thread_id
+    try:
+        thread_title = WORKBENCH_STORE.get_thread(state.thread_id).get("title") or state.thread_id
+    except Exception:
+        pass
     allowed_files = "\n".join(f"- {path}" for path in item.file_scope or item.allowed_files or ["(none)"])
     forbidden_files = "\n".join(f"- {path}" for path in item.forbidden_file_scope or ["_mctable/**", "src-tauri/**"])
     forbidden_actions = "\n".join(f"- {action}" for action in item.forbidden_actions or [
         "Do not commit.",
         "Do not push.",
         "Do not launch real external agents.",
+        "Do not execute arbitrary shell commands.",
     ])
     acceptance_checks = "\n".join(f"- {check}" for check in item.acceptance_checks or ["Return honest evidence."])
+    evidence_required = "\n".join(f"- {check}" for check in item.evidence_required or ["Return evidence before asking to continue."])
     dependencies = ", ".join(item.dependencies) if item.dependencies else "none"
     export_lines = [
-        f"Mission: {state.objective}",
-        f"Queue item: {item.title}",
-        f"Target role: {item.target_role}",
-        "Allowed files:",
+        f"# McHarness Bounded Minion Prompt",
+        "",
+        "## Session",
+        f"- Session title: {thread_title}",
+        f"- Session id: {state.thread_id}",
+        f"- Captain run id: {state.captain_run_id}",
+        f"- Queue item id: {item.queue_item_id}",
+        "",
+        "## Assignment",
+        f"- Queue item title: {item.title}",
+        f"- Target role: {item.target_role}",
+        f"- Exact goal: {state.objective}",
+        "",
+        "## Prompt",
+        item.prompt,
+        "",
+        "## Safety constraints",
+        "- FAKE WORKER MODE",
+        "- REAL AGENT LAUNCH DISABLED",
+        "- ARBITRARY COMMAND EXECUTION DISABLED",
+        "",
+        "## Files or areas to inspect",
         allowed_files,
-        "Forbidden files:",
+        "",
+        "## Forbidden files",
         forbidden_files,
-        "Forbidden actions:",
+        "",
+        "## Forbidden actions",
         forbidden_actions,
-        "Acceptance checks:",
+        "",
+        "## Acceptance tests",
         acceptance_checks,
-        "Final proof format:",
+        "",
+        "## Required evidence",
+        evidence_required,
+        "",
+        "## Dependencies",
+        f"- {dependencies}",
+        "",
+        "## Required final proof format",
         "- summary",
         "- evidence",
         "- status",
+        "- exact files inspected or changed",
+        "- commands/tests run",
+        "- what is proven",
+        "- what remains unproven",
+        "",
         "Do not commit.",
         "Do not push.",
         "Do not launch real external agents.",
-        f"Dependencies: {dependencies}",
+        "Do not execute arbitrary shell commands.",
     ]
     return "\n".join(export_lines)
 
