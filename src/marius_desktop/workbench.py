@@ -53,6 +53,7 @@ class WorkbenchThread(BaseModel):
     planned_acceptance_commands: list[str] = Field(default_factory=list)
     recovery_hint: Optional[str] = None
     notes: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 
@@ -153,6 +154,17 @@ class WorkbenchThreadCreateRequest(BaseModel):
     planned_acceptance_commands: list[str] = Field(default_factory=list)
     recovery_hint: Optional[str] = None
     notes: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkbenchThreadUpdateRequest(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1)
+    objective: Optional[str] = Field(default=None, min_length=1)
+    status: Optional[Literal["open", "paused", "blocked", "closed"]] = None
+    next_action: Optional[str] = Field(default=None, min_length=1)
+    recovery_hint: Optional[str] = None
+    notes: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
 
 
 class WorkbenchMessageCreateRequest(BaseModel):
@@ -662,12 +674,43 @@ class WorkbenchStore:
             planned_acceptance_commands=list(payload.planned_acceptance_commands),
             recovery_hint=payload.recovery_hint,
             notes=payload.notes,
+            metadata=dict(payload.metadata),
             created_at=_now(),
             updated_at=_now(),
         )
         if thread.hard_gates and any(gate.blocked and gate.decision != "approve" for gate in thread.hard_gates):
             thread.status = "blocked"
         self._save_thread(thread)
+        return self._thread_view(thread)
+
+    def update_thread(self, thread_id: str, payload: WorkbenchThreadUpdateRequest) -> dict[str, Any]:
+        self.ensure_layout()
+        thread = self._load_thread(thread_id)
+        changed = False
+        if payload.title is not None:
+            thread.title = payload.title
+            changed = True
+        if payload.objective is not None:
+            thread.objective = payload.objective
+            changed = True
+        if payload.status is not None:
+            thread.status = payload.status
+            changed = True
+        if payload.next_action is not None:
+            thread.next_action = payload.next_action
+            changed = True
+        if payload.recovery_hint is not None:
+            thread.recovery_hint = payload.recovery_hint
+            changed = True
+        if payload.notes is not None:
+            thread.notes = payload.notes
+            changed = True
+        if payload.metadata is not None:
+            thread.metadata = dict(payload.metadata)
+            changed = True
+        if changed:
+            thread.updated_at = _now()
+            self._save_thread(thread)
         return self._thread_view(thread)
 
     def list_messages(self, thread_id: str) -> list[dict[str, Any]]:
@@ -747,6 +790,11 @@ class WorkbenchStore:
             rows.append(self._run_view(run))
         rows.sort(key=lambda item: item.get("updated_at") or "", reverse=True)
         return rows
+
+    def list_runs_for_thread(self, thread_id: str) -> list[dict[str, Any]]:
+        self.ensure_layout()
+        self._load_thread(thread_id)
+        return [run for run in self.list_runs() if run.get("thread_id") == thread_id]
 
     def create_run(self, thread_id: str, payload: WorkbenchRunCreateRequest) -> WorkbenchRun:
         self.ensure_layout()
@@ -1153,10 +1201,26 @@ def create_thread(payload: WorkbenchThreadCreateRequest) -> dict[str, Any]:
         raise _http_error(exc)
 
 
+@router.patch("/threads/{thread_id}")
+def patch_thread(thread_id: str, payload: WorkbenchThreadUpdateRequest) -> dict[str, Any]:
+    try:
+        return STORE.update_thread(thread_id, payload)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
 @router.get("/threads/{thread_id}")
 def get_thread(thread_id: str) -> dict[str, Any]:
     try:
         return STORE.get_thread(thread_id)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.get("/threads/{thread_id}/runs")
+def get_thread_runs(thread_id: str) -> list[dict[str, Any]]:
+    try:
+        return STORE.list_runs_for_thread(thread_id)
     except Exception as exc:
         raise _http_error(exc)
 
