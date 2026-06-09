@@ -84,6 +84,36 @@ test("proves the full manual-compatible cockpit operator loop in the browser", a
   await expect(preview).toHaveValue(/## Acceptance tests/);
   await expect(preview).toHaveValue(/## Required final proof format/);
 
+  // Live CLI Monitor proof (SIMPLE MODE + read-only modal; uses fake_test_lane for transcript without real Codex)
+  await expect(page.getByTestId("open-live-monitor-btn")).toBeVisible();
+  // start a fake runner on this session for monitor transcript test (allowed without runner envs)
+  const sidForMonitor = await page.evaluate(async () => {
+    // find a thread id from summary or cards
+    const card = document.querySelector('[data-testid="session-card"]');
+    const sid = card ? card.getAttribute('data-thread-id') : null;
+    if (!sid) return null;
+    try {
+      const r = await fetch('/api/mcharness/sessions/' + encodeURIComponent(sid) + '/runner/start', {
+        method: 'POST', headers: {'content-type': 'application/json'},
+        body: JSON.stringify({lane_id: 'fake_test_lane', repo_id: 'mcharness-public-export'})
+      });
+      return sid;
+    } catch(e){ return sid; }
+  });
+  await page.getByTestId("open-live-monitor-btn").click();
+  await expect(page.getByTestId("live-cli-modal")).toBeVisible();
+  await expect(page.getByTestId("live-cli-modal")).toContainText("Read-only monitor");
+  await expect(page.getByTestId("live-cli-modal")).toContainText("No arbitrary shell input");
+  // refresh and check transcript has fake proof (from _start_fake_runner)
+  await page.getByTestId("modal-refresh").click();
+  await expect(page.getByTestId("modal-transcript")).toContainText("MCHarness fake runner");
+  await expect(page.getByTestId("modal-transcript")).toContainText("artifact proof line");
+  // save evidence from modal
+  await page.getByTestId("modal-save-evidence").click();
+  // close
+  await page.getByTestId("modal-close").click();
+  await expect(page.getByTestId("live-cli-modal")).not.toBeVisible();
+
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     page.getByRole("button", { name: "Download .md" }).click(),

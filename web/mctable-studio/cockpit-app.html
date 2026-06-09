@@ -64,21 +64,39 @@
         </div>
       </section>
 
-      <!-- Gated tmux runner foundation controls (added; no redesign; manual paste untouched) -->
+      <!-- Simplified runner controls for SIMPLE MODE (raw debug moved to Live CLI Monitor modal) -->
       <section class="layout-stack" id="runner-controls">
-        <h2 class="section-title">Controlled Runner (gated tmux)</h2>
-        <div class="muted" style="font-size:0.8em;">No arbitrary shell. Public real agent launch disabled. codex_cli (when both runner envs + installed) and fake_test_lane for proof/tests.</div>
+        <h2 class="section-title">Controlled Runner</h2>
+        <div class="muted" style="font-size:0.8em;">No arbitrary shell. Public real agent launch disabled. Use Codex (Experimental) or Manual. See Live CLI Monitor for live output.</div>
         <div class="button-row">
           <button id="runner-start-btn" data-testid="runner-start-btn" class="btn" type="button">Start Controlled Runner</button>
-          <button id="runner-status-btn" data-testid="runner-status-btn" class="btn" type="button">Refresh Status</button>
-          <button id="runner-transcript-btn" data-testid="runner-transcript-btn" class="btn" type="button">Refresh Transcript</button>
-          <button id="runner-stop-btn" data-testid="runner-stop-btn" class="btn bad" type="button">Stop Runner</button>
+          <button id="open-live-monitor-btn" data-testid="open-live-monitor-btn" class="btn primary" type="button">Open Live CLI Monitor</button>
           <button id="runner-evidence-btn" data-testid="runner-evidence-btn" class="btn good" type="button">Save Transcript as Evidence</button>
+          <button id="runner-stop-btn" data-testid="runner-stop-btn" class="btn bad" type="button">Stop Runner</button>
         </div>
-        <div id="runner-status" data-testid="runner-status" class="muted" style="font-family:var(--mono);font-size:0.8em;white-space:pre-wrap;"></div>
-        <pre id="runner-transcript" data-testid="runner-transcript" class="preview" style="display:none;min-height:80px;"></pre>
-        <div id="runner-attach" data-testid="runner-attach" class="muted" style="font-size:0.75em;"></div>
+        <!-- raw status/transcript/attach moved into the modal for clean SIMPLE MODE view; keep minimal badge if needed via lane-repo-status -->
       </section>
+
+      <!-- Live CLI Monitor Modal (read-only, focused popup for active tmux/Codex session) -->
+      <div id="live-cli-modal" data-testid="live-cli-modal">
+        <div class="modal-content">
+          <h3>Live CLI Monitor — <span id="modal-lane-name">No lane</span></h3>
+          <div id="modal-info" class="monitor-info"></div>
+          <div class="safety-note"><strong>Read-only monitor. No arbitrary shell input.</strong> Use your terminal with the attach command for manual control.</div>
+          <pre id="modal-transcript" data-testid="modal-transcript">Waiting for CLI output...</pre>
+          <div id="modal-timestamp" class="muted" style="font-size:0.75em;"></div>
+          <div id="modal-empty" class="empty-state" style="display:none;">No active runner. Start a controlled runner first.</div>
+          <div id="modal-disabled" class="disabled-state" style="display:none;">Controlled runner disabled. Manual mode is available.</div>
+          <div class="button-row">
+            <button id="modal-refresh" data-testid="modal-refresh" class="btn" type="button">Refresh Now</button>
+            <button id="modal-autorefresh" data-testid="modal-autorefresh" class="btn" type="button">Auto-refresh: ON</button>
+            <button id="modal-copy-attach" data-testid="modal-copy-attach" class="btn" type="button">Copy Attach Command</button>
+            <button id="modal-save-evidence" data-testid="modal-save-evidence" class="btn good" type="button">Save Transcript as Evidence</button>
+            <button id="modal-stop" data-testid="modal-stop" class="btn bad" type="button">Stop Runner</button>
+            <button id="modal-close" data-testid="modal-close" class="btn" type="button">Close</button>
+          </div>
+        </div>
+      </div>
 
       <section class="layout-stack">
         <div class="split">

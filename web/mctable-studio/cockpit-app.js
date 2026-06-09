@@ -80,6 +80,21 @@
     runnerStatus: document.getElementById("runner-status"),
     runnerTranscript: document.getElementById("runner-transcript"),
     runnerAttach: document.getElementById("runner-attach"),
+    // Live CLI Monitor modal els
+    openLiveMonitorBtn: document.getElementById("open-live-monitor-btn"),
+    liveCLIModal: document.getElementById("live-cli-modal"),
+    modalLaneName: document.getElementById("modal-lane-name"),
+    modalInfo: document.getElementById("modal-info"),
+    modalTranscript: document.getElementById("modal-transcript"),
+    modalTimestamp: document.getElementById("modal-timestamp"),
+    modalEmpty: document.getElementById("modal-empty"),
+    modalDisabled: document.getElementById("modal-disabled"),
+    modalRefresh: document.getElementById("modal-refresh"),
+    modalAutoRefresh: document.getElementById("modal-autorefresh"),
+    modalCopyAttach: document.getElementById("modal-copy-attach"),
+    modalSaveEvidence: document.getElementById("modal-save-evidence"),
+    modalStop: document.getElementById("modal-stop"),
+    modalClose: document.getElementById("modal-close"),
   };
 
   let pollHandle = null;
@@ -254,8 +269,16 @@
   }
 
   function renderLaneOptions() {
-    els.laneSelect.innerHTML = state.lanes
-      .map((lane) => `<option value="${escapeHtml(lane.lane_id)}" ${lane.implemented ? "" : "disabled"}>${escapeHtml(lane.title)}${lane.implemented ? "" : " (placeholder)"}</option>`)
+    // SIMPLE MODE: only show proven/available lanes for task execution to CLI (manual + codex experimental)
+    const allowed = ['manual_paste', 'codex_cli', 'fake_test_lane']; // fake for tests only
+    const visibleLanes = state.lanes.filter(l => allowed.includes(l.lane_id));
+    els.laneSelect.innerHTML = visibleLanes
+      .map((lane) => {
+        let label = escapeHtml(lane.title || lane.label);
+        if (lane.lane_id === 'codex_cli') label += ' (Experimental)';
+        const disabled = !lane.implemented && lane.lane_id !== 'codex_cli' ? 'disabled' : '';
+        return `<option value="${escapeHtml(lane.lane_id)}" ${disabled}>${label}</option>`;
+      })
       .join("");
   }
 
@@ -728,6 +751,114 @@
     }
   }
 
+  // Live CLI Monitor state (poll only while open)
+  let liveMonitorInterval = null;
+  let liveAutoRefresh = true;
+
+  function openLiveCLIMonitor() {
+    if (!els.liveCLIModal) return;
+    els.liveCLIModal.classList.add('show');
+    refreshLiveMonitor();
+    if (liveAutoRefresh) startMonitorPolling();
+  }
+
+  function closeLiveCLIMonitor() {
+    if (!els.liveCLIModal) return;
+    els.liveCLIModal.classList.remove('show');
+    stopMonitorPolling();
+  }
+
+  function startMonitorPolling() {
+    stopMonitorPolling();
+    liveMonitorInterval = setInterval(() => {
+      if (els.liveCLIModal && els.liveCLIModal.classList.contains('show') && liveAutoRefresh) {
+        refreshLiveMonitor();
+      }
+    }, 1500);
+  }
+
+  function stopMonitorPolling() {
+    if (liveMonitorInterval) {
+      clearInterval(liveMonitorInterval);
+      liveMonitorInterval = null;
+    }
+  }
+
+  async function refreshLiveMonitor() {
+    if (!state.selectedThreadId || !els.liveCLIModal) return;
+    const modal = els.liveCLIModal;
+    try {
+      const statusResp = await requestJson(`${MCH}/sessions/${encodeURIComponent(state.selectedThreadId)}/runner/status`);
+      const transResp = await requestJson(`${MCH}/sessions/${encodeURIComponent(state.selectedThreadId)}/runner/transcript`);
+      // hide empty/disabled
+      if (els.modalEmpty) els.modalEmpty.style.display = 'none';
+      if (els.modalDisabled) els.modalDisabled.style.display = 'none';
+      if (els.modalTranscript) els.modalTranscript.style.display = '';
+      // update info
+      if (els.modalLaneName) els.modalLaneName.textContent = statusResp.lane_id || statusResp.lane || 'unknown';
+      let info = `Repo: ${statusResp.repo_id || 'n/a'} | Status: ${statusResp.status || 'n/a'} | Tmux: ${statusResp.tmux_session_name || 'n/a'}`;
+      if (els.modalInfo) els.modalInfo.textContent = info;
+      // attach
+      const attach = statusResp.attach_command || (statusResp.tmux_session_name ? `tmux attach -t ${statusResp.tmux_session_name}` : '');
+      // transcript
+      const trans = (transResp && transResp.transcript) ? transResp.transcript : (statusResp.transcript || '');
+      if (els.modalTranscript) {
+        els.modalTranscript.textContent = trans || 'Waiting for CLI output...';
+      }
+      if (els.modalTimestamp) els.modalTimestamp.textContent = `Last refreshed: ${new Date().toLocaleTimeString()}`;
+      // store for copy/save
+      modal.dataset.attach = attach;
+      modal.dataset.transcript = trans;
+      modal.dataset.status = JSON.stringify(statusResp);
+    } catch (e) {
+      // show empty if no runner
+      if (els.modalTranscript) els.modalTranscript.style.display = 'none';
+      if (els.modalEmpty) {
+        els.modalEmpty.style.display = '';
+        els.modalEmpty.textContent = 'No active runner. Start a controlled runner first.';
+      }
+    }
+  }
+
+  async function handleModalSaveEvidence() {
+    if (!state.selectedThreadId) return;
+    try {
+      const data = await requestJson(`${MCH}/sessions/${encodeURIComponent(state.selectedThreadId)}/runner/transcript-to-evidence`, { method: 'POST' });
+      alert('Transcript saved as evidence (see Evidence list).');
+      await refreshSelectedSession(); // update lists
+    } catch (err) {
+      alert('Save evidence error: ' + (err.message || err));
+    }
+  }
+
+  function handleModalCopyAttach() {
+    const modal = els.liveCLIModal;
+    const cmd = (modal && modal.dataset.attach) || '';
+    if (cmd) {
+      navigator.clipboard.writeText(cmd).then(() => {
+        const orig = els.modalCopyAttach ? els.modalCopyAttach.textContent : '';
+        if (els.modalCopyAttach) els.modalCopyAttach.textContent = 'Copied!';
+        setTimeout(() => { if (els.modalCopyAttach) els.modalCopyAttach.textContent = orig || 'Copy Attach Command'; }, 1200);
+      }).catch(() => {
+        prompt('Copy this attach command:', cmd);
+      });
+    } else {
+      alert('No attach command available (no active runner).');
+    }
+  }
+
+  function handleModalAutoToggle() {
+    liveAutoRefresh = !liveAutoRefresh;
+    if (els.modalAutoRefresh) {
+      els.modalAutoRefresh.textContent = `Auto-refresh: ${liveAutoRefresh ? 'ON' : 'OFF'}`;
+    }
+    if (liveAutoRefresh && els.liveCLIModal && els.liveCLIModal.classList.contains('show')) {
+      startMonitorPolling();
+    } else {
+      stopMonitorPolling();
+    }
+  }
+
   async function handleRunnerPreview() {
     const out = els.runnerPreviewOutput;
     if (!state.selectedThreadId) {
@@ -805,6 +936,18 @@
     if (els.runnerTranscriptBtn) els.runnerTranscriptBtn.addEventListener("click", () => runAction(handleRunnerTranscript));
     if (els.runnerStopBtn) els.runnerStopBtn.addEventListener("click", () => runAction(handleRunnerStop));
     if (els.runnerEvidenceBtn) els.runnerEvidenceBtn.addEventListener("click", () => runAction(handleRunnerEvidence));
+    // Live CLI Monitor
+    if (els.openLiveMonitorBtn) els.openLiveMonitorBtn.addEventListener("click", () => openLiveCLIMonitor());
+    if (els.modalClose) els.modalClose.addEventListener("click", () => closeLiveCLIMonitor());
+    if (els.modalRefresh) els.modalRefresh.addEventListener("click", () => refreshLiveMonitor());
+    if (els.modalAutoRefresh) els.modalAutoRefresh.addEventListener("click", () => handleModalAutoToggle());
+    if (els.modalCopyAttach) els.modalCopyAttach.addEventListener("click", () => handleModalCopyAttach());
+    if (els.modalSaveEvidence) els.modalSaveEvidence.addEventListener("click", () => runAction(handleModalSaveEvidence));
+    if (els.modalStop) els.modalStop.addEventListener("click", () => runAction(handleRunnerStop)); // reuse
+    // close modal on overlay click (outside content)
+    if (els.liveCLIModal) els.liveCLIModal.addEventListener("click", (e) => {
+      if (e.target === els.liveCLIModal) closeLiveCLIMonitor();
+    });
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) return;
       runAction(async () => {
