@@ -267,6 +267,11 @@ textarea {
   gap: 10px;
 }
 
+/* runner preview + lane/repo status (non-redesign additions) */
+#lane-repo-status { font-family: var(--mono, monospace); background: rgba(255,255,255,0.02); padding: 4px 6px; border-radius: 6px; margin: 4px 0; }
+#runner-preview-output { background: #0a1422; color: #9cacbf; border-radius: 8px; border: 1px solid var(--line); }
+#runner-preview-btn { font-size: 0.85em; }
+
 .empty {
   color: var(--muted);
   font-style: italic;

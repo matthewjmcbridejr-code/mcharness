@@ -1,6 +1,8 @@
+import json
 import os
 import subprocess
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Literal, Optional, Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -123,6 +125,86 @@ def _public_write_enabled() -> bool:
     return _env_flag("MCHARNESS_PUBLIC_WRITE_ENABLED", "MCHARNESSS_PUBLIC_WRITE_ENABLED", default="true")
 
 
+def _tmux_runner_enabled() -> bool:
+    # Tolerate the common misspelling variant as done for PUBLIC_WRITE
+    return _env_flag(
+        "MCHARNESS_TMUX_RUNNER_ENABLED",
+        "MCHARNESSS_TMUX_RUNNER_ENABLED",
+        default="false",
+    )
+
+
+def _safe_cmd(cmd: list[str], timeout: float = 2.5, cwd: str | None = None) -> subprocess.CompletedProcess | None:
+    """Run a command with timeout; never raise, always return structured result or None."""
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=cwd,
+        )
+    except Exception:
+        return None
+
+
+def _detect_executable(name: str) -> dict[str, Any]:
+    """Safe, non-interactive detection using command -v + optional --version. No auth files, no login, no secrets."""
+    exe: Optional[str] = None
+    version: Optional[str] = None
+    # Per spec: use command -v
+    res = _safe_cmd(["bash", "-c", f"command -v {name} || true"], timeout=2.0)
+    if res is not None and res.returncode == 0 and res.stdout.strip():
+        exe = res.stdout.strip().splitlines()[0].strip() or None
+    if exe:
+        # Try --version (or -v for some); tolerate non-zero (some CLIs print version to stderr)
+        for args in ([exe, "--version"], [exe, "-v"], [exe, "--help"]):
+            vres = _safe_cmd(args, timeout=3.0)
+            if vres is not None and (vres.stdout or vres.stderr):
+                version = (vres.stdout or vres.stderr).strip().splitlines()[0][:140]
+                break
+    return {
+        "installed": bool(exe),
+        "executable_path": exe,
+        "version": version,
+    }
+
+
+def _get_git_status(path: Path) -> dict[str, Any]:
+    """Safe git status for allowlisted repo only. Timeouts, no arbitrary paths."""
+    if not path.exists() or not (path / ".git").exists():
+        return {
+            "current_branch": None,
+            "dirty": False,
+            "changed_files_count": 0,
+            "last_commit_short": None,
+            "status_summary": "unavailable (no .git)",
+            "safety_notes": ["git metadata unavailable"],
+        }
+    info: dict[str, Any] = {}
+    for cmd, key in (
+        (["git", "rev-parse", "--abbrev-ref", "HEAD"], "current_branch"),
+        (["git", "rev-parse", "--short", "HEAD"], "last_commit_short"),
+    ):
+        r = _safe_cmd(cmd, timeout=2.0, cwd=str(path))
+        info[key] = r.stdout.strip() if (r is not None and r.returncode == 0) else None
+    r = _safe_cmd(["git", "status", "--porcelain"], timeout=3.0, cwd=str(path))
+    if r is not None and r.returncode == 0:
+        lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+        info["changed_files_count"] = len(lines)
+        info["dirty"] = len(lines) > 0
+    else:
+        info["changed_files_count"] = 0
+        info["dirty"] = False
+    branch = info.get("current_branch") or ""
+    summary = f"{'dirty' if info.get('dirty') else 'clean'} ({info.get('changed_files_count', 0)} changed)"
+    if branch:
+        summary += f" on {branch}"
+    info["status_summary"] = summary
+    info["safety_notes"] = []
+    return info
+
+
 def _require_public_write_access(request: Request) -> None:
     if _public_write_enabled():
         return
@@ -190,23 +272,96 @@ class McHarnessGateDecisionRequest(BaseModel):
     continue_after: bool = False
 
 
+class McHarnessRunnerIntentRequest(BaseModel):
+    lane_id: str = Field(min_length=1)
+    repo_id: str = Field(min_length=1)
+    queue_item_id: Optional[str] = None
+    prompt_artifact_id: Optional[str] = None
+    mode: str = "dry_run"
+
+
 def _repo_entries() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for path in SAFE_REPO_PATHS:
-        rows.append(
-            {
-                "repo_id": path.name,
-                "label": path.name,
-                "path": str(path),
-                "exists": path.exists(),
-                "git_dir_present": (path / ".git").exists(),
+        base = {
+            "repo_id": path.name,
+            "label": path.name,
+            "path": str(path),
+            "exists": path.exists(),
+            "git_dir_present": (path / ".git").exists(),
+        }
+        if path.exists() and (path / ".git").exists():
+            git_info = _get_git_status(path)
+        else:
+            git_info = {
+                "current_branch": None,
+                "dirty": False,
+                "changed_files_count": 0,
+                "last_commit_short": None,
+                "status_summary": "unavailable",
+                "safety_notes": ["path does not exist or is not a git repo"] if not path.exists() else [],
             }
-        )
+        base.update(git_info)
+        rows.append(base)
     return rows
 
 
 def _lane_entries() -> list[dict[str, Any]]:
-    return list(AGENT_LANES)
+    """Return rich lane objects (new fields) + legacy keys for compat. Safe checks only."""
+    now = datetime.now(timezone.utc).isoformat()
+    tmux_enabled = _tmux_runner_enabled()
+    # base static for order + validation compat
+    base_map = {entry["lane_id"]: entry for entry in AGENT_LANES}
+
+    def _rich_for(lid: str, label: str, desc: str, is_manual: bool = False) -> dict[str, Any]:
+        if is_manual:
+            det = {"installed": True, "executable_path": None, "version": None}
+            auth = "not_checked"
+            rmode = "manual"
+            notes = ["Manual paste-back flow. Operator performs all CLI steps locally. No server-side execution."]
+        else:
+            det = _detect_executable(lid.split("_")[0])  # codex or agy
+            auth = "unknown" if det["installed"] else "not_detected"
+            rmode = "dry_run_ready" if det["installed"] else "controlled_run_disabled"
+            notes = []
+            if det["installed"]:
+                notes.append("Real execution disabled (public_manual + MCHARNESS_TMUX_RUNNER_ENABLED=false).")
+                notes.append("Dry-run intent preview supported. No auth files, cookies, or secrets are inspected.")
+            else:
+                notes.append("Executable not found via command -v. Install via your subscription to enable (preview still works).")
+        legacy = base_map.get(lid, {"implemented": False, "manual_only": True})
+        return {
+            "id": lid,
+            "label": label,
+            "description": desc,
+            "installed": det["installed"],
+            "executable_path": det["executable_path"],
+            "version": det["version"],
+            "auth_status": auth,
+            "runner_mode": rmode,
+            "safety_notes": notes,
+            "last_checked_at": now,
+            # legacy for existing UI/tests
+            "lane_id": lid,
+            "title": label,
+            "implemented": legacy.get("implemented", not is_manual),
+            "manual_only": True,
+        }
+
+    rich = [
+        _rich_for("codex_cli", "Codex CLI", "OpenAI Codex CLI for code generation/edits via subscription."),
+        _rich_for("agy_cli", "AGY / Antigravity CLI", "AGY/Antigravity CLI coding agent (subscription)."),
+        _rich_for("manual_paste", "Manual paste-back", "Copy prompt export and paste transcript/results back manually.", is_manual=True),
+        _rich_for("grok_placeholder", "Grok", "Grok CLI (placeholder, not wired for preview)."),
+        _rich_for("jules_placeholder", "Jules", "Jules (placeholder, not wired for preview)."),
+        _rich_for("opencode_placeholder", "OpenCode", "OpenCode (placeholder, not wired for preview)."),
+    ]
+    # also surface tmux availability in notes for cli lanes if useful
+    tmux_note = f"tmux available: {bool(_safe_cmd(['bash', '-c', 'command -v tmux || true'], timeout=1.0))}"
+    for entry in rich:
+        if entry["id"] in ("codex_cli", "agy_cli") and entry["installed"]:
+            entry["safety_notes"].append(tmux_note)
+    return rich
 
 
 def _validate_repo_path(repo_path: str) -> Path:
@@ -568,6 +723,90 @@ def export_mcharness_prompt(session_id: str, payload: McHarnessPromptExportReque
         "prompt_text": prompt_text,
         "artifact": artifact,
     }
+
+
+@mcharness_router.post("/sessions/{session_id}/runner-intent")
+def post_mcharness_runner_intent(session_id: str, payload: McHarnessRunnerIntentRequest):
+    """Dry-run only preview. Computes would-be command, prompt/transcript paths, safety policy.
+    Never executes any CLI, never starts tmux, never touches secrets. Rejects non-dry and unknown ids.
+    """
+    if payload.mode != "dry_run":
+        raise HTTPException(status_code=400, detail="Only dry_run mode is supported. Real execution is disabled by policy.")
+
+    # Validate lane (known only; allow manual + implemented; reject unknown. Placeholders will show disabled.)
+    lane = next((entry for entry in AGENT_LANES if entry["lane_id"] == payload.lane_id), None)
+    if lane is None:
+        raise HTTPException(status_code=400, detail=f"Unknown agent lane: {payload.lane_id}")
+
+    # Validate repo by id (name or full path match on allowlist only)
+    repo_path: Optional[Path] = None
+    for p in SAFE_REPO_PATHS:
+        if p.name == payload.repo_id or str(p) == payload.repo_id:
+            repo_path = p
+            break
+    if repo_path is None:
+        raise HTTPException(status_code=400, detail=f"Unknown repo_id (must be allowlisted): {payload.repo_id}")
+
+    # Validate session exists (rejects missing/invalid)
+    _ = _thread_for_session(session_id)
+
+    cwd = str(repo_path)
+    pid = payload.prompt_artifact_id or payload.queue_item_id or "head"
+    prompt_file_path = str(ARTIFACT_BODY_ROOT / session_id / f"prompt-{pid}.md")
+    transcript_file_path = str(ARTIFACT_BODY_ROOT / session_id / "transcript.txt")
+
+    if payload.lane_id == "manual_paste":
+        command_preview = (
+            f"MANUAL: cd {cwd} && cat {prompt_file_path}  # run your local CLI in cwd, then POST transcript to /sessions/{session_id}/manual-result"
+        )
+    elif payload.lane_id == "codex_cli":
+        command_preview = f"codex --prompt-file {prompt_file_path}  # (dry-run preview only; cwd={cwd}; real launch disabled)"
+    elif payload.lane_id == "agy_cli":
+        command_preview = f"agy --prompt {prompt_file_path}  # (dry-run preview only; cwd={cwd}; real launch disabled)"
+    else:
+        command_preview = f"# {payload.lane_id} would read {prompt_file_path} (placeholder lane; controlled_run_disabled)"
+
+    safety_policy = {
+        "allowlisted_lane": True,
+        "allowlisted_repo": True,
+        "arbitrary_shell_disabled": True,
+        "public_real_agent_launch_disabled": True,
+        "tmux_runner_enabled": _tmux_runner_enabled(),
+    }
+    notes = [
+        "dry_run preview only. No CLI subprocess, no tmux session, no secret inspection, no network to providers.",
+        "Controlled runner (real execution) is disabled in this public cockpit.",
+    ]
+
+    resp = {
+        "ok": True,
+        "real_execution_enabled": False,
+        "lane_id": payload.lane_id,
+        "repo_id": payload.repo_id,
+        "session_id": session_id,
+        "cwd": cwd,
+        "prompt_file_path": prompt_file_path,
+        "transcript_file_path": transcript_file_path,
+        "command_preview": command_preview,
+        "safety_policy": safety_policy,
+        "notes": notes,
+    }
+
+    # May persist a runner_intent artifact (safe, read-oriented preview)
+    try:
+        _create_artifact(
+            session_id,
+            "runner_intent",
+            f"runner-intent-{payload.lane_id}",
+            json.dumps(resp, indent=2),
+            "Dry-run runner intent preview (no execution performed)",
+            "json",
+        )
+    except Exception:
+        # preview response still valid even if artifact registration skipped
+        pass
+
+    return resp
 
 
 @mcharness_router.post("/sessions/{session_id}/manual-result")

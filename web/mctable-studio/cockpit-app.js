@@ -68,6 +68,9 @@
     stopSession: document.getElementById("stop-session"),
     captureGitStatus: document.getElementById("capture-git-status"),
     reloadSession: document.getElementById("reload-session"),
+    laneRepoStatus: document.getElementById("lane-repo-status"),
+    runnerPreviewBtn: document.getElementById("runner-preview-btn"),
+    runnerPreviewOutput: document.getElementById("runner-preview-output"),
   };
 
   let pollHandle = null;
@@ -168,6 +171,7 @@
     state.safetyProfiles = safetyProfiles;
     renderRepoOptions();
     renderLaneOptions();
+    renderLaneRepoStatus();
     renderSafety();
   }
 
@@ -663,6 +667,74 @@
     await refreshSelectedSession();
   }
 
+  function renderLaneRepoStatus() {
+    const container = els.laneRepoStatus;
+    if (!container) return;
+    const laneVal = els.laneSelect ? els.laneSelect.value : "";
+    const repoVal = els.repoSelect ? els.repoSelect.value : "";
+    const lane = state.lanes.find((l) => l.lane_id === laneVal) || state.lanes[0];
+    const repo = state.repos.find((r) => r.path === repoVal) || state.repos[0];
+    let html = '<span>lane/repo status (detection):</span> ';
+    if (lane) {
+      const lid = lane.id || lane.lane_id;
+      html += `<span data-testid="lane-status-${lid}">`;
+      html += `${escapeHtml(lane.label || lane.title)} installed=${lane.installed}`;
+      if (lane.executable_path) html += ` @${escapeHtml(lane.executable_path)}`;
+      if (lane.version) html += ` v=${escapeHtml(lane.version)}`;
+      html += ` auth=${lane.auth_status} mode=${lane.runner_mode}</span> `;
+    }
+    if (repo) {
+      const rid = repo.repo_id || repo.label;
+      const d = repo.dirty ? "dirty" : "clean";
+      html += `<span data-testid="repo-status-${rid}">${escapeHtml(repo.label || rid)}: ${d} ${repo.changed_files_count || 0} files, branch=${escapeHtml(repo.current_branch || "?")}</span>`;
+    }
+    container.innerHTML = html;
+  }
+
+  async function handleRunnerPreview() {
+    const out = els.runnerPreviewOutput;
+    if (!state.selectedThreadId) {
+      if (out) {
+        out.style.display = "block";
+        out.textContent = "Create a session first using the form above. Then use Dry-run runner preview (session provides the context for artifact paths).";
+      }
+      return;
+    }
+    const laneId = els.laneSelect ? els.laneSelect.value : "";
+    const repoPath = els.repoSelect ? els.repoSelect.value : "";
+    let repoId = "";
+    const repo = state.repos.find((r) => r.path === repoPath);
+    if (repo && repo.repo_id) repoId = repo.repo_id;
+    else if (repoPath) repoId = repoPath.split("/").pop() || repoPath;
+    const qid = state.selectedQueueItemId || null;
+    try {
+      const data = await requestJson(`${MCH}/sessions/${encodeURIComponent(state.selectedThreadId)}/runner-intent`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ lane_id: laneId, repo_id: repoId, queue_item_id: qid, mode: "dry_run" }),
+      });
+      if (out) {
+        out.style.display = "block";
+        const lines = [
+          `ok=${data.ok} real_execution_enabled=${data.real_execution_enabled}`,
+          `lane=${data.lane_id} repo=${data.repo_id} session=${data.session_id}`,
+          `cwd=${data.cwd}`,
+          `prompt_file_path=${data.prompt_file_path}`,
+          `transcript_file_path=${data.transcript_file_path}`,
+          `command_preview=${data.command_preview}`,
+          `safety_policy=${JSON.stringify(data.safety_policy || {})}`,
+          `notes=${(data.notes || []).join(" | ")}`,
+        ];
+        out.textContent = lines.join("\n");
+      }
+    } catch (err) {
+      if (out) {
+        out.style.display = "block";
+        out.textContent = "runner-intent error: " + (err && err.message ? err.message : String(err));
+      }
+    }
+  }
+
   function bindEvents() {
     els.newSessionForm.addEventListener("submit", (event) => runAction(handleNewSession, event));
     els.refreshSessions.addEventListener("click", () => runAction(async () => {
@@ -687,6 +759,9 @@
     els.resumeSession.addEventListener("click", () => runAction(handleResume));
     els.stopSession.addEventListener("click", () => runAction(handleStop));
     els.reloadSession.addEventListener("click", () => runAction(refreshSelectedSession));
+    if (els.repoSelect) els.repoSelect.addEventListener("change", () => renderLaneRepoStatus());
+    if (els.laneSelect) els.laneSelect.addEventListener("change", () => renderLaneRepoStatus());
+    if (els.runnerPreviewBtn) els.runnerPreviewBtn.addEventListener("click", () => runAction(handleRunnerPreview));
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) return;
       runAction(async () => {

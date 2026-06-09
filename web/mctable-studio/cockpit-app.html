@@ -56,6 +56,12 @@
           </div>
           <button class="btn primary" type="submit">New Session</button>
         </form>
+        <div id="lane-repo-status" data-testid="lane-repo-status" class="muted" style="margin:6px 0 4px;font-size:0.85em;"></div>
+        <div style="margin:4px 0 12px;">
+          <button id="runner-preview-btn" data-testid="runner-preview-btn" class="btn" type="button">Dry-run runner preview</button>
+          <pre id="runner-preview-output" data-testid="runner-preview-output" class="preview" style="display:none;white-space:pre-wrap;font-size:0.78em;margin-top:4px;padding:6px;border:1px solid var(--line);"></pre>
+          <div class="muted" style="font-size:0.75em;">Real execution disabled. Preview only.</div>
+        </div>
       </section>
 
       <section class="layout-stack">

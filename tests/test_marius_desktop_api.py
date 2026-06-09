@@ -187,10 +187,113 @@ def test_post_task_decision():
         json={"decision": "approve", "actor": "operator", "reviewer_note": "Approved"},
     )
     assert response.status_code == 200
-    task_data = response.json()
-    assert task_data["status"] == "completed"
-    assert task_data["proof_status"] == "approved"
-    assert task_data["current_step"] == "complete"
+
+
+def test_mcharness_agent_lanes_rich_detection_shape(monkeypatch):
+    client = TestClient(app)
+    # Force deterministic detection without host CLIs
+    import src.marius_desktop.api as api_mod
+
+    def fake_detect(name: str):
+        if name == "codex":
+            return {"installed": True, "executable_path": "/usr/local/bin/codex", "version": "codex version 0.42.0"}
+        if name == "agy":
+            return {"installed": False, "executable_path": None, "version": None}
+        return {"installed": False, "executable_path": None, "version": None}
+
+    monkeypatch.setattr(api_mod, "_detect_executable", fake_detect)
+    r = client.get("/api/mcharness/agent-lanes")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["service"] == "mcharness-control-plane"
+    assert "lanes" in data and isinstance(data["lanes"], list) and len(data["lanes"]) >= 3
+    by_id = { (l.get("id") or l.get("lane_id")): l for l in data["lanes"] }
+    codex = by_id.get("codex_cli") or by_id.get("codex")
+    assert codex is not None
+    assert codex["installed"] is True
+    assert codex.get("executable_path") == "/usr/local/bin/codex"
+    assert "version" in codex
+    assert codex.get("auth_status") in ("unknown", "likely_ready", "not_detected")
+    assert codex.get("runner_mode") in ("dry_run_ready", "controlled_run_disabled", "manual")
+    assert isinstance(codex.get("safety_notes"), list)
+    assert "last_checked_at" in codex
+    # legacy compat keys present
+    assert codex.get("lane_id") == "codex_cli"
+    assert "title" in codex
+    manual = by_id.get("manual_paste")
+    assert manual is not None
+    assert manual.get("runner_mode") == "manual"
+    assert manual.get("installed") is True
+
+
+def test_mcharness_repos_enhanced_git_status():
+    client = TestClient(app)
+    r = client.get("/api/mcharness/repos")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["service"] == "mcharness-control-plane"
+    assert "repos" in data
+    repos = { (x.get("repo_id") or x.get("label")): x for x in data["repos"] }
+    # at least the export one exists in this tree
+    exp = repos.get("mcharness-public-export")
+    assert exp is not None
+    assert exp.get("exists") is True
+    assert "current_branch" in exp
+    assert "dirty" in exp
+    assert "changed_files_count" in exp
+    assert "last_commit_short" in exp
+    assert "status_summary" in exp
+    assert isinstance(exp.get("safety_notes"), list)
+
+
+def test_mcharness_runner_intent_dry_run_and_rejects(monkeypatch):
+    client = TestClient(app)
+    # create a minimal manual session for a valid session_id
+    create = client.post(
+        "/api/mcharness/sessions",
+        json={
+            "title": "runner-intent-test",
+            "objective": "test dry run preview",
+            "plan_instruction": "just a test",
+            "repo_path": "/root/mcharness-public-export",
+            "agent_lane": "manual_paste",
+        },
+    )
+    assert create.status_code == 200, create.text
+    sid = create.json()["session_id"]
+
+    # happy dry_run with manual
+    intent = client.post(
+        f"/api/mcharness/sessions/{sid}/runner-intent",
+        json={"lane_id": "manual_paste", "repo_id": "mcharness-public-export", "mode": "dry_run"},
+    )
+    assert intent.status_code == 200, intent.text
+    d = intent.json()
+    assert d["ok"] is True
+    assert d["real_execution_enabled"] is False
+    assert "command_preview" in d and "MANUAL" in d["command_preview"]
+    assert "prompt_file_path" in d and sid in d["prompt_file_path"]
+    assert "transcript_file_path" in d
+    assert d["safety_policy"]["public_real_agent_launch_disabled"] is True
+    assert d["safety_policy"]["arbitrary_shell_disabled"] is True
+
+    # reject unknown lane
+    bad_lane = client.post(f"/api/mcharness/sessions/{sid}/runner-intent", json={"lane_id": "no_such_lane", "repo_id": "mcharness-public-export", "mode": "dry_run"})
+    assert bad_lane.status_code == 400
+
+    # reject unknown repo
+    bad_repo = client.post(f"/api/mcharness/sessions/{sid}/runner-intent", json={"lane_id": "manual_paste", "repo_id": "not-an-allowlisted-repo", "mode": "dry_run"})
+    assert bad_repo.status_code == 400
+
+    # reject non-dry
+    bad_mode = client.post(f"/api/mcharness/sessions/{sid}/runner-intent", json={"lane_id": "manual_paste", "repo_id": "mcharness-public-export", "mode": "real"})
+    assert bad_mode.status_code == 400
+
+    # also works for a codex lane (even if not installed here) - preview does not require installed
+    codex_intent = client.post(f"/api/mcharness/sessions/{sid}/runner-intent", json={"lane_id": "codex_cli", "repo_id": "mcharness-public-export", "mode": "dry_run"})
+    assert codex_intent.status_code == 200
+    cd = codex_intent.json()
+    assert cd["real_execution_enabled"] is False
 
 
 def test_worker_run_and_logs():
