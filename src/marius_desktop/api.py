@@ -3,11 +3,14 @@ import os
 import subprocess
 import uuid
 import time
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Literal, Optional, Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from urllib.error import HTTPError, URLError
+from urllib.request import Request as URLRequest, urlopen
 
 from .captain import (
     router as captain_router,
@@ -59,6 +62,7 @@ SAFE_REPO_PATHS = [
 ]
 MCTABLE_ROOT = Path(os.getenv("MCHARNESS_DATA_ROOT", "_mctable"))
 ARTIFACT_BODY_ROOT = MCTABLE_ROOT / "mcharness" / "artifacts"
+CAPTAIN_PLAN_ROOT = MCTABLE_ROOT / "captain" / "plans"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AGENT_LANES = [
     {
@@ -304,6 +308,29 @@ class McHarnessRunnerStartRequest(BaseModel):
     prompt_artifact_id: Optional[str] = None
 
 
+class McHarnessCaptainPlanRequest(BaseModel):
+    goal: str = Field(min_length=1)
+    repo_id: str = Field(min_length=1)
+    lane_id: str = Field(min_length=1)
+
+
+class McHarnessCaptainPlanStep(BaseModel):
+    id: str
+    title: str
+    agent: str
+    prompt: str
+    status: Literal["queued"] = "queued"
+
+
+class McHarnessCaptainPlanResponse(BaseModel):
+    ok: bool = True
+    plan_id: str
+    title: str
+    summary: str
+    steps: list[McHarnessCaptainPlanStep]
+    notes: list[str] = Field(default_factory=list)
+
+
 def _repo_entries() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for path in SAFE_REPO_PATHS:
@@ -328,6 +355,235 @@ def _repo_entries() -> list[dict[str, Any]]:
         base.update(git_info)
         rows.append(base)
     return rows
+
+
+def _captain_api_key() -> str:
+    return os.getenv("OPENROUTER_API_KEY", "").strip()
+
+
+def _captain_model_name() -> str:
+    value = os.getenv("MCHARNESS_CAPTAIN_MODEL", "openrouter/auto").strip()
+    return value or "openrouter/auto"
+
+
+def _captain_status_payload() -> dict[str, Any]:
+    configured = bool(_captain_api_key())
+    notes = []
+    if not configured:
+        notes.append("Captain is not configured. Set OPENROUTER_API_KEY on the private service.")
+    return {
+        "ok": True,
+        "configured": configured,
+        "provider": "openrouter",
+        "model": _captain_model_name(),
+        "planning_enabled": configured,
+        "notes": notes,
+    }
+
+
+def _resolve_allowlisted_repo(repo_id: str) -> tuple[Path, dict[str, Any]]:
+    repo = next((item for item in _repo_entries() if item["repo_id"] == repo_id or item["path"] == repo_id), None)
+    if repo is None:
+        raise HTTPException(status_code=400, detail=f"Unknown repo_id: {repo_id}")
+    path = Path(repo["path"])
+    if not path.exists():
+        raise HTTPException(status_code=400, detail=f"Allowlisted repo path does not exist: {repo_id}")
+    return path, repo
+
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    candidate_text = (text or "").strip()
+    if not candidate_text:
+        raise ValueError("OpenRouter returned an empty response.")
+
+    candidates = [candidate_text]
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", candidate_text, flags=re.DOTALL | re.IGNORECASE)
+    if fenced:
+        candidates.insert(0, fenced.group(1).strip())
+    first = candidate_text.find("{")
+    last = candidate_text.rfind("}")
+    if first != -1 and last != -1 and last > first:
+        candidates.append(candidate_text[first:last + 1].strip())
+
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    raise ValueError("OpenRouter response was not valid JSON.")
+
+
+def _captain_prompt_wrapper(*, goal: str, repo: dict[str, Any], lane_id: str, plan_title: str, plan_summary: str, step_index: int, step_total: int, step_title: str, step_prompt: str) -> str:
+    return "\n".join([
+        f"Captain Deck step {step_index}/{step_total}: {step_title}",
+        f"Exact goal: {goal}",
+        f"Plan title: {plan_title}",
+        f"Plan summary: {plan_summary}",
+        f"Repo: {repo['repo_id']} ({repo['path']})",
+        f"Agent lane: {lane_id}",
+        "",
+        f"Step focus from Captain: {step_prompt}",
+        "Inspect before edit.",
+        "Known files/areas to inspect: start with the repo surface, then narrow only to the files needed for this step.",
+        "Allowed files/areas: only the selected repo and the files needed for this step.",
+        "Forbidden actions: no push, merge, reset, rebase, no secrets, no public runner changes, no arbitrary shell input, no deploy commands unless the user explicitly asks later.",
+        "Acceptance checks: finish with a concise proof of files inspected, edits made, and verification performed.",
+        "Final proof format: branch, commit hash if any, files changed, tests run/output, and remaining unproven items.",
+    ])
+
+
+def _openrouter_chat_completion(*, messages: list[dict[str, str]], model: str, timeout: float = 30.0) -> dict[str, Any]:
+    api_key = _captain_api_key()
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Captain is not configured. Set OPENROUTER_API_KEY on the private service.",
+        )
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.2,
+        "stream": False,
+        "response_format": {"type": "json_object"},
+    }
+    request = URLRequest(
+        "https://openrouter.ai/api/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-Title": "McHarness Captain Deck",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            raw_body = response.read().decode("utf-8", errors="replace")
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
+        detail = body.strip() or f"OpenRouter request failed with HTTP {exc.code}."
+        raise HTTPException(status_code=502, detail=detail) from exc
+    except URLError as exc:
+        raise HTTPException(status_code=502, detail=f"OpenRouter request failed: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="OpenRouter request timed out.") from exc
+
+    try:
+        return json.loads(raw_body)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="OpenRouter returned invalid JSON.") from exc
+
+
+def _build_captain_plan(*, goal: str, repo: dict[str, Any], lane_id: str) -> tuple[dict[str, Any], list[str]]:
+    model = _captain_model_name()
+    system_prompt = "\n".join([
+        "You are Captain Deck for McHarness.",
+        "Output strict JSON only.",
+        "Create a bounded plan with 3 to 7 ordered steps.",
+        "Each step must be suitable as a Codex dispatch prompt.",
+        "The JSON object must contain: title, summary, steps.",
+        "Each step object must contain: title and prompt.",
+        "Keep each step short, specific, and safe.",
+        "Each step prompt must mention the exact goal, files or areas to inspect if known, allowed files or areas if known, forbidden actions, acceptance checks, and a final proof format.",
+        "Do not include markdown fences, commentary, or extra keys unless needed for notes.",
+        "Do not propose deploy commands unless explicitly requested later.",
+        "Default to inspect before edit.",
+        "Default to no push, merge, reset, or rebase.",
+        "Default to no secrets and no public runner changes.",
+    ])
+    user_prompt = "\n".join([
+        f"Goal: {goal}",
+        f"Repo: {repo['repo_id']} ({repo['path']})",
+        f"Lane: {lane_id}",
+        "Return only JSON with title, summary, and 3-7 ordered steps.",
+    ])
+    payload = _openrouter_chat_completion(
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        model=model,
+        timeout=30.0,
+    )
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    if not choices:
+        raise HTTPException(status_code=502, detail="OpenRouter response did not include any choices.")
+    first_choice = choices[0] if isinstance(choices, list) and choices else {}
+    message = first_choice.get("message") if isinstance(first_choice, dict) else {}
+    content = ""
+    if isinstance(message, dict):
+        content = str(message.get("content") or "").strip()
+
+    try:
+        parsed = _extract_json_object(content)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    title = str(parsed.get("title") or f"Captain plan for {goal[:60]}").strip()
+    summary = str(parsed.get("summary") or goal).strip()
+    raw_steps = parsed.get("steps")
+    if not isinstance(raw_steps, list) or not (3 <= len(raw_steps) <= 7):
+        raise HTTPException(status_code=502, detail="Captain plan must contain 3 to 7 ordered steps.")
+
+    steps: list[dict[str, Any]] = []
+    notes: list[str] = []
+    for index, raw_step in enumerate(raw_steps, start=1):
+        if not isinstance(raw_step, dict):
+            raise HTTPException(status_code=502, detail="Captain plan steps must be JSON objects.")
+        step_title = str(raw_step.get("title") or f"Step {index}").strip()
+        step_prompt = str(raw_step.get("prompt") or "").strip()
+        if not step_prompt:
+            raise HTTPException(status_code=502, detail=f"Captain plan step {index} is missing a prompt.")
+        steps.append(
+            {
+                "id": f"step_{index}",
+                "title": step_title,
+                "agent": lane_id,
+                "prompt": _captain_prompt_wrapper(
+                    goal=goal,
+                    repo=repo,
+                    lane_id=lane_id,
+                    plan_title=title,
+                    plan_summary=summary,
+                    step_index=index,
+                    step_total=len(raw_steps),
+                    step_title=step_title,
+                    step_prompt=step_prompt,
+                ),
+                "status": "queued",
+            }
+        )
+
+    notes.append(f"OpenRouter model: {model}")
+    return {
+        "ok": True,
+        "plan_id": f"plan_{uuid.uuid4().hex[:8]}",
+        "title": title,
+        "summary": summary,
+        "steps": steps,
+        "notes": notes,
+    }, notes
+
+
+def _save_captain_plan_artifact(plan: dict[str, Any], *, goal: str, repo: dict[str, Any], lane_id: str) -> Optional[Path]:
+    try:
+        CAPTAIN_PLAN_ROOT.mkdir(parents=True, exist_ok=True)
+        plan_path = CAPTAIN_PLAN_ROOT / f"{plan['plan_id']}.json"
+        artifact = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "goal": goal,
+            "repo_id": repo["repo_id"],
+            "repo_path": repo["path"],
+            "lane_id": lane_id,
+            "plan": plan,
+        }
+        plan_path.write_text(json.dumps(artifact, indent=2), encoding="utf-8")
+        return plan_path
+    except Exception:
+        return None
 
 
 def _lane_entries() -> list[dict[str, Any]]:
@@ -834,6 +1090,32 @@ def get_mcharness_health():
         "repo_count": len(repos),
         "manual_mode": True,
     }
+
+
+@mcharness_router.get("/captain/status")
+def get_mcharness_captain_status():
+    return _captain_status_payload()
+
+
+@mcharness_router.post("/captain/plan", response_model=McHarnessCaptainPlanResponse)
+def create_mcharness_captain_plan(payload: McHarnessCaptainPlanRequest):
+    repo_path, repo = _resolve_allowlisted_repo(payload.repo_id)
+    lane = _validate_agent_lane(payload.lane_id)
+    if not _captain_api_key():
+        raise HTTPException(
+            status_code=503,
+            detail="Captain is not configured. Set OPENROUTER_API_KEY on the private service.",
+        )
+
+    if lane["lane_id"] != "codex_cli":
+        raise HTTPException(status_code=400, detail="Captain Deck currently deploys to the Codex CLI lane only.")
+
+    plan, notes = _build_captain_plan(goal=payload.goal, repo=repo, lane_id=lane["lane_id"])
+    artifact_path = _save_captain_plan_artifact(plan, goal=payload.goal, repo=repo, lane_id=lane["lane_id"])
+    if artifact_path is not None:
+        notes = list(notes) + [f"Plan saved to {artifact_path}"]
+        plan["notes"] = notes
+    return plan
 
 @router.get("/tasks", response_model=List[TaskState])
 def get_tasks():

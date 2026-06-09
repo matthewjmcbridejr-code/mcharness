@@ -11,6 +11,19 @@
     liveMonitorExpanded: false,
     liveAutoScroll: true,
     lastMonitorTranscriptText: "",
+    captainDeck: {
+      configured: false,
+      planningEnabled: false,
+      model: "openrouter/auto",
+      notes: [],
+      repoId: "",
+      repoPath: "",
+      laneId: "codex_cli",
+      goal: "",
+      plan: null,
+      loading: false,
+      error: "",
+    },
   };
 
   // Helper for API calls (minimal)
@@ -81,6 +94,216 @@
 
   function escapeHtml(v) {
     return String(v || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  async function loadCaptainDeckStatus() {
+    try {
+      const status = await requestJson(`${MCH}/captain/status`);
+      const deck = state.captainDeck;
+      deck.configured = !!status.configured;
+      deck.planningEnabled = !!status.planning_enabled;
+      deck.model = status.model || "openrouter/auto";
+      deck.notes = Array.isArray(status.notes) ? status.notes : [];
+      renderCaptainDeck();
+      return status;
+    } catch (e) {
+      const deck = state.captainDeck;
+      deck.configured = false;
+      deck.planningEnabled = false;
+      deck.notes = ["Captain status unavailable."];
+      renderCaptainDeck();
+      return null;
+    }
+  }
+
+  async function populateCaptainDeckRepos() {
+    const sel = document.getElementById("captain-repo-select");
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Loading repos...</option>';
+    try {
+      const data = await requestJson(`${MCH}/repos`);
+      const repos = data.repos || [];
+      state.repos = repos;
+      sel.innerHTML = "";
+      const fallback = repos.length ? repos : [
+        { repo_id: "hybrid-agent-os", label: "hybrid-agent-os", path: "/root/hybrid-agent-os" },
+        { repo_id: "mcharness-public-export", label: "mcharness-public-export", path: "/root/mcharness-public-export" },
+      ];
+      fallback.forEach((repo) => {
+        const opt = document.createElement("option");
+        opt.value = repo.repo_id || repo.path;
+        opt.dataset.repoPath = repo.path || "";
+        opt.textContent = repo.label || repo.repo_id || repo.path;
+        sel.appendChild(opt);
+      });
+      if (fallback.length) {
+        const current = state.captainDeck.repoId || fallback[0].repo_id || fallback[0].path;
+        sel.value = current;
+        const selected = sel.selectedOptions[0];
+        state.captainDeck.repoId = selected ? selected.value : current;
+        state.captainDeck.repoPath = (selected && selected.dataset.repoPath) || fallback[0].path || "";
+      }
+    } catch (e) {
+      sel.innerHTML = '<option value="/root/mcharness-public-export">mcharness-public-export (fallback)</option>';
+      sel.value = "/root/mcharness-public-export";
+      state.captainDeck.repoId = "mcharness-public-export";
+      state.captainDeck.repoPath = "/root/mcharness-public-export";
+    }
+  }
+
+  function renderCaptainDeck() {
+    const deck = state.captainDeck;
+    const noteEl = document.getElementById("captain-config-note");
+    const statusEl = document.getElementById("captain-plan-status");
+    const createBtn = document.getElementById("captain-create-plan");
+    const deployBtn = document.getElementById("captain-deploy-first");
+    const copyBtn = document.getElementById("captain-copy-plan");
+    const planBody = document.getElementById("captain-plan-body");
+    const goalEl = document.getElementById("captain-goal");
+    const repoSel = document.getElementById("captain-repo-select");
+    const laneSel = document.getElementById("captain-agent-select");
+
+    if (goalEl && goalEl.value !== deck.goal) goalEl.value = deck.goal || "";
+    if (repoSel && deck.repoId && repoSel.value !== deck.repoId) repoSel.value = deck.repoId;
+    if (laneSel && deck.laneId && laneSel.value !== deck.laneId) laneSel.value = deck.laneId;
+
+    if (noteEl) {
+      noteEl.textContent = deck.configured
+        ? `Captain is configured. Model: ${deck.model}`
+        : "Captain is not configured. Set OPENROUTER_API_KEY on the private service.";
+      noteEl.style.display = "block";
+    }
+
+    if (createBtn) {
+      createBtn.disabled = !!deck.loading || !deck.configured;
+      createBtn.textContent = deck.loading ? "Captain is building the plan..." : "Create Plan";
+    }
+    if (deployBtn) {
+      deployBtn.disabled = !deck.plan;
+    }
+    if (copyBtn) {
+      copyBtn.disabled = !deck.plan;
+    }
+    if (statusEl) {
+      if (deck.error) {
+        statusEl.textContent = deck.error;
+        statusEl.style.color = "var(--bad, #ff7e91)";
+      } else if (deck.loading) {
+        statusEl.textContent = "Captain is building the plan...";
+        statusEl.style.color = "var(--muted, #9cacbf)";
+      } else if (deck.plan) {
+        statusEl.textContent = `Plan ready: ${deck.plan.title}`;
+        statusEl.style.color = "var(--good, #63db9d)";
+      } else if (!deck.configured) {
+        statusEl.textContent = "Captain is not configured. Set OPENROUTER_API_KEY on the private service.";
+        statusEl.style.color = "var(--warn, #f0c66a)";
+      } else {
+        statusEl.textContent = "";
+      }
+    }
+    if (planBody) {
+      if (!deck.plan) {
+        planBody.innerHTML = '<div class="muted" style="font-size:0.82em;">Create a plan to see the Captain steps here.</div>';
+      } else {
+        const steps = deck.plan.steps || [];
+        const stepsHtml = steps.map((step) => `
+          <details class="captain-step">
+            <summary><strong>${escapeHtml(step.title || step.id)}</strong><span class="muted" style="margin-left:8px;">${escapeHtml(step.agent || "codex_cli")}</span></summary>
+            <div class="muted" style="font-size:0.76em; margin:4px 0 6px;">Status: ${escapeHtml(step.status || "queued")}</div>
+            <pre class="captain-step-prompt">${escapeHtml(step.prompt || "")}</pre>
+          </details>
+        `).join("");
+        planBody.innerHTML = `
+          <div class="captain-plan-title"><strong>${escapeHtml(deck.plan.title || "Captain Plan")}</strong></div>
+          <div class="captain-plan-summary muted">${escapeHtml(deck.plan.summary || "")}</div>
+          <div class="captain-plan-steps">${stepsHtml}</div>
+        `;
+      }
+    }
+  }
+
+  async function openCaptainDeckModal() {
+    const modal = document.getElementById("captain-deck-modal");
+    if (!modal) return;
+    modal.style.display = "flex";
+    state.captainDeck.error = "";
+    renderCaptainDeck();
+    await Promise.all([populateCaptainDeckRepos(), loadCaptainDeckStatus()]);
+    renderCaptainDeck();
+  }
+
+  function closeCaptainDeckModal() {
+    const modal = document.getElementById("captain-deck-modal");
+    if (modal) modal.style.display = "none";
+  }
+
+  async function createCaptainPlan() {
+    const deck = state.captainDeck;
+    const goalEl = document.getElementById("captain-goal");
+    const repoSel = document.getElementById("captain-repo-select");
+    const laneSel = document.getElementById("captain-agent-select");
+    if (!goalEl || !repoSel || !laneSel) return;
+    const goal = (goalEl.value || "").trim();
+    const repoId = repoSel.value;
+    const repoPath = (repoSel.selectedOptions[0] && repoSel.selectedOptions[0].dataset.repoPath) || "";
+    const laneId = laneSel.value || "codex_cli";
+    if (!goal) {
+      deck.error = "Describe the goal first.";
+      renderCaptainDeck();
+      return;
+    }
+    deck.loading = true;
+    deck.error = "";
+    deck.goal = goal;
+    deck.repoId = repoId;
+    deck.repoPath = repoPath;
+    deck.laneId = laneId;
+    renderCaptainDeck();
+    try {
+      const plan = await requestJson(`${MCH}/captain/plan`, {
+        method: "POST",
+        body: {
+          goal,
+          repo_id: repoId,
+          lane_id: laneId,
+        },
+      });
+      deck.plan = plan;
+      deck.error = "";
+      deck.loading = false;
+      renderCaptainDeck();
+    } catch (e) {
+      deck.loading = false;
+      deck.error = e.message || String(e);
+      renderCaptainDeck();
+    }
+  }
+
+  async function copyCaptainPlan() {
+    const plan = state.captainDeck.plan;
+    if (!plan) return;
+    const text = JSON.stringify(plan, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      const status = document.getElementById("captain-plan-status");
+      if (status) status.textContent = "Plan copied to clipboard.";
+    } catch (e) {
+      prompt("Copy plan:", text);
+    }
+  }
+
+  async function deployCaptainFirstPrompt() {
+    const deck = state.captainDeck;
+    if (!deck.plan || !deck.plan.steps || !deck.plan.steps.length) return;
+    const firstStep = deck.plan.steps[0];
+    await deployRunnerPrompt({
+      repoPath: deck.repoPath || "/root/mcharness-public-export",
+      repoId: deck.repoId || "mcharness-public-export",
+      title: deck.plan.title || deck.goal || "Captain plan",
+      prompt: firstStep.prompt || deck.goal || "Implement the first Captain step.",
+      noteId: "captain-deploy-note",
+    });
+    closeCaptainDeckModal();
   }
 
   // Load for library card status (from lanes + health)
@@ -154,38 +377,16 @@
     if (modal) modal.style.display = "none";
   }
 
-  // Deploy Prompt flow (create, queue, export, start, open monitor, delayed send)
-  async function deployPrompt() {
-    const repoSel = document.getElementById("modal-repo-select");
-    const titleEl = document.getElementById("modal-task-title");
-    const promptEl = document.getElementById("modal-prompt");
-    const note = document.getElementById("deploy-disabled-note");
-    if (!repoSel || !titleEl || !promptEl) return;
-
-    const repoPath = repoSel.value || "/root/mcharness-public-export";
-    const repoId = (repoSel.selectedOptions[0] && repoSel.selectedOptions[0].dataset.repoId) || "mcharness-public-export";
-    const title = (titleEl.value || "Untitled task").trim();
-    const prompt = (promptEl.value || "Perform the task described.").trim();
-
-    if (!title || !prompt) {
-      alert("Title and prompt are required.");
-      return;
-    }
-
-    // Check flags for real codex (public usually false)
+  async function deployRunnerPrompt({ title, prompt, repoPath, repoId, closeCurrentModal = null, noteId = "deploy-disabled-note" }) {
+    const note = noteId ? document.getElementById(noteId) : null;
     const health = state.health || {};
     const canRunReal = !!(health.tmux_runner_enabled && health.codex_runner_enabled);
-    if (!canRunReal) {
-      if (note) {
-        note.textContent = "Codex runner is disabled. Start private runner mode (8125 + both MCHARNESS_TMUX_RUNNER_ENABLED=true and MCHARNESS_CODEX_RUNNER_ENABLED=true) to use Deploy Prompt for real Codex.";
-        note.style.display = "block";
-      }
-      // Still allow "dry" path or just show; for demo we can still create session/queue but not start real
-      // For this task we proceed to create/queue/start (will be disabled on backend) and open monitor which will show disabled
+    if (!canRunReal && note) {
+      note.textContent = "Codex runner is disabled. Start private runner mode (8125 + both MCHARNESS_TMUX_RUNNER_ENABLED=true and MCHARNESS_CODEX_RUNNER_ENABLED=true) to use Deploy Prompt for real Codex.";
+      note.style.display = "block";
     }
 
     try {
-      // 1. create session (codex lane)
       const sess = await requestJson(`${MCH}/sessions`, {
         method: "POST",
         body: {
@@ -199,14 +400,12 @@
       const sid = sess.session_id || sess.id;
       state.selectedThreadId = sid;
 
-      // 2. queue the prompt
       const qres = await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/queue`, {
         method: "POST",
         body: { title: "Task prompt", prompt },
       });
       const qid = qres.queue_item_id || qres.id;
 
-      // 3. export to ensure artifact (optional but per flow)
       try {
         await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/prompt-export`, {
           method: "POST",
@@ -214,17 +413,14 @@
         });
       } catch (e) { /* non fatal */ }
 
-      // 4. start the runner (backend respects flags; for codex will use the computed prompt path)
       await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/start`, {
         method: "POST",
         body: { lane_id: "codex_cli", repo_id: repoId, queue_item_id: qid },
       });
 
-      // 5. close use modal, open live monitor
-      closeUseAgentModal();
-      openLiveCLIMonitor();  // reuses/extends previous monitor impl
+      if (typeof closeCurrentModal === "function") closeCurrentModal();
+      openLiveCLIMonitor();
 
-      // 6. wait ~10s then send/inject the prompt (safe endpoint; only the modal prompt)
       setTimeout(async () => {
         try {
           const result = await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/send-prompt`, {
@@ -235,19 +431,44 @@
           if (result && result.status) {
             state.health.runner_status = result.status;
           }
-          // refresh monitor to show output
           if (typeof refreshLiveMonitor === "function") await refreshLiveMonitor();
         } catch (e) {
-          // if send not critical or not present, monitor will still show transcript from start/execution
           if (typeof refreshLiveMonitor === "function") await refreshLiveMonitor();
         }
       }, 10000);
 
+      return sid;
     } catch (err) {
       alert("Deploy failed: " + (err.message || err));
-      // still try to open monitor if sid
       if (state.selectedThreadId) openLiveCLIMonitor();
+      throw err;
     }
+  }
+
+  // Deploy Prompt flow (create, queue, export, start, open monitor, delayed send)
+  async function deployPrompt() {
+    const repoSel = document.getElementById("modal-repo-select");
+    const titleEl = document.getElementById("modal-task-title");
+    const promptEl = document.getElementById("modal-prompt");
+    if (!repoSel || !titleEl || !promptEl) return;
+
+    const repoPath = repoSel.value || "/root/mcharness-public-export";
+    const repoId = (repoSel.selectedOptions[0] && repoSel.selectedOptions[0].dataset.repoId) || "mcharness-public-export";
+    const title = (titleEl.value || "Untitled task").trim();
+    const prompt = (promptEl.value || "Perform the task described.").trim();
+
+    if (!title || !prompt) {
+      alert("Title and prompt are required.");
+      return;
+    }
+
+    await deployRunnerPrompt({
+      title,
+      prompt,
+      repoPath,
+      repoId,
+      closeCurrentModal: closeUseAgentModal,
+    });
   }
 
   // Live CLI Monitor (adapted from previous implementation, read-only, polls while open)
@@ -403,6 +624,11 @@
 
   // Wire simple UI events
   function wireSimpleUI() {
+    const captainBtn = document.getElementById("develop-plan-btn");
+    if (captainBtn) captainBtn.addEventListener("click", () => {
+      openCaptainDeckModal().catch((e) => console.error(e));
+    });
+
     // Use Agent
     const useBtn = document.getElementById("use-codex-btn");
     if (useBtn) useBtn.addEventListener("click", openUseAgentModal);
@@ -417,6 +643,35 @@
     if (deploy) deploy.addEventListener("click", () => {
       // run deploy (async but fire)
       deployPrompt().catch((e) => console.error(e));
+    });
+
+    const captainClose = document.getElementById("captain-close");
+    if (captainClose) captainClose.addEventListener("click", closeCaptainDeckModal);
+    const captainCreate = document.getElementById("captain-create-plan");
+    if (captainCreate) captainCreate.addEventListener("click", () => {
+      createCaptainPlan().catch((e) => console.error(e));
+    });
+    const captainDeploy = document.getElementById("captain-deploy-first");
+    if (captainDeploy) captainDeploy.addEventListener("click", () => {
+      deployCaptainFirstPrompt().catch((e) => console.error(e));
+    });
+    const captainCopy = document.getElementById("captain-copy-plan");
+    if (captainCopy) captainCopy.addEventListener("click", () => {
+      copyCaptainPlan().catch((e) => console.error(e));
+    });
+    const captainGoal = document.getElementById("captain-goal");
+    if (captainGoal) captainGoal.addEventListener("input", () => {
+      state.captainDeck.goal = captainGoal.value || "";
+    });
+    const captainRepo = document.getElementById("captain-repo-select");
+    if (captainRepo) captainRepo.addEventListener("change", () => {
+      const selected = captainRepo.selectedOptions[0];
+      state.captainDeck.repoId = captainRepo.value;
+      state.captainDeck.repoPath = (selected && selected.dataset.repoPath) || "";
+    });
+    const captainLane = document.getElementById("captain-agent-select");
+    if (captainLane) captainLane.addEventListener("change", () => {
+      state.captainDeck.laneId = captainLane.value || "codex_cli";
     });
 
     // Legacy toggle (show old if present)

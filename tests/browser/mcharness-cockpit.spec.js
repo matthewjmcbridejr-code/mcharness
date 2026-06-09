@@ -31,9 +31,18 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   // Simple default UI
   await expect(page.locator("h1")).toContainText("McHarness");
   await expect(page.locator("text=Agent Library")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Develop Plan" })).toBeVisible();
   await expect(page.locator("#codex-card")).toBeVisible();
   await expect(page.locator('#codex-card')).toContainText('Codex CLI');
   await expect(page.locator("text=Add Agent — Coming Soon")).toBeVisible();
+
+  await page.getByRole("button", { name: "Develop Plan" }).click();
+  const captainModal = page.locator("#captain-deck-modal");
+  await expect(captainModal).toBeVisible();
+  await expect(captainModal.locator("#captain-config-note")).toContainText("Captain is not configured. Set OPENROUTER_API_KEY on the private service.");
+  await expect(captainModal.locator("#captain-create-plan")).toBeDisabled();
+  await captainModal.locator("#captain-close").click();
+  await expect(captainModal).not.toBeVisible();
 
   // Use Agent opens modal with required fields
   await page.getByRole("button", { name: "Use Agent" }).click();
@@ -353,6 +362,284 @@ test("private runner quick replies send allowed keys and refresh transcript", as
   await expect(sendKeyCalls[1]).toBe("Enter");
   await expect(page.locator("[data-testid='quick-reply-status']")).toContainText("Sent: Enter");
 
+  await mon.locator("#modal-stop").click();
+  await expect.poll(() => runnerStatus.status).toBe("stopped");
+});
+
+test("Captain Deck creates a plan and deploys the first prompt", async ({ page }) => {
+  let transcriptText = [
+    "Captain runner started.",
+    "Waiting for first prompt.",
+  ].join("\n");
+  let runnerStatus = {
+    session_id: "captain-plan-session",
+    runner_id: "run_captain_plan",
+    lane_id: "codex_cli",
+    repo_id: "hybrid-agent-os",
+    status: "waiting_for_codex",
+    tmux_session_name: "mch_captain_plan",
+    attach_command: "tmux attach -t mch_captain_plan",
+  };
+  const runnerStartCalls = [];
+  const sendPromptCalls = [];
+  const captainPlanResponse = {
+    ok: true,
+    plan_id: "plan_1234",
+    title: "Build AOL-inspired webpage",
+    summary: "Create an AOL-inspired homepage layout in the existing frontend.",
+    steps: [
+      {
+        id: "step_1",
+        title: "Inspect frontend structure",
+        agent: "codex_cli",
+        prompt: "Exact goal: Build a webpage just like aol.com\nForbidden actions: no push, merge, reset, rebase.\nAcceptance checks: identify the entrypoint.\nFinal proof format: branch, commit hash if any, files changed, tests run/output, and remaining unproven items.",
+        status: "queued",
+      },
+      {
+        id: "step_2",
+        title: "Implement layout",
+        agent: "codex_cli",
+        prompt: "Exact goal: Build a webpage just like aol.com\nForbidden actions: no push, merge, reset, rebase.\nAcceptance checks: make the requested layout change.\nFinal proof format: branch, commit hash if any, files changed, tests run/output, and remaining unproven items.",
+        status: "queued",
+      },
+      {
+        id: "step_3",
+        title: "Verify and report",
+        agent: "codex_cli",
+        prompt: "Exact goal: Build a webpage just like aol.com\nForbidden actions: no push, merge, reset, rebase.\nAcceptance checks: run the focused checks and report proof.\nFinal proof format: branch, commit hash if any, files changed, tests run/output, and remaining unproven items.",
+        status: "queued",
+      },
+    ],
+    notes: ["OpenRouter model: openrouter/auto"],
+  };
+
+  await page.route("**/api/mcharness/**", async (route) => {
+    const url = new URL(route.request().url());
+    const { pathname } = url;
+    const method = route.request().method();
+    const body = route.request().postDataJSON ? route.request().postDataJSON() : null;
+
+    if (pathname.endsWith("/health")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          service: "mcharness-control-plane",
+          commit: "test-commit",
+          mode: "public_manual",
+          real_agent_launch_enabled: false,
+          arbitrary_command_execution_enabled: false,
+          public_write_enabled: true,
+          tmux_runner_enabled: true,
+          codex_runner_enabled: true,
+          available_lanes_count: 7,
+          repo_count: 2,
+          manual_mode: true,
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/agent-lanes")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          service: "mcharness-control-plane",
+          manual_mode: true,
+          lanes: [
+            {
+              lane_id: "codex_cli",
+              title: "Codex CLI",
+              installed: true,
+              runner_mode: "controlled_run_ready",
+              executable_path: "/root/.hermes/node/bin/codex",
+              version: "codex-cli 0.137.0",
+              auth_status: "likely_ready",
+              safety_notes: ["tmux available: True"],
+            },
+          ],
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/repos")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          service: "mcharness-control-plane",
+          mode: "server_control_plane",
+          repos: [
+            {
+              repo_id: "hybrid-agent-os",
+              label: "hybrid-agent-os",
+              path: "/root/hybrid-agent-os",
+            },
+            {
+              repo_id: "mcharness-public-export",
+              label: "mcharness-public-export",
+              path: "/root/mcharness-public-export",
+            },
+          ],
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/captain/status")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          configured: true,
+          provider: "openrouter",
+          model: "openrouter/auto",
+          planning_enabled: true,
+          notes: [],
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/captain/plan") && method === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(captainPlanResponse),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/sessions") && method === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ session_id: runnerStatus.session_id }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/queue") && method === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ queue_item_id: "queue-captain-1" }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/prompt-export") && method === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/start") && method === "POST") {
+      runnerStartCalls.push(body);
+      runnerStatus = { ...runnerStatus, status: "running" };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(runnerStatus),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/send-prompt") && method === "POST") {
+      sendPromptCalls.push(body.prompt);
+      transcriptText = `${transcriptText}\n${body.prompt}\nCaptain response pending.`;
+      runnerStatus = { ...runnerStatus, status: "awaiting_response" };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          injected: true,
+          session_id: runnerStatus.session_id,
+          status: runnerStatus.status,
+          transcript_excerpt: transcriptText,
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/status")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(runnerStatus),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/transcript")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          session_id: runnerStatus.session_id,
+          runner_id: runnerStatus.runner_id,
+          lane_id: runnerStatus.lane_id,
+          status: runnerStatus.status,
+          transcript_path: "/tmp/captain-plan-transcript.txt",
+          transcript: transcriptText,
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/stop")) {
+      runnerStatus = { ...runnerStatus, status: "stopped" };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ...runnerStatus, stopped_at: new Date().toISOString() }),
+      });
+      return;
+    }
+
+    await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: `Unhandled route: ${pathname}` }) });
+  });
+
+  await page.goto("http://127.0.0.1:8125/web/mctable-studio/cockpit-app.html");
+  await expect(page.getByRole("button", { name: "Develop Plan" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Develop Plan" }).click();
+  const captainModal = page.locator("#captain-deck-modal");
+  await expect(captainModal).toBeVisible();
+  await captainModal.locator("#captain-goal").fill("Build a webpage just like aol.com");
+  await expect(captainModal.locator("#captain-create-plan")).toBeEnabled();
+  await captainModal.locator("#captain-create-plan").click();
+  await expect(captainModal.locator("[data-testid='captain-plan-status']")).toContainText("Plan ready: Build AOL-inspired webpage");
+  await expect(captainModal.locator("[data-testid='captain-plan-body']")).toContainText("Build AOL-inspired webpage");
+  await expect(captainModal.locator("[data-testid='captain-plan-body']")).toContainText("Inspect frontend structure");
+  await expect(captainModal.locator("[data-testid='captain-plan-body']")).toContainText("Implement layout");
+  await expect(captainModal.locator("[data-testid='captain-plan-body']")).toContainText("Verify and report");
+  await expect(captainModal.locator("[data-testid='captain-deploy-first']")).toBeEnabled();
+  await expect(captainModal.locator("[data-testid='captain-copy-plan']")).toBeEnabled();
+
+  await page.evaluate(() => {
+    const original = window.setTimeout;
+    window.setTimeout = (fn, ms, ...args) => (ms === 10000 ? original(fn, 0, ...args) : original(fn, ms, ...args));
+  });
+
+  await captainModal.locator("[data-testid='captain-deploy-first']").click();
+  await expect.poll(() => runnerStartCalls.length).toBe(1);
+  await expect.poll(() => sendPromptCalls.length).toBe(1);
+  await expect(page.locator("#captain-deck-modal")).not.toBeVisible();
+
+  const mon = page.locator("#live-cli-modal");
+  await expect(mon).toBeVisible();
+  await expect(page.locator("#modal-info")).toContainText("Repo: hybrid-agent-os");
+  await expect(page.locator("#modal-info")).toContainText("Status: Running");
+  await expect(mon.locator("[data-testid='modal-transcript']")).toContainText("Captain response pending.");
   await mon.locator("#modal-stop").click();
   await expect.poll(() => runnerStatus.status).toBe("stopped");
 });

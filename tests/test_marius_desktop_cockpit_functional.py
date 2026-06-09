@@ -27,10 +27,12 @@ def test_functional_cockpit_page_is_served_with_control_plane_labels():
         "PUBLIC REAL AGENT LAUNCH DISABLED",
         "FAKE/MANUAL MODE",
         "Agent Library",
+        "Develop Plan",
         "Codex CLI",
         "Use Agent",
         "Add Agent — Coming Soon",
         "Advanced / Legacy Cockpit",
+        "Captain Deck",
     ]:
         assert snippet in response.text
 

@@ -1,3 +1,4 @@
+import json
 import subprocess
 import shutil
 
@@ -60,6 +61,167 @@ def test_mcharness_health_endpoint_reports_public_manual_mode():
     assert isinstance(data["commit"], str) and len(data["commit"]) == 40
     assert data["available_lanes_count"] >= 1
     assert data["repo_count"] >= 1
+
+
+def test_mcharness_captain_status_reports_disabled_when_key_missing(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("MCHARNESS_CAPTAIN_MODEL", raising=False)
+    client = TestClient(app)
+    response = client.get("/api/mcharness/captain/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["configured"] is False
+    assert data["provider"] == "openrouter"
+    assert data["model"] == "openrouter/auto"
+    assert data["planning_enabled"] is False
+    assert "OPENROUTER_API_KEY" in data["notes"][0]
+    assert "test-openrouter-key" not in response.text
+
+
+def test_mcharness_captain_status_reports_configured_with_key(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    monkeypatch.setenv("MCHARNESS_CAPTAIN_MODEL", "openrouter/test-model")
+    client = TestClient(app)
+    response = client.get("/api/mcharness/captain/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["configured"] is True
+    assert data["provider"] == "openrouter"
+    assert data["model"] == "openrouter/test-model"
+    assert data["planning_enabled"] is True
+    assert "test-openrouter-key" not in response.text
+
+
+def test_mcharness_captain_plan_rejects_missing_key(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    client = TestClient(app)
+    response = client.post(
+        "/api/mcharness/captain/plan",
+        json={
+            "goal": "Build a webpage just like aol.com",
+            "repo_id": "hybrid-agent-os",
+            "lane_id": "codex_cli",
+        },
+    )
+    assert response.status_code == 503
+    assert "Captain is not configured" in response.json()["detail"]
+
+
+def test_mcharness_captain_plan_rejects_unknown_repo(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    client = TestClient(app)
+    response = client.post(
+        "/api/mcharness/captain/plan",
+        json={
+            "goal": "Build a webpage just like aol.com",
+            "repo_id": "no-such-repo",
+            "lane_id": "codex_cli",
+        },
+    )
+    assert response.status_code == 400
+    assert "Unknown repo_id" in response.json()["detail"]
+
+
+def test_mcharness_captain_plan_rejects_unknown_lane(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    client = TestClient(app)
+    response = client.post(
+        "/api/mcharness/captain/plan",
+        json={
+            "goal": "Build a webpage just like aol.com",
+            "repo_id": "hybrid-agent-os",
+            "lane_id": "no-such-lane",
+        },
+    )
+    assert response.status_code == 400
+    assert "Unknown agent lane" in response.json()["detail"]
+
+
+def test_mcharness_captain_plan_parses_mocked_openrouter_json(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+    monkeypatch.setenv("MCHARNESS_CAPTAIN_MODEL", "openrouter/auto")
+
+    import src.marius_desktop.api as api_mod
+
+    def fake_openrouter(*, messages, model, timeout):
+        assert model == "openrouter/auto"
+        assert any("Captain Deck" in item["content"] for item in messages if item["role"] == "system")
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "title": "Build AOL-inspired webpage",
+                                "summary": "Create an AOL-inspired homepage layout in the existing frontend.",
+                                "steps": [
+                                    {
+                                        "title": "Inspect frontend structure",
+                                        "prompt": "Inspect the frontend entrypoint and identify the minimal files to change.",
+                                    },
+                                    {
+                                        "title": "Implement layout",
+                                        "prompt": "Modify only the selected frontend files to add the requested layout.",
+                                    },
+                                    {
+                                        "title": "Verify and report",
+                                        "prompt": "Run the focused checks and return a concise proof report.",
+                                    },
+                                ],
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr(api_mod, "_openrouter_chat_completion", fake_openrouter)
+    client = TestClient(app)
+    response = client.post(
+        "/api/mcharness/captain/plan",
+        json={
+            "goal": "Build a webpage just like aol.com",
+            "repo_id": "hybrid-agent-os",
+            "lane_id": "codex_cli",
+        },
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["ok"] is True
+    assert data["title"] == "Build AOL-inspired webpage"
+    assert data["summary"].startswith("Create an AOL-inspired homepage layout")
+    assert len(data["steps"]) == 3
+    assert data["steps"][0]["id"] == "step_1"
+    assert data["steps"][0]["agent"] == "codex_cli"
+    assert data["steps"][0]["status"] == "queued"
+    assert "Exact goal: Build a webpage just like aol.com" in data["steps"][0]["prompt"]
+    assert "Forbidden actions:" in data["steps"][0]["prompt"]
+    assert "Acceptance checks:" in data["steps"][0]["prompt"]
+    assert "Final proof format:" in data["steps"][0]["prompt"]
+    assert "test-openrouter-key" not in response.text
+
+
+def test_mcharness_captain_plan_rejects_invalid_model_response(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
+
+    import src.marius_desktop.api as api_mod
+
+    def fake_openrouter(*, messages, model, timeout):
+        return {"choices": [{"message": {"content": "not-json"}}]}
+
+    monkeypatch.setattr(api_mod, "_openrouter_chat_completion", fake_openrouter)
+    client = TestClient(app)
+    response = client.post(
+        "/api/mcharness/captain/plan",
+        json={
+            "goal": "Build a webpage just like aol.com",
+            "repo_id": "hybrid-agent-os",
+            "lane_id": "codex_cli",
+        },
+    )
+    assert response.status_code == 502
+    assert "valid JSON" in response.json()["detail"]
 
 
 def test_public_write_guard_blocks_worker_routes_when_disabled(monkeypatch):
