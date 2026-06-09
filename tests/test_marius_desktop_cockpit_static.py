@@ -43,6 +43,8 @@ def test_cockpit_shows_public_demo_story_and_safety():
         "Deterministic demo smoke",
         "https://mctable.team",
         "Open Captain demo",
+        "Open functional cockpit",
+        "./cockpit-app.html",
         "View safety model",
         "No real worker launch",
         "command_request blocked",
