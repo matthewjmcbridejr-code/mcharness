@@ -10,6 +10,7 @@
     promptSubmittedAt: 0,
     liveMonitorExpanded: false,
     liveAutoScroll: true,
+    lastMonitorTranscriptText: "",
   };
 
   // Helper for API calls (minimal)
@@ -58,10 +59,10 @@
       modal.classList.toggle("monitor-expanded", !!state.liveMonitorExpanded);
     }
     if (expandBtn) {
-      expandBtn.textContent = state.liveMonitorExpanded ? "Compact Monitor" : "Expand Monitor";
+      expandBtn.textContent = state.liveMonitorExpanded ? "Normal View" : "Bigger View";
     }
     if (scrollIndicator) {
-      scrollIndicator.textContent = state.liveAutoScroll ? "" : "Auto-scroll paused";
+      scrollIndicator.textContent = state.liveAutoScroll ? "" : "Scrolled up — updates paused here";
       scrollIndicator.style.display = state.liveAutoScroll ? "none" : "block";
     }
   }
@@ -259,6 +260,7 @@
     modal.style.display = "flex";
     state.promptSubmittedAt = state.promptSubmittedAt || 0;
     state.liveAutoScroll = true;
+    state.lastMonitorTranscriptText = "";
     setQuickReplyStatus("");
     updateLiveMonitorChrome();
     refreshLiveMonitor();
@@ -303,26 +305,31 @@
       ]);
       // update UI elements (ids from the modal in html)
       const laneEl = document.getElementById("modal-lane-name");
-      if (laneEl) laneEl.textContent = status.lane_id || "Codex CLI";
+      if (laneEl) laneEl.textContent = "";
       const infoEl = document.getElementById("modal-info");
       const statusText = status.status || "n/a";
-      let friendly = statusText;
-      if (statusText === "waiting_for_codex") friendly = "waiting for Codex to load (~10s)";
-      else if (statusText === "prompt_sent") friendly = "Prompt sent, live output below";
-      else if (statusText === "awaiting_response") friendly = "Prompt submitted, waiting for Codex...";
-      else if (statusText === "running") friendly = "running (interactive tmux + Codex)";
+      const txt = (trans && trans.transcript) ? trans.transcript : (status.transcript || "");
+      const hasTranscriptOutput = !!String(txt || "").trim();
+      const monitorStatusLabel = (() => {
+        if (statusText === "failed") return "Failed";
+        if (statusText === "exited") return "Finished";
+        if (statusText === "stopped") return "Stopped";
+        if (statusText === "starting") return "Starting Codex...";
+        if (statusText === "waiting_for_codex") return hasTranscriptOutput ? "Running" : "Opening Codex...";
+        if (statusText === "prompt_sent") return "Running";
+        if (statusText === "awaiting_response") return "Running";
+        if (statusText === "running") return "Running";
+        return statusText;
+      })();
+      const sessionName = status.tmux_session_name || "n/a";
       if (infoEl) {
-        const repo = status.repo_id || "n/a";
-        const tmuxName = status.tmux_session_name || "n/a";
-        const attach = status.attach_command || (status.tmux_session_name ? `tmux attach -t ${status.tmux_session_name}` : "n/a");
         infoEl.innerHTML = `
-          <div><strong>Repo:</strong> ${repo}</div>
-          <div><strong>Status:</strong> ${friendly}</div>
-          <div><small style="opacity:0.75">exe: codex | cwd: ${repo} | tmux: ${tmuxName} | attach: ${attach}</small></div>
+          <div><strong>Repo:</strong> ${status.repo_id || "n/a"}</div>
+          <div><strong>Status:</strong> ${monitorStatusLabel}</div>
+          <div><strong>Session:</strong> ${sessionName}</div>
         `;
       }
       const pre = document.getElementById("modal-transcript");
-      const txt = (trans && trans.transcript) ? trans.transcript : (status.transcript || "");
       let displayTxt = txt || "Waiting for CLI output...";
       if (pre) {
         const shouldStick = state.liveAutoScroll && isModalTranscriptNearBottom(pre);
@@ -339,12 +346,12 @@
           if (shouldStick) scrollModalTranscriptToBottom();
         }
       }
-      if (statusText === "awaiting_response") {
-        const elapsed = state.promptSubmittedAt ? Date.now() - state.promptSubmittedAt : 0;
-        if (elapsed > 10000) {
-          setQuickReplyStatus("Prompt appears pasted but no Codex response yet. Try Enter quick reply or attach manually.");
-        }
+      const elapsed = state.promptSubmittedAt ? Date.now() - state.promptSubmittedAt : 0;
+      const transcriptTrimmed = String(txt || "").trim();
+      if (elapsed > 10000 && statusText !== "running" && !transcriptTrimmed) {
+        setQuickReplyStatus("Transcript is not updating yet. Use the buttons below if Codex is waiting for input.");
       }
+      state.lastMonitorTranscriptText = transcriptTrimmed;
       const ts = document.getElementById("modal-timestamp");
       if (ts) ts.textContent = `Last refreshed: ${new Date().toLocaleTimeString()}`;
 

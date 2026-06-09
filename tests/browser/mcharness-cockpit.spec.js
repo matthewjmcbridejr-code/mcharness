@@ -62,8 +62,7 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   // Live monitor should have been opened by the deploy flow; verify it shows disabled/read-only
   const mon = page.locator("#live-cli-modal").or(page.getByTestId("live-cli-modal"));
   await expect(mon).toBeVisible({ timeout: 5000 });
-  await expect(mon).toContainText("Read-only monitor");
-  await expect(mon).toContainText("No arbitrary shell input");
+  await expect(mon).toContainText("Live read-only view. Use the buttons below for safe replies.");
 
   // Close
   await mon.locator("#modal-close").or(page.getByTestId("modal-close")).click();
@@ -287,9 +286,11 @@ test("private runner quick replies send allowed keys and refresh transcript", as
 
   const mon = page.locator("#live-cli-modal");
   await expect(mon).toBeVisible();
+  await expect(mon).toContainText("Codex Live Monitor");
   await expect(mon.locator("[data-testid='modal-transcript']")).toBeVisible();
   await expect(mon.locator("[data-testid='modal-transcript']")).toHaveCSS("overflow-y", /auto|scroll/);
   await expect(mon.locator("[data-testid='quick-reply-panel']")).toBeVisible();
+  await expect(mon.locator("[data-testid='quick-reply-panel']")).toContainText("Use for Codex menus and approvals.");
   await expect(mon.locator("[data-quick-reply='1']")).toBeVisible();
   await expect(mon.locator("[data-quick-reply='2']")).toBeVisible();
   await expect(mon.locator("[data-quick-reply='3']")).toBeVisible();
@@ -301,6 +302,11 @@ test("private runner quick replies send allowed keys and refresh transcript", as
   await expect(mon.locator("[data-testid='modal-autorefresh']")).toBeVisible();
   await expect(mon.locator("[data-testid='modal-save-evidence']")).toBeVisible();
   await expect(mon.locator("input, textarea")).toHaveCount(0);
+  await expect(page.locator("[data-testid='modal-refresh']")).toContainText("Refresh");
+  await expect(page.locator("[data-testid='modal-expand']")).toContainText("Bigger View");
+  await expect(page.locator("[data-testid='modal-copy-attach']")).toContainText("Copy Terminal Command");
+  await expect(page.locator("[data-testid='modal-save-evidence']")).toContainText("Save Output");
+  await expect(page.locator("[data-testid='modal-stop']")).toContainText("Stop Codex");
 
   const transcript = mon.locator("[data-testid='modal-transcript']");
   const initialMetrics = await transcript.evaluate((el) => ({
@@ -316,7 +322,7 @@ test("private runner quick replies send allowed keys and refresh transcript", as
     el.dispatchEvent(new Event("scroll", { bubbles: true }));
   });
   await expect(page.locator("[data-testid='modal-autoscroll-indicator']")).toBeVisible();
-  await expect(page.locator("[data-testid='modal-autoscroll-indicator']")).toContainText("Auto-scroll paused");
+  await expect(page.locator("[data-testid='modal-autoscroll-indicator']")).toContainText("Scrolled up — updates paused here");
 
   transcriptText = `${transcriptText}\n${makeTranscript(40, "Follow-up output")}`;
   await page.evaluate(() => window.McHarnessSimple.refreshLiveMonitor());
@@ -330,6 +336,10 @@ test("private runner quick replies send allowed keys and refresh transcript", as
   await expect(mon).toHaveClass(/monitor-expanded/);
   await mon.locator("[data-testid='modal-expand']").click();
   await expect(mon).not.toHaveClass(/monitor-expanded/);
+  await expect(mon.locator("[data-testid='modal-transcript']")).not.toContainText("Prompt appears pasted but no Codex response yet. Try Enter quick reply or attach manually.");
+  await expect(page.locator("#modal-info")).toContainText("Repo: mcharness-public-export");
+  await expect(page.locator("#modal-info")).toContainText("Status: Running");
+  await expect(page.locator("#modal-info")).toContainText("Session: mch_quick_reply");
 
   await mon.locator("[data-quick-reply='2']").click();
   await expect(page.locator("[data-testid='quick-reply-status']")).toContainText("Sent: 2");
