@@ -76,6 +76,8 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
 });
 
 test("private runner quick replies send allowed keys and refresh transcript", async ({ page }) => {
+  const makeTranscript = (count, prefix = "Codex output") =>
+    Array.from({ length: count }, (_, idx) => `${prefix} line ${idx + 1}`).join("\n");
   let transcriptText = [
     "Codex update available",
     "",
@@ -84,6 +86,8 @@ test("private runner quick replies send allowed keys and refresh transcript", as
     "3. Skip until next version",
     "",
     "Press enter to continue",
+    "",
+    makeTranscript(140, "Initial transcript"),
   ].join("\n");
   let runnerStatus = {
     session_id: "quick-reply-session",
@@ -283,6 +287,8 @@ test("private runner quick replies send allowed keys and refresh transcript", as
 
   const mon = page.locator("#live-cli-modal");
   await expect(mon).toBeVisible();
+  await expect(mon.locator("[data-testid='modal-transcript']")).toBeVisible();
+  await expect(mon.locator("[data-testid='modal-transcript']")).toHaveCSS("overflow-y", /auto|scroll/);
   await expect(mon.locator("[data-testid='quick-reply-panel']")).toBeVisible();
   await expect(mon.locator("[data-quick-reply='1']")).toBeVisible();
   await expect(mon.locator("[data-quick-reply='2']")).toBeVisible();
@@ -290,7 +296,40 @@ test("private runner quick replies send allowed keys and refresh transcript", as
   await expect(mon.locator("[data-quick-reply='Enter']")).toBeVisible();
   await expect(mon.locator("[data-quick-reply='Esc']")).toBeVisible();
   await expect(mon.locator("[data-quick-reply='Ctrl+C']")).toBeVisible();
+  await expect(mon.locator("[data-testid='modal-jump-latest']")).toBeVisible();
+  await expect(mon.locator("[data-testid='modal-expand']")).toBeVisible();
+  await expect(mon.locator("[data-testid='modal-autorefresh']")).toBeVisible();
+  await expect(mon.locator("[data-testid='modal-save-evidence']")).toBeVisible();
   await expect(mon.locator("input, textarea")).toHaveCount(0);
+
+  const transcript = mon.locator("[data-testid='modal-transcript']");
+  const initialMetrics = await transcript.evaluate((el) => ({
+    scrollTop: el.scrollTop,
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+  }));
+  expect(initialMetrics.scrollHeight).toBeGreaterThan(initialMetrics.clientHeight);
+  expect(initialMetrics.scrollTop).toBeGreaterThan(0);
+
+  await transcript.evaluate((el) => {
+    el.scrollTop = 0;
+    el.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await expect(page.locator("[data-testid='modal-autoscroll-indicator']")).toBeVisible();
+  await expect(page.locator("[data-testid='modal-autoscroll-indicator']")).toContainText("Auto-scroll paused");
+
+  transcriptText = `${transcriptText}\n${makeTranscript(40, "Follow-up output")}`;
+  await page.evaluate(() => window.McHarnessSimple.refreshLiveMonitor());
+  await expect.poll(async () => transcript.evaluate((el) => el.scrollTop)).toBe(0);
+
+  await mon.locator("[data-testid='modal-jump-latest']").click();
+  await expect(page.locator("[data-testid='modal-autoscroll-indicator']")).toBeHidden();
+  await expect.poll(async () => transcript.evaluate((el) => el.scrollTop > 0)).toBe(true);
+
+  await mon.locator("[data-testid='modal-expand']").click();
+  await expect(mon).toHaveClass(/monitor-expanded/);
+  await mon.locator("[data-testid='modal-expand']").click();
+  await expect(mon).not.toHaveClass(/monitor-expanded/);
 
   await mon.locator("[data-quick-reply='2']").click();
   await expect(page.locator("[data-testid='quick-reply-status']")).toContainText("Sent: 2");

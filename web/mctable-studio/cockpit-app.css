@@ -293,30 +293,57 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 8px;
   width: 90%; max-width: 820px;
-  max-height: 85vh;
-  overflow: auto;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 16px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.5);
 }
+#live-cli-modal.monitor-expanded .modal-content {
+  width: min(96vw, 1280px);
+  max-width: 1280px;
+  max-height: 94vh;
+}
 #live-cli-modal h3 { margin: 0 0 8px; }
-#live-cli-modal .monitor-info { font-size: 0.85em; margin-bottom: 8px; }
+#live-cli-modal .monitor-info {
+  font-size: 0.85em;
+  margin-bottom: 8px;
+  line-height: 1.45;
+}
 #modal-transcript {
   background: #0a1422;
   color: #9cacbf;
   font-family: var(--mono, monospace);
   font-size: 0.82em;
   padding: 10px;
-  height: 320px;
+  flex: 1 1 auto;
+  min-height: 420px;
+  height: 52vh;
+  max-height: 62vh;
   overflow: auto;
   white-space: pre-wrap;
+  user-select: text;
+  scrollbar-gutter: stable;
   border: 1px solid var(--line);
   border-radius: 4px;
   margin: 8px 0;
+}
+#live-cli-modal.monitor-expanded #modal-transcript {
+  min-height: 56vh;
+  height: 64vh;
+  max-height: 70vh;
 }
 #live-cli-modal .safety-note {
   font-size: 0.8em;
   color: var(--warn, #f0c66a);
   margin: 4px 0;
+}
+#live-cli-modal #modal-autoscroll-indicator {
+  flex: 0 0 auto;
+}
+#live-cli-modal #quick-reply-panel {
+  flex: 0 0 auto;
 }
 #live-cli-modal .button-row { display: flex; gap: 6px; flex-wrap: wrap; }
 #live-cli-modal .empty-state, #live-cli-modal .disabled-state {

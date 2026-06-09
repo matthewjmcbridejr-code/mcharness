@@ -85,6 +85,7 @@
           <h3>Live CLI Monitor — <span id="modal-lane-name">No lane</span></h3>
           <div id="modal-info" class="monitor-info"></div>
           <div class="safety-note"><strong>Read-only monitor. No arbitrary shell input.</strong> Use your terminal with the attach command for manual control.</div>
+          <div id="modal-autoscroll-indicator" class="muted" data-testid="modal-autoscroll-indicator" style="display:none; font-size:0.78em; margin:4px 0 6px; color: var(--warn, #f0c66a);">Auto-scroll paused</div>
           <pre id="modal-transcript" data-testid="modal-transcript">Waiting for CLI output...</pre>
           <div id="quick-reply-panel" data-testid="quick-reply-panel" style="margin:10px 0 6px;">
             <div style="font-size:0.8em; font-weight:600; margin-bottom:6px;">Quick Reply</div>
@@ -104,6 +105,8 @@
           <div class="button-row">
             <button id="modal-refresh" data-testid="modal-refresh" class="btn" type="button">Refresh Now</button>
             <button id="modal-autorefresh" data-testid="modal-autorefresh" class="btn" type="button">Auto-refresh: ON</button>
+            <button id="modal-jump-latest" data-testid="modal-jump-latest" class="btn" type="button">Jump to Latest</button>
+            <button id="modal-expand" data-testid="modal-expand" class="btn" type="button">Expand Monitor</button>
             <button id="modal-copy-attach" data-testid="modal-copy-attach" class="btn" type="button">Copy Attach Command</button>
             <button id="modal-save-evidence" data-testid="modal-save-evidence" class="btn good" type="button">Save Transcript as Evidence</button>
             <button id="modal-stop" data-testid="modal-stop" class="btn bad" type="button">Stop Runner</button>

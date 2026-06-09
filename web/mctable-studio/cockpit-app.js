@@ -8,6 +8,8 @@
     selectedThreadId: "",
     selectedQueueItemId: "",
     promptSubmittedAt: 0,
+    liveMonitorExpanded: false,
+    liveAutoScroll: true,
   };
 
   // Helper for API calls (minimal)
@@ -29,6 +31,51 @@
     if (!el) return;
     el.textContent = message || "";
     el.style.color = isError ? "var(--bad, #ff7e91)" : "var(--muted, #9cacbf)";
+  }
+
+  function scrollModalTranscriptToBottom() {
+    const pre = document.getElementById("modal-transcript");
+    if (!pre) return;
+    state.liveScrollProgrammatic = true;
+    requestAnimationFrame(() => {
+      pre.scrollTop = pre.scrollHeight;
+      requestAnimationFrame(() => {
+        state.liveScrollProgrammatic = false;
+      });
+    });
+  }
+
+  function isModalTranscriptNearBottom(pre) {
+    if (!pre) return true;
+    return (pre.scrollHeight - pre.scrollTop - pre.clientHeight) < 80;
+  }
+
+  function updateLiveMonitorChrome() {
+    const modal = document.getElementById("live-cli-modal");
+    const expandBtn = document.getElementById("modal-expand");
+    const scrollIndicator = document.getElementById("modal-autoscroll-indicator");
+    if (modal) {
+      modal.classList.toggle("monitor-expanded", !!state.liveMonitorExpanded);
+    }
+    if (expandBtn) {
+      expandBtn.textContent = state.liveMonitorExpanded ? "Compact Monitor" : "Expand Monitor";
+    }
+    if (scrollIndicator) {
+      scrollIndicator.textContent = state.liveAutoScroll ? "" : "Auto-scroll paused";
+      scrollIndicator.style.display = state.liveAutoScroll ? "none" : "block";
+    }
+  }
+
+  function pauseLiveAutoScroll() {
+    if (!state.liveAutoScroll) return;
+    state.liveAutoScroll = false;
+    updateLiveMonitorChrome();
+  }
+
+  function resumeLiveAutoScroll() {
+    state.liveAutoScroll = true;
+    updateLiveMonitorChrome();
+    scrollModalTranscriptToBottom();
   }
 
   function escapeHtml(v) {
@@ -211,7 +258,9 @@
     if (!modal) return;
     modal.style.display = "flex";
     state.promptSubmittedAt = state.promptSubmittedAt || 0;
+    state.liveAutoScroll = true;
     setQuickReplyStatus("");
+    updateLiveMonitorChrome();
     refreshLiveMonitor();
     if (liveAutoRefresh) startMonitorPolling();
   }
@@ -259,21 +308,35 @@
       const statusText = status.status || "n/a";
       let friendly = statusText;
       if (statusText === "waiting_for_codex") friendly = "waiting for Codex to load (~10s)";
-      else if (statusText === "prompt_sent") friendly = "prompt sent, live output below";
-      else if (statusText === "awaiting_response") friendly = "prompt submitted, waiting for response";
+      else if (statusText === "prompt_sent") friendly = "Prompt sent, live output below";
+      else if (statusText === "awaiting_response") friendly = "Prompt submitted, waiting for Codex...";
       else if (statusText === "running") friendly = "running (interactive tmux + Codex)";
       if (infoEl) {
-        const debug = `exe: codex | cwd: ${status.repo_id || 'n/a'} | tmux: ${status.tmux_session_name || 'n/a'} | attach: ${status.attach_command || 'n/a'}`;
-        infoEl.innerHTML = `Repo: ${status.repo_id || "n/a"} | Status: <strong>${friendly}</strong><br><small style="opacity:0.7">${debug}</small>`;
+        const repo = status.repo_id || "n/a";
+        const tmuxName = status.tmux_session_name || "n/a";
+        const attach = status.attach_command || (status.tmux_session_name ? `tmux attach -t ${status.tmux_session_name}` : "n/a");
+        infoEl.innerHTML = `
+          <div><strong>Repo:</strong> ${repo}</div>
+          <div><strong>Status:</strong> ${friendly}</div>
+          <div><small style="opacity:0.75">exe: codex | cwd: ${repo} | tmux: ${tmuxName} | attach: ${attach}</small></div>
+        `;
       }
       const pre = document.getElementById("modal-transcript");
       const txt = (trans && trans.transcript) ? trans.transcript : (status.transcript || "");
       let displayTxt = txt || "Waiting for CLI output...";
       if (pre) {
+        const shouldStick = state.liveAutoScroll && isModalTranscriptNearBottom(pre);
+        const previousScrollTop = pre.scrollTop;
         pre.textContent = displayTxt;
+        if (shouldStick) {
+          scrollModalTranscriptToBottom();
+        } else {
+          pre.scrollTop = previousScrollTop;
+        }
         // warning if only exit code visible (means launch didn't keep interactive or capture missed TUI)
         if (displayTxt.trim() === "MCH_EXIT_CODE:0" || (displayTxt.trim().length < 30 && displayTxt.includes("EXIT"))) {
           pre.textContent = displayTxt + "\n\n[Warning] Runner exited before producing visible CLI output. Check flags, codex auth, or tmux attach manually.";
+          if (shouldStick) scrollModalTranscriptToBottom();
         }
       }
       if (statusText === "awaiting_response") {
@@ -321,7 +384,9 @@
       setQuickReplyStatus(`Sent: ${key}`);
       const pre = document.getElementById("modal-transcript");
       if (pre && result && result.transcript_excerpt) {
+        const shouldStick = state.liveAutoScroll && isModalTranscriptNearBottom(pre);
         pre.textContent = result.transcript_excerpt;
+        if (shouldStick) scrollModalTranscriptToBottom();
       }
       await refreshLiveMonitor();
     } catch (e) {
@@ -367,6 +432,13 @@
       if (liveAutoRefresh) startMonitorPolling();
       else stopMonitorPolling();
     });
+    const mJump = document.getElementById("modal-jump-latest");
+    if (mJump) mJump.addEventListener("click", resumeLiveAutoScroll);
+    const mExpand = document.getElementById("modal-expand");
+    if (mExpand) mExpand.addEventListener("click", () => {
+      state.liveMonitorExpanded = !state.liveMonitorExpanded;
+      updateLiveMonitorChrome();
+    });
     const mCopy = document.getElementById("modal-copy-attach");
     if (mCopy) mCopy.addEventListener("click", () => {
       const modal = document.getElementById("live-cli-modal");
@@ -402,6 +474,22 @@
     // close monitor on backdrop
     const mon = document.getElementById("live-cli-modal");
     if (mon) mon.addEventListener("click", (e) => { if (e.target === mon) closeLiveCLIMonitor(); });
+
+    const transcript = document.getElementById("modal-transcript");
+    if (transcript && !transcript.dataset.scrollBound) {
+      transcript.dataset.scrollBound = "1";
+      transcript.addEventListener("scroll", () => {
+        if (state.liveScrollProgrammatic) {
+          state.liveScrollProgrammatic = false;
+          return;
+        }
+        if (!isModalTranscriptNearBottom(transcript)) {
+          pauseLiveAutoScroll();
+        }
+      });
+    }
+
+    updateLiveMonitorChrome();
   }
 
   // Init
