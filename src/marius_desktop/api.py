@@ -314,6 +314,11 @@ class McHarnessCaptainPlanRequest(BaseModel):
     lane_id: str = Field(min_length=1)
 
 
+class McHarnessCaptainKeyRequest(BaseModel):
+    api_key: str = Field(min_length=1)
+    model: str = Field(default="openrouter/auto", min_length=1)
+
+
 class McHarnessCaptainPlanStep(BaseModel):
     id: str
     title: str
@@ -328,6 +333,27 @@ class McHarnessCaptainPlanResponse(BaseModel):
     title: str
     summary: str
     steps: list[McHarnessCaptainPlanStep]
+    notes: list[str] = Field(default_factory=list)
+
+
+class McHarnessCaptainStatusResponse(BaseModel):
+    ok: bool = True
+    configured: bool
+    provider: Literal["openrouter"] = "openrouter"
+    model: str
+    planning_enabled: bool
+    key_source: Literal["env", "saved", "missing"]
+    private_key_setup_enabled: bool
+    notes: list[str] = Field(default_factory=list)
+
+
+class McHarnessCaptainKeyResponse(BaseModel):
+    ok: bool = True
+    configured: bool
+    provider: Literal["openrouter"] = "openrouter"
+    model: str
+    key_source: Literal["env", "saved", "missing"]
+    private_key_setup_enabled: bool
     notes: list[str] = Field(default_factory=list)
 
 
@@ -357,7 +383,7 @@ def _repo_entries() -> list[dict[str, Any]]:
     return rows
 
 
-def _captain_api_key() -> str:
+def _captain_env_api_key() -> str:
     return os.getenv("OPENROUTER_API_KEY", "").strip()
 
 
@@ -366,19 +392,119 @@ def _captain_model_name() -> str:
     return value or "openrouter/auto"
 
 
+def _captain_secret_path() -> Path:
+    return MCTABLE_ROOT / "secrets" / "captain_openrouter.json"
+
+
+def _captain_saved_config() -> dict[str, Any] | None:
+    path = _captain_secret_path()
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    api_key = str(data.get("api_key") or "").strip()
+    if not api_key:
+        return None
+    return {
+        "provider": "openrouter",
+        "api_key": api_key,
+        "model": str(data.get("model") or "").strip() or _captain_model_name(),
+        "updated_at": str(data.get("updated_at") or "").strip(),
+    }
+
+
+def _captain_key_source() -> str:
+    if _captain_env_api_key():
+        return "env"
+    if _captain_saved_config():
+        return "saved"
+    return "missing"
+
+
+def _captain_api_key() -> str:
+    env_key = _captain_env_api_key()
+    if env_key:
+        return env_key
+    saved = _captain_saved_config()
+    return str(saved["api_key"]).strip() if saved else ""
+
+
+def _captain_effective_model_name() -> str:
+    if _captain_env_api_key():
+        return _captain_model_name()
+    saved = _captain_saved_config()
+    if saved and str(saved.get("model") or "").strip():
+        return str(saved["model"]).strip()
+    return _captain_model_name()
+
+
+def _captain_private_key_setup_enabled() -> bool:
+    return _public_write_enabled() and _tmux_runner_enabled() and _codex_runner_enabled()
+
+
 def _captain_status_payload() -> dict[str, Any]:
-    configured = bool(_captain_api_key())
+    key_source = _captain_key_source()
+    configured = key_source in {"env", "saved"}
     notes = []
     if not configured:
         notes.append("Captain is not configured. Set OPENROUTER_API_KEY on the private service.")
+    elif key_source == "env":
+        notes.append("Captain is configured via environment.")
+    else:
+        notes.append("Captain is configured via saved private key.")
     return {
         "ok": True,
         "configured": configured,
         "provider": "openrouter",
-        "model": _captain_model_name(),
+        "model": _captain_effective_model_name(),
         "planning_enabled": configured,
+        "key_source": key_source,
+        "private_key_setup_enabled": _captain_private_key_setup_enabled(),
         "notes": notes,
     }
+
+
+def _validate_captain_api_key_value(api_key: str) -> None:
+    key = (api_key or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="OpenRouter API key is required.")
+    if not re.match(r"^sk-or-[A-Za-z0-9._-]{8,}$", key):
+        raise HTTPException(status_code=400, detail="OpenRouter API key does not look valid.")
+
+
+def _write_captain_saved_config(api_key: str, model: str) -> None:
+    path = _captain_secret_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path.parent, 0o700)
+    except Exception:
+        pass
+    payload = {
+        "provider": "openrouter",
+        "api_key": api_key.strip(),
+        "model": (model or _captain_model_name()).strip() or "openrouter/auto",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)
+    except Exception:
+        pass
+
+
+def _delete_captain_saved_config() -> bool:
+    path = _captain_secret_path()
+    if not path.exists():
+        return False
+    try:
+        path.unlink()
+        return True
+    except Exception:
+        raise HTTPException(status_code=500, detail="Unable to remove saved Captain key.")
 
 
 def _resolve_allowlisted_repo(repo_id: str) -> tuple[Path, dict[str, Any]]:
@@ -478,7 +604,7 @@ def _openrouter_chat_completion(*, messages: list[dict[str, str]], model: str, t
 
 
 def _build_captain_plan(*, goal: str, repo: dict[str, Any], lane_id: str) -> tuple[dict[str, Any], list[str]]:
-    model = _captain_model_name()
+    model = _captain_effective_model_name()
     system_prompt = "\n".join([
         "You are Captain Deck for McHarness.",
         "Output strict JSON only.",
@@ -1092,9 +1218,50 @@ def get_mcharness_health():
     }
 
 
-@mcharness_router.get("/captain/status")
+@mcharness_router.get("/captain/status", response_model=McHarnessCaptainStatusResponse)
 def get_mcharness_captain_status():
     return _captain_status_payload()
+
+
+@mcharness_router.post("/captain/key", response_model=McHarnessCaptainKeyResponse, dependencies=[Depends(_require_public_write_access)])
+def set_mcharness_captain_key(payload: McHarnessCaptainKeyRequest):
+    if _captain_env_api_key():
+        raise HTTPException(
+            status_code=409,
+            detail="Captain is already configured via environment on this service.",
+        )
+    _validate_captain_api_key_value(payload.api_key)
+    _write_captain_saved_config(payload.api_key, payload.model)
+    status = _captain_status_payload()
+    return {
+        "ok": True,
+        "configured": status["configured"],
+        "provider": "openrouter",
+        "model": status["model"],
+        "key_source": status["key_source"],
+        "private_key_setup_enabled": status["private_key_setup_enabled"],
+        "notes": status["notes"],
+    }
+
+
+@mcharness_router.delete("/captain/key", response_model=McHarnessCaptainKeyResponse, dependencies=[Depends(_require_public_write_access)])
+def delete_mcharness_captain_key():
+    removed = _delete_captain_saved_config()
+    status = _captain_status_payload()
+    notes = list(status.get("notes") or [])
+    if removed:
+        notes.append("Saved Captain key removed.")
+    else:
+        notes.append("No saved Captain key to remove.")
+    return {
+        "ok": True,
+        "configured": status["configured"],
+        "provider": "openrouter",
+        "model": status["model"],
+        "key_source": status["key_source"],
+        "private_key_setup_enabled": status["private_key_setup_enabled"],
+        "notes": notes,
+    }
 
 
 @mcharness_router.post("/captain/plan", response_model=McHarnessCaptainPlanResponse)

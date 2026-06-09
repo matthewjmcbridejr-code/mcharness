@@ -75,6 +75,8 @@ def test_mcharness_captain_status_reports_disabled_when_key_missing(monkeypatch)
     assert data["provider"] == "openrouter"
     assert data["model"] == "openrouter/auto"
     assert data["planning_enabled"] is False
+    assert data["key_source"] == "missing"
+    assert data["private_key_setup_enabled"] is False
     assert "OPENROUTER_API_KEY" in data["notes"][0]
     assert "test-openrouter-key" not in response.text
 
@@ -90,7 +92,115 @@ def test_mcharness_captain_status_reports_configured_with_key(monkeypatch):
     assert data["provider"] == "openrouter"
     assert data["model"] == "openrouter/test-model"
     assert data["planning_enabled"] is True
+    assert data["key_source"] == "env"
+    assert data["private_key_setup_enabled"] is False
     assert "test-openrouter-key" not in response.text
+
+
+def test_mcharness_captain_key_save_requires_private_write_access(monkeypatch):
+    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "false")
+    monkeypatch.delenv("MCHARNESS_ADMIN_TOKEN", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    client = TestClient(app)
+    response = client.post(
+        "/api/mcharness/captain/key",
+        json={"api_key": "sk-or-private-test-key", "model": "openrouter/auto"},
+    )
+    assert response.status_code == 403
+    assert "disabled" in response.json()["detail"].lower()
+
+
+def test_mcharness_captain_key_save_delete_and_status_round_trip(monkeypatch, tmp_path):
+    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("MCHARNESS_CAPTAIN_MODEL", raising=False)
+
+    import src.marius_desktop.api as api_mod
+
+    monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
+    client = TestClient(app)
+
+    saved = client.post(
+        "/api/mcharness/captain/key",
+        json={"api_key": "sk-or-private-test-key", "model": "openrouter/custom"},
+    )
+    assert saved.status_code == 200, saved.text
+    saved_data = saved.json()
+    assert saved_data["configured"] is True
+    assert saved_data["key_source"] == "saved"
+    assert saved_data["model"] == "openrouter/custom"
+    assert "sk-or-private-test-key" not in saved.text
+
+    status = client.get("/api/mcharness/captain/status")
+    assert status.status_code == 200
+    status_data = status.json()
+    assert status_data["configured"] is True
+    assert status_data["key_source"] == "saved"
+    assert status_data["private_key_setup_enabled"] is True
+    assert "sk-or-private-test-key" not in status.text
+
+    removed = client.delete("/api/mcharness/captain/key")
+    assert removed.status_code == 200, removed.text
+    removed_data = removed.json()
+    assert removed_data["configured"] is False
+    assert removed_data["key_source"] == "missing"
+    assert "sk-or-private-test-key" not in removed.text
+
+    status_after = client.get("/api/mcharness/captain/status")
+    assert status_after.status_code == 200
+    assert status_after.json()["configured"] is False
+
+
+def test_mcharness_captain_key_env_precedence_over_saved_key(monkeypatch, tmp_path):
+    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-env-test-key")
+    monkeypatch.setenv("MCHARNESS_CAPTAIN_MODEL", "openrouter/env-model")
+
+    import src.marius_desktop.api as api_mod
+
+    monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
+    saved_path = tmp_path / "secrets" / "captain_openrouter.json"
+    saved_path.parent.mkdir(parents=True, exist_ok=True)
+    saved_path.write_text(
+        json.dumps(
+            {
+                "provider": "openrouter",
+                "api_key": "sk-or-saved-test-key",
+                "model": "openrouter/saved-model",
+                "updated_at": "2026-01-01T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    client = TestClient(app)
+    status = client.get("/api/mcharness/captain/status")
+    assert status.status_code == 200
+    data = status.json()
+    assert data["configured"] is True
+    assert data["key_source"] == "env"
+    assert data["model"] == "openrouter/env-model"
+    assert "sk-or-env-test-key" not in status.text
+    assert "sk-or-saved-test-key" not in status.text
+
+
+def test_mcharness_captain_key_save_rejects_when_env_key_present(monkeypatch):
+    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-env-test-key")
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/mcharness/captain/key",
+        json={"api_key": "sk-or-private-test-key", "model": "openrouter/auto"},
+    )
+    assert response.status_code == 409
+    assert "environment" in response.json()["detail"].lower()
 
 
 def test_mcharness_captain_plan_rejects_missing_key(monkeypatch):
@@ -222,6 +332,80 @@ def test_mcharness_captain_plan_rejects_invalid_model_response(monkeypatch):
     )
     assert response.status_code == 502
     assert "valid JSON" in response.json()["detail"]
+
+
+def test_mcharness_captain_plan_uses_saved_key_when_env_missing(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
+    monkeypatch.delenv("MCHARNESS_CAPTAIN_MODEL", raising=False)
+
+    import src.marius_desktop.api as api_mod
+
+    monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
+    monkeypatch.setattr(api_mod, "CAPTAIN_PLAN_ROOT", tmp_path / "captain" / "plans")
+    saved_path = tmp_path / "secrets" / "captain_openrouter.json"
+    saved_path.parent.mkdir(parents=True, exist_ok=True)
+    saved_path.write_text(
+        json.dumps(
+            {
+                "provider": "openrouter",
+                "api_key": "sk-or-saved-test-key",
+                "model": "openrouter/saved-model",
+                "updated_at": "2026-01-01T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_openrouter(*, messages, model, timeout):
+        assert model == "openrouter/saved-model"
+        assert any("Captain Deck" in item["content"] for item in messages if item["role"] == "system")
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "title": "Saved-key Captain plan",
+                                "summary": "Uses the saved private OpenRouter key.",
+                                "steps": [
+                                    {
+                                        "title": "Inspect frontend structure",
+                                        "prompt": "Inspect the frontend entrypoint and identify the minimal files to change.",
+                                    },
+                                    {
+                                        "title": "Implement layout",
+                                        "prompt": "Modify only the selected frontend files to add the requested layout.",
+                                    },
+                                    {
+                                        "title": "Verify and report",
+                                        "prompt": "Run the focused checks and return a concise proof report.",
+                                    },
+                                ],
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr(api_mod, "_openrouter_chat_completion", fake_openrouter)
+    client = TestClient(app)
+    response = client.post(
+        "/api/mcharness/captain/plan",
+        json={
+            "goal": "Create a short read-only plan for inspecting the McHarness frontend. Do not edit files.",
+            "repo_id": "hybrid-agent-os",
+            "lane_id": "codex_cli",
+        },
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["ok"] is True
+    assert data["title"] == "Saved-key Captain plan"
+    assert "sk-or-saved-test-key" not in response.text
 
 
 def test_public_write_guard_blocks_worker_routes_when_disabled(monkeypatch):

@@ -14,6 +14,8 @@
     captainDeck: {
       configured: false,
       planningEnabled: false,
+      privateKeySetupEnabled: false,
+      keySource: "missing",
       model: "openrouter/auto",
       notes: [],
       repoId: "",
@@ -23,6 +25,10 @@
       plan: null,
       loading: false,
       error: "",
+      keyFormVisible: false,
+      keySaving: false,
+      keyError: "",
+      keyModel: "openrouter/auto",
     },
   };
 
@@ -102,7 +108,12 @@
       const deck = state.captainDeck;
       deck.configured = !!status.configured;
       deck.planningEnabled = !!status.planning_enabled;
+      deck.privateKeySetupEnabled = !!status.private_key_setup_enabled;
+      deck.keySource = status.key_source || "missing";
       deck.model = status.model || "openrouter/auto";
+      if (!deck.keyFormVisible) {
+        deck.keyModel = deck.model || "openrouter/auto";
+      }
       deck.notes = Array.isArray(status.notes) ? status.notes : [];
       renderCaptainDeck();
       return status;
@@ -110,6 +121,8 @@
       const deck = state.captainDeck;
       deck.configured = false;
       deck.planningEnabled = false;
+      deck.privateKeySetupEnabled = false;
+      deck.keySource = "missing";
       deck.notes = ["Captain status unavailable."];
       renderCaptainDeck();
       return null;
@@ -154,6 +167,16 @@
   function renderCaptainDeck() {
     const deck = state.captainDeck;
     const noteEl = document.getElementById("captain-config-note");
+    const settingsStatusEl = document.getElementById("captain-settings-status");
+    const settingsNoteEl = document.getElementById("captain-settings-note");
+    const keyFormEl = document.getElementById("captain-key-form");
+    const setKeyBtn = document.getElementById("captain-set-key");
+    const removeKeyBtn = document.getElementById("captain-remove-key");
+    const saveKeyBtn = document.getElementById("captain-save-key");
+    const cancelKeyBtn = document.getElementById("captain-cancel-key");
+    const keyInput = document.getElementById("captain-openrouter-key");
+    const modelInput = document.getElementById("captain-openrouter-model");
+    const keyFormNoteEl = document.getElementById("captain-key-form-note");
     const statusEl = document.getElementById("captain-plan-status");
     const createBtn = document.getElementById("captain-create-plan");
     const deployBtn = document.getElementById("captain-deploy-first");
@@ -172,6 +195,64 @@
         ? `Captain is configured. Model: ${deck.model}`
         : "Captain is not configured. Set OPENROUTER_API_KEY on the private service.";
       noteEl.style.display = "block";
+    }
+    if (settingsStatusEl) {
+      settingsStatusEl.textContent = `Status: ${deck.configured ? "Configured" : "Not configured"} • Key source: ${deck.keySource || "missing"} • Model: ${deck.model || "openrouter/auto"}`;
+    }
+    if (settingsNoteEl) {
+      if (!deck.privateKeySetupEnabled) {
+        settingsNoteEl.textContent = "Captain key setup is available only on the private service.";
+      } else if (deck.keySource === "env") {
+        settingsNoteEl.textContent = "Captain is configured via environment on this service. Saved keys cannot override it.";
+      } else if (deck.keySource === "saved") {
+        settingsNoteEl.textContent = "Captain is configured via a saved private key on this service.";
+      } else {
+        settingsNoteEl.textContent = "Set an OpenRouter key to enable Captain planning on the private service.";
+      }
+    }
+    if (keyFormEl) {
+      keyFormEl.style.display = deck.keyFormVisible ? "block" : "none";
+    }
+    if (setKeyBtn) {
+      setKeyBtn.style.display = deck.privateKeySetupEnabled ? "inline-flex" : "inline-flex";
+      setKeyBtn.disabled = !deck.privateKeySetupEnabled || deck.keySource === "env" || deck.keySaving;
+      setKeyBtn.textContent = deck.keySource === "env" ? "OpenRouter Key in Environment" : "Set OpenRouter Key";
+    }
+    if (removeKeyBtn) {
+      removeKeyBtn.style.display = deck.privateKeySetupEnabled && deck.keySource === "saved" ? "inline-flex" : "none";
+      removeKeyBtn.disabled = !deck.privateKeySetupEnabled || deck.keySaving;
+    }
+    if (saveKeyBtn) {
+      saveKeyBtn.disabled = !deck.privateKeySetupEnabled || deck.keySource === "env" || deck.keySaving;
+      saveKeyBtn.textContent = deck.keySaving ? "Saving..." : "Save Key";
+    }
+    if (cancelKeyBtn) {
+      cancelKeyBtn.disabled = !!deck.keySaving;
+    }
+    if (keyInput && keyInput.value && !deck.keyFormVisible) {
+      keyInput.value = "";
+    }
+    if (modelInput) {
+      modelInput.value = deck.keyModel || deck.model || "openrouter/auto";
+      modelInput.disabled = !deck.privateKeySetupEnabled || deck.keySource === "env" || deck.keySaving;
+    }
+    if (keyFormNoteEl) {
+      if (deck.keyError) {
+        keyFormNoteEl.textContent = deck.keyError;
+        keyFormNoteEl.style.color = "var(--bad, #ff7e91)";
+      } else if (deck.keySaving) {
+        keyFormNoteEl.textContent = "Saving OpenRouter key on the private service...";
+        keyFormNoteEl.style.color = "var(--muted, #9cacbf)";
+      } else if (deck.keySource === "env") {
+        keyFormNoteEl.textContent = "Environment key is already active on this service. Saved keys are disabled here.";
+        keyFormNoteEl.style.color = "var(--warn, #f0c66a)";
+      } else if (!deck.privateKeySetupEnabled) {
+        keyFormNoteEl.textContent = "Captain key setup is available only on the private service.";
+        keyFormNoteEl.style.color = "var(--warn, #f0c66a)";
+      } else {
+        keyFormNoteEl.textContent = "The key is stored server-side only for the private service.";
+        keyFormNoteEl.style.color = "var(--muted, #9cacbf)";
+      }
     }
 
     if (createBtn) {
@@ -227,6 +308,8 @@
     if (!modal) return;
     modal.style.display = "flex";
     state.captainDeck.error = "";
+    state.captainDeck.keyError = "";
+    state.captainDeck.keyFormVisible = false;
     renderCaptainDeck();
     await Promise.all([populateCaptainDeckRepos(), loadCaptainDeckStatus()]);
     renderCaptainDeck();
@@ -235,6 +318,90 @@
   function closeCaptainDeckModal() {
     const modal = document.getElementById("captain-deck-modal");
     if (modal) modal.style.display = "none";
+  }
+
+  function openCaptainKeyForm() {
+    const deck = state.captainDeck;
+    if (!deck.privateKeySetupEnabled || deck.keySource === "env") return;
+    deck.keyError = "";
+    deck.keyFormVisible = true;
+    deck.keyModel = deck.keyModel || deck.model || "openrouter/auto";
+    renderCaptainDeck();
+    const keyInput = document.getElementById("captain-openrouter-key");
+    if (keyInput) {
+      keyInput.value = "";
+      keyInput.focus();
+    }
+  }
+
+  function closeCaptainKeyForm() {
+    const deck = state.captainDeck;
+    deck.keyError = "";
+    deck.keyFormVisible = false;
+    renderCaptainDeck();
+  }
+
+  async function saveCaptainKey() {
+    const deck = state.captainDeck;
+    const keyInput = document.getElementById("captain-openrouter-key");
+    const modelInput = document.getElementById("captain-openrouter-model");
+    if (!deck.privateKeySetupEnabled || deck.keySource === "env") {
+      deck.keyError = "Captain key setup is available only on the private service.";
+      renderCaptainDeck();
+      return;
+    }
+    const apiKey = (keyInput && keyInput.value ? keyInput.value : "").trim();
+    const model = (modelInput && modelInput.value ? modelInput.value : "").trim() || "openrouter/auto";
+    if (!apiKey) {
+      deck.keyError = "Enter an OpenRouter API key first.";
+      renderCaptainDeck();
+      return;
+    }
+    deck.keySaving = true;
+    deck.keyError = "";
+    renderCaptainDeck();
+    try {
+      await requestJson(`${MCH}/captain/key`, {
+        method: "POST",
+        body: {
+          api_key: apiKey,
+          model,
+        },
+      });
+      if (keyInput) keyInput.value = "";
+      deck.keyFormVisible = false;
+      await loadCaptainDeckStatus();
+      deck.keyError = "";
+      renderCaptainDeck();
+    } catch (e) {
+      deck.keyError = e.message || String(e);
+      renderCaptainDeck();
+    } finally {
+      deck.keySaving = false;
+      renderCaptainDeck();
+    }
+  }
+
+  async function removeCaptainKey() {
+    const deck = state.captainDeck;
+    if (!deck.privateKeySetupEnabled || deck.keySource !== "saved") return;
+    deck.keySaving = true;
+    deck.keyError = "";
+    renderCaptainDeck();
+    try {
+      await requestJson(`${MCH}/captain/key`, {
+        method: "DELETE",
+      });
+      deck.keyFormVisible = false;
+      await loadCaptainDeckStatus();
+      renderCaptainDeck();
+    } catch (e) {
+      deck.keyError = e.message || String(e);
+      renderCaptainDeck();
+    } finally {
+      deck.keySaving = false;
+      renderCaptainDeck();
+    }
   }
 
   async function createCaptainPlan() {
@@ -659,9 +826,29 @@
     if (captainCopy) captainCopy.addEventListener("click", () => {
       copyCaptainPlan().catch((e) => console.error(e));
     });
+    const captainSetKey = document.getElementById("captain-set-key");
+    if (captainSetKey) captainSetKey.addEventListener("click", () => {
+      openCaptainKeyForm();
+    });
+    const captainSaveKey = document.getElementById("captain-save-key");
+    if (captainSaveKey) captainSaveKey.addEventListener("click", () => {
+      saveCaptainKey().catch((e) => console.error(e));
+    });
+    const captainCancelKey = document.getElementById("captain-cancel-key");
+    if (captainCancelKey) captainCancelKey.addEventListener("click", () => {
+      closeCaptainKeyForm();
+    });
+    const captainRemoveKey = document.getElementById("captain-remove-key");
+    if (captainRemoveKey) captainRemoveKey.addEventListener("click", () => {
+      removeCaptainKey().catch((e) => console.error(e));
+    });
     const captainGoal = document.getElementById("captain-goal");
     if (captainGoal) captainGoal.addEventListener("input", () => {
       state.captainDeck.goal = captainGoal.value || "";
+    });
+    const captainOpenrouterModel = document.getElementById("captain-openrouter-model");
+    if (captainOpenrouterModel) captainOpenrouterModel.addEventListener("input", () => {
+      state.captainDeck.keyModel = captainOpenrouterModel.value || "openrouter/auto";
     });
     const captainRepo = document.getElementById("captain-repo-select");
     if (captainRepo) captainRepo.addEventListener("change", () => {

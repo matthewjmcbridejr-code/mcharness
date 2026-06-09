@@ -26,6 +26,22 @@ test.afterEach(() => {
 });
 
 test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ page }, testInfo) => {
+  await page.route("**/api/mcharness/captain/status", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        configured: false,
+        provider: "openrouter",
+        model: "openrouter/auto",
+        planning_enabled: false,
+        key_source: "missing",
+        private_key_setup_enabled: false,
+        notes: ["Captain is not configured. Set OPENROUTER_API_KEY on the private service."],
+      }),
+    });
+  });
   await page.goto("/web/mctable-studio/cockpit-app.html");
 
   // Simple default UI
@@ -40,6 +56,9 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   const captainModal = page.locator("#captain-deck-modal");
   await expect(captainModal).toBeVisible();
   await expect(captainModal.locator("#captain-config-note")).toContainText("Captain is not configured. Set OPENROUTER_API_KEY on the private service.");
+  await expect(captainModal.locator("[data-testid='captain-settings-status']")).toContainText("Not configured");
+  await expect(captainModal.locator("[data-testid='captain-settings-note']")).toContainText("Captain key setup is available only on the private service.");
+  await expect(captainModal.locator("[data-testid='captain-set-key']")).toBeDisabled();
   await expect(captainModal.locator("#captain-create-plan")).toBeDisabled();
   await captainModal.locator("#captain-close").click();
   await expect(captainModal).not.toBeVisible();
@@ -81,6 +100,323 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await expect(page.locator("#legacy-link")).toBeVisible();
 
   await page.screenshot({ path: testInfo.outputPath("cockpit-final.png"), fullPage: true });
+});
+
+test("Captain Settings saves a private OpenRouter key and enables Captain planning", async ({ page }) => {
+  let captainStatus = {
+    ok: true,
+    configured: false,
+    provider: "openrouter",
+    model: "openrouter/auto",
+    planning_enabled: false,
+    key_source: "missing",
+    private_key_setup_enabled: true,
+    notes: ["Captain is not configured. Set OPENROUTER_API_KEY on the private service."],
+  };
+  let transcriptText = "Captain runner idle.\n";
+  let runnerStatus = {
+    session_id: "captain-settings-session",
+    runner_id: "run_captain_settings",
+    lane_id: "codex_cli",
+    repo_id: "hybrid-agent-os",
+    status: "waiting_for_codex",
+    tmux_session_name: "mch_captain_settings",
+    attach_command: "tmux attach -t mch_captain_settings",
+  };
+  const runnerStartCalls = [];
+  const sendPromptCalls = [];
+  await page.addInitScript(() => {
+    window.__storageWrites = [];
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      window.__storageWrites.push([key, value]);
+      return originalSetItem.call(this, key, value);
+    };
+  });
+
+  await page.route("**/api/mcharness/**", async (route) => {
+    const url = new URL(route.request().url());
+    const { pathname } = url;
+    const method = route.request().method();
+    const body = route.request().postDataJSON ? route.request().postDataJSON() : null;
+
+    if (pathname.endsWith("/health")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          service: "mcharness-control-plane",
+          commit: "test-commit",
+          mode: "public_manual",
+          real_agent_launch_enabled: false,
+          arbitrary_command_execution_enabled: false,
+          public_write_enabled: true,
+          tmux_runner_enabled: true,
+          codex_runner_enabled: true,
+          available_lanes_count: 7,
+          repo_count: 2,
+          manual_mode: true,
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/agent-lanes")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          service: "mcharness-control-plane",
+          manual_mode: true,
+          lanes: [
+            {
+              lane_id: "codex_cli",
+              title: "Codex CLI",
+              installed: true,
+              runner_mode: "controlled_run_ready",
+              executable_path: "/root/.hermes/node/bin/codex",
+              version: "codex-cli 0.137.0",
+              auth_status: "likely_ready",
+              safety_notes: ["tmux available: True"],
+            },
+          ],
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/repos")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          service: "mcharness-control-plane",
+          mode: "server_control_plane",
+          repos: [
+            {
+              repo_id: "hybrid-agent-os",
+              label: "hybrid-agent-os",
+              path: "/root/hybrid-agent-os",
+            },
+            {
+              repo_id: "mcharness-public-export",
+              label: "mcharness-public-export",
+              path: "/root/mcharness-public-export",
+            },
+          ],
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/captain/status")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(captainStatus),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/captain/key") && method === "POST") {
+      captainStatus = {
+        ...captainStatus,
+        configured: true,
+        planning_enabled: true,
+        key_source: "saved",
+        model: body.model || "openrouter/auto",
+        notes: ["Captain is configured via saved private key."],
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          configured: true,
+          provider: "openrouter",
+          model: captainStatus.model,
+          key_source: "saved",
+          private_key_setup_enabled: true,
+          notes: ["Captain key saved."],
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/captain/plan") && method === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          plan_id: "plan_saved_key",
+          title: "Captain Saved Key Plan",
+          summary: "Plan after saved key setup.",
+          steps: [
+            {
+              id: "step_1",
+              title: "Inspect frontend structure",
+              agent: "codex_cli",
+              prompt: "Exact goal: Create a read-only plan to inspect the McHarness frontend. Do not edit files.\nForbidden actions: no push, merge, reset, rebase, no secrets, no deploy commands.\nAcceptance checks: identify the frontend entrypoints.\nFinal proof format: branch, commit hash if any, files changed, tests run/output, and remaining unproven items.",
+              status: "queued",
+            },
+            {
+              id: "step_2",
+              title: "Verify and report",
+              agent: "codex_cli",
+              prompt: "Exact goal: Create a read-only plan to inspect the McHarness frontend. Do not edit files.\nForbidden actions: no push, merge, reset, rebase, no secrets, no deploy commands.\nAcceptance checks: return a concise proof report.\nFinal proof format: branch, commit hash if any, files changed, tests run/output, and remaining unproven items.",
+              status: "queued",
+            },
+            {
+              id: "step_3",
+              title: "Final proof",
+              agent: "codex_cli",
+              prompt: "Exact goal: Create a read-only plan to inspect the McHarness frontend. Do not edit files.\nForbidden actions: no push, merge, reset, rebase, no secrets, no deploy commands.\nAcceptance checks: finish with proof only.\nFinal proof format: branch, commit hash if any, files changed, tests run/output, and remaining unproven items.",
+              status: "queued",
+            },
+          ],
+          notes: ["OpenRouter model: openrouter/custom"],
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/sessions") && method === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ session_id: runnerStatus.session_id }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/queue") && method === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ queue_item_id: "queue-captain-1" }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/prompt-export") && method === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/start") && method === "POST") {
+      runnerStartCalls.push(body);
+      runnerStatus = { ...runnerStatus, status: "running" };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(runnerStatus),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/send-prompt") && method === "POST") {
+      sendPromptCalls.push(body.prompt);
+      transcriptText = `${transcriptText}\n${body.prompt}\nCaptain response pending.`;
+      runnerStatus = { ...runnerStatus, status: "awaiting_response" };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          injected: true,
+          session_id: runnerStatus.session_id,
+          status: runnerStatus.status,
+          transcript_excerpt: transcriptText,
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/status")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(runnerStatus),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/transcript")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          session_id: runnerStatus.session_id,
+          runner_id: runnerStatus.runner_id,
+          lane_id: runnerStatus.lane_id,
+          status: runnerStatus.status,
+          transcript_path: "/tmp/captain-settings-transcript.txt",
+          transcript: transcriptText,
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/stop")) {
+      runnerStatus = { ...runnerStatus, status: "stopped" };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ...runnerStatus, stopped_at: new Date().toISOString() }),
+      });
+      return;
+    }
+
+    await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: `Unhandled route: ${pathname}` }) });
+  });
+
+  await page.goto("http://127.0.0.1:8125/web/mctable-studio/cockpit-app.html");
+  await expect(page.getByRole("button", { name: "Develop Plan" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Develop Plan" }).click();
+  const captainModal = page.locator("#captain-deck-modal");
+  await expect(captainModal).toBeVisible();
+  await expect(captainModal.locator("[data-testid='captain-set-key']")).toBeVisible();
+  await captainModal.locator("[data-testid='captain-set-key']").click();
+  await expect(captainModal.locator("[data-testid='captain-key-form']")).toBeVisible();
+  await expect(captainModal.locator("[data-testid='captain-openrouter-key']")).toHaveAttribute("type", "password");
+  await captainModal.locator("[data-testid='captain-openrouter-key']").fill("sk-or-private-test-key");
+  await captainModal.locator("[data-testid='captain-openrouter-model']").fill("openrouter/custom");
+  await captainModal.locator("[data-testid='captain-save-key']").click();
+  await expect(captainModal.locator("[data-testid='captain-openrouter-key']")).toHaveValue("");
+  await expect(captainModal.locator("[data-testid='captain-settings-status']")).toContainText("Configured");
+  await expect(captainModal.locator("[data-testid='captain-settings-status']")).toContainText("saved");
+  await expect(captainModal.locator("[data-testid='captain-settings-note']")).toContainText("saved private key");
+  await expect(captainModal.locator("[data-testid='captain-create-plan']")).toBeEnabled();
+  await expect(captainModal.locator("[data-testid='captain-remove-key']")).toBeVisible();
+  await expect(captainModal.locator("[data-testid='captain-openrouter-key']")).toBeHidden();
+  await captainModal.locator("[data-testid='captain-goal']").fill("Create a read-only plan to inspect the McHarness frontend. Do not edit files.");
+  await captainModal.locator("[data-testid='captain-create-plan']").click();
+  await expect(captainModal.locator("[data-testid='captain-plan-status']")).toContainText("Plan ready: Captain Saved Key Plan");
+  await expect(captainModal.locator("[data-testid='captain-plan-body']")).toContainText("Inspect frontend structure");
+  await expect(captainModal.locator("[data-testid='captain-plan-body']")).toContainText("Verify and report");
+  await page.evaluate(() => {
+    const original = window.setTimeout;
+    window.setTimeout = (fn, ms, ...args) => (ms === 10000 ? original(fn, 0, ...args) : original(fn, ms, ...args));
+  });
+  await captainModal.locator("[data-testid='captain-deploy-first']").click();
+  await expect.poll(() => runnerStartCalls.length).toBe(1);
+  await expect.poll(() => sendPromptCalls.length).toBe(1);
+  await expect(page.locator("#captain-deck-modal")).not.toBeVisible();
+  const mon = page.locator("#live-cli-modal");
+  await expect(mon).toBeVisible();
+  await expect(page.locator("#live-cli-modal input, #live-cli-modal textarea")).toHaveCount(0);
+  await expect(page.locator("#modal-info")).toContainText("Repo: hybrid-agent-os");
+  await expect(page.locator("#modal-info")).toContainText("Status: Running");
+  await expect(mon.locator("[data-testid='modal-transcript']")).toContainText("Captain response pending.");
+  const storageWrites = await page.evaluate(() => window.__storageWrites || []);
+  expect(storageWrites).toEqual([]);
 });
 
 test("private runner quick replies send allowed keys and refresh transcript", async ({ page }) => {
@@ -310,7 +646,7 @@ test("private runner quick replies send allowed keys and refresh transcript", as
   await expect(mon.locator("[data-testid='modal-expand']")).toBeVisible();
   await expect(mon.locator("[data-testid='modal-autorefresh']")).toBeVisible();
   await expect(mon.locator("[data-testid='modal-save-evidence']")).toBeVisible();
-  await expect(mon.locator("input, textarea")).toHaveCount(0);
+  await expect(page.locator("#live-cli-modal input, #live-cli-modal textarea")).toHaveCount(0);
   await expect(page.locator("[data-testid='modal-refresh']")).toContainText("Refresh");
   await expect(page.locator("[data-testid='modal-expand']")).toContainText("Bigger View");
   await expect(page.locator("[data-testid='modal-copy-attach']")).toContainText("Copy Terminal Command");

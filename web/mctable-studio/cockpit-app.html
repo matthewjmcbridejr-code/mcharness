@@ -85,6 +85,36 @@
     <div style="background:var(--bg-2); border:1px solid var(--line); padding:16px; width:min(94vw, 980px); max-height:92vh; overflow:auto; border-radius:8px;">
       <h3 style="margin-top:0;">Captain Deck</h3>
       <div id="captain-config-note" data-testid="captain-config-note" style="font-size:0.85em; color:var(--warn, #f0c66a); margin-bottom:6px;"></div>
+      <div id="captain-settings" data-testid="captain-settings" class="captain-settings" style="border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:10px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:600;">Captain Settings</div>
+            <div id="captain-settings-status" data-testid="captain-settings-status" style="font-size:0.82em; color:var(--muted);"></div>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="captain-set-key" data-testid="captain-set-key" class="btn" type="button">Set OpenRouter Key</button>
+            <button id="captain-remove-key" data-testid="captain-remove-key" class="btn bad" type="button" style="display:none;">Remove Key</button>
+          </div>
+        </div>
+        <div id="captain-settings-note" data-testid="captain-settings-note" style="font-size:0.78em; color:var(--muted); margin-top:6px;"></div>
+        <div id="captain-key-form" data-testid="captain-key-form" style="display:none; margin-top:10px; border-top:1px solid var(--line); padding-top:10px;">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div>
+              <label for="captain-openrouter-key" style="display:block; font-size:0.82em; margin-bottom:4px;">OpenRouter API Key</label>
+              <input id="captain-openrouter-key" data-testid="captain-openrouter-key" type="password" autocomplete="off" spellcheck="false" style="width:100%; padding:8px;" placeholder="sk-or-..." />
+            </div>
+            <div>
+              <label for="captain-openrouter-model" style="display:block; font-size:0.82em; margin-bottom:4px;">Model</label>
+              <input id="captain-openrouter-model" data-testid="captain-openrouter-model" type="text" autocomplete="off" spellcheck="false" style="width:100%; padding:8px;" placeholder="openrouter/auto" />
+            </div>
+          </div>
+          <div id="captain-key-form-note" data-testid="captain-key-form-note" style="font-size:0.78em; color:var(--muted); margin-top:6px;"></div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+            <button id="captain-save-key" data-testid="captain-save-key" class="btn primary" type="button">Save Key</button>
+            <button id="captain-cancel-key" data-testid="captain-cancel-key" class="btn" type="button">Cancel</button>
+          </div>
+        </div>
+      </div>
       <div id="captain-plan-status" data-testid="captain-plan-status" style="font-size:0.85em; margin-bottom:10px;"></div>
       <div style="display:grid; grid-template-columns:1.4fr 1fr 1fr; gap:10px;">
         <div style="grid-column:1 / -1;">
