@@ -37,6 +37,7 @@ sudo systemctl restart mcharness-cockpit-private.service
 ```
 
 Notes:
+- The private service reads `/etc/mcharness/captain.env` if present.
 - The private service should keep the existing runner flags for Codex.
 - Do not paste the API key into the browser.
 - Do not commit the key to the repo.
