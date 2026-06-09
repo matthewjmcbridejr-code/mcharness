@@ -372,3 +372,99 @@ def test_captain_manual_evidence_and_gate_decision_routes_exposed_via_api():
     )
     assert decision_response.status_code == 200
     assert decision_response.json()["hard_gates"][0]["decision"] == "reject"
+
+
+# --- runner foundation tests (use fake_test_lane + monkeypatch; no real provider burn) ---
+
+def test_runner_disabled_by_default():
+    client = TestClient(app)
+    # create session with manual (allowed)
+    s = client.post("/api/mcharness/sessions", json={
+        "title": "r1", "objective": "o", "plan_instruction": "p",
+        "repo_path": "/root/mcharness-public-export", "agent_lane": "manual_paste"
+    })
+    assert s.status_code == 200
+    sid = s.json()["session_id"]
+    # start should be blocked for non-fake when default false
+    r = client.post(f"/api/mcharness/sessions/{sid}/runner/start", json={
+        "lane_id": "codex_cli", "repo_id": "mcharness-public-export"
+    })
+    assert r.status_code in (403, 400)
+    assert "disabled" in (r.text or "").lower() or "not implemented" in (r.text or "").lower()
+
+
+def test_fake_test_lane_runner_full_flow(monkeypatch):
+    client = TestClient(app)
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    # patch start to avoid real tmux in test (still exercises state, endpoints, evidence)
+    import src.marius_desktop.api as api_mod
+    orig_start = api_mod._start_fake_runner
+    def fake_start(state):
+        p = api_mod.Path(state["transcript_file_path"])
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("MCHarness fake runner started\nartifact proof line\nMCHarness fake runner complete\nMCH_EXIT_CODE:0\n", encoding="utf-8")
+        state["status"] = "exited"
+        state["exit_code"] = 0
+        return state
+    monkeypatch.setattr(api_mod, "_start_fake_runner", fake_start)
+
+    s = client.post("/api/mcharness/sessions", json={
+        "title": "fake-runner", "objective": "proof", "plan_instruction": "p",
+        "repo_path": "/root/mcharness-public-export", "agent_lane": "fake_test_lane"
+    })
+    assert s.status_code == 200
+    sid = s.json()["session_id"]
+
+    # start
+    st = client.post(f"/api/mcharness/sessions/{sid}/runner/start", json={
+        "lane_id": "fake_test_lane", "repo_id": "mcharness-public-export"
+    })
+    assert st.status_code == 200
+    data = st.json()
+    assert data["lane_id"] == "fake_test_lane"
+    assert data["status"] in ("running", "exited")
+    assert "transcript_file_path" in data
+    assert data["safety_policy"]["arbitrary_shell_disabled"] is True
+
+    # status
+    st2 = client.get(f"/api/mcharness/sessions/{sid}/runner/status")
+    assert st2.status_code == 200
+    assert st2.json()["status"] in ("running", "exited", "stopped")
+
+    # transcript
+    tr = client.get(f"/api/mcharness/sessions/{sid}/runner/transcript")
+    assert tr.status_code == 200
+    tdata = tr.json()
+    assert "MCHarness fake runner" in (tdata.get("transcript") or "")
+
+    # to evidence
+    ev = client.post(f"/api/mcharness/sessions/{sid}/runner/transcript-to-evidence")
+    assert ev.status_code == 200
+    ed = ev.json()
+    assert ed["ok"] is True
+    assert "artifact" in ed
+
+    # stop (scoped)
+    sp = client.post(f"/api/mcharness/sessions/{sid}/runner/stop")
+    assert sp.status_code == 200
+    assert sp.json()["status"] == "stopped"
+
+    # manual paste still works (parallel)
+    man = client.post(f"/api/mcharness/sessions/{sid}/manual-result", json={
+        "summary": "manual still works with runner present", "verdict": "passed"
+    })
+    assert man.status_code == 200
+
+
+def test_runner_rejects_unknown_lane_repo(monkeypatch):
+    client = TestClient(app)
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    s = client.post("/api/mcharness/sessions", json={
+        "title": "r2", "objective": "o", "plan_instruction": "p",
+        "repo_path": "/root/mcharness-public-export", "agent_lane": "manual_paste"
+    })
+    sid = s.json()["session_id"]
+    badl = client.post(f"/api/mcharness/sessions/{sid}/runner/start", json={"lane_id": "nope", "repo_id": "mcharness-public-export"})
+    assert badl.status_code == 400
+    badr = client.post(f"/api/mcharness/sessions/{sid}/runner/start", json={"lane_id": "fake_test_lane", "repo_id": "nope"})
+    assert badr.status_code == 400

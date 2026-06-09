@@ -64,6 +64,22 @@
         </div>
       </section>
 
+      <!-- Gated tmux runner foundation controls (added; no redesign; manual paste untouched) -->
+      <section class="layout-stack" id="runner-controls">
+        <h2 class="section-title">Controlled Runner (gated tmux)</h2>
+        <div class="muted" style="font-size:0.8em;">No arbitrary shell. Public real agent launch disabled. fake_test_lane only for proof/tests.</div>
+        <div class="button-row">
+          <button id="runner-start-btn" data-testid="runner-start-btn" class="btn" type="button">Start Controlled Runner (fake)</button>
+          <button id="runner-status-btn" data-testid="runner-status-btn" class="btn" type="button">Refresh Status</button>
+          <button id="runner-transcript-btn" data-testid="runner-transcript-btn" class="btn" type="button">Refresh Transcript</button>
+          <button id="runner-stop-btn" data-testid="runner-stop-btn" class="btn bad" type="button">Stop Runner</button>
+          <button id="runner-evidence-btn" data-testid="runner-evidence-btn" class="btn good" type="button">Save Transcript as Evidence</button>
+        </div>
+        <div id="runner-status" data-testid="runner-status" class="muted" style="font-family:var(--mono);font-size:0.8em;white-space:pre-wrap;"></div>
+        <pre id="runner-transcript" data-testid="runner-transcript" class="preview" style="display:none;min-height:80px;"></pre>
+        <div id="runner-attach" data-testid="runner-attach" class="muted" style="font-size:0.75em;"></div>
+      </section>
+
       <section class="layout-stack">
         <div class="split">
           <h2 class="section-title">Sessions</h2>

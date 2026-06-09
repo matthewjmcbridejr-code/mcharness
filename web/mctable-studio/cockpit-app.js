@@ -71,6 +71,15 @@
     laneRepoStatus: document.getElementById("lane-repo-status"),
     runnerPreviewBtn: document.getElementById("runner-preview-btn"),
     runnerPreviewOutput: document.getElementById("runner-preview-output"),
+    // gated runner foundation
+    runnerStartBtn: document.getElementById("runner-start-btn"),
+    runnerStatusBtn: document.getElementById("runner-status-btn"),
+    runnerTranscriptBtn: document.getElementById("runner-transcript-btn"),
+    runnerStopBtn: document.getElementById("runner-stop-btn"),
+    runnerEvidenceBtn: document.getElementById("runner-evidence-btn"),
+    runnerStatus: document.getElementById("runner-status"),
+    runnerTranscript: document.getElementById("runner-transcript"),
+    runnerAttach: document.getElementById("runner-attach"),
   };
 
   let pollHandle = null;
@@ -762,6 +771,12 @@
     if (els.repoSelect) els.repoSelect.addEventListener("change", () => renderLaneRepoStatus());
     if (els.laneSelect) els.laneSelect.addEventListener("change", () => renderLaneRepoStatus());
     if (els.runnerPreviewBtn) els.runnerPreviewBtn.addEventListener("click", () => runAction(handleRunnerPreview));
+    // gated runner
+    if (els.runnerStartBtn) els.runnerStartBtn.addEventListener("click", () => runAction(handleRunnerStart));
+    if (els.runnerStatusBtn) els.runnerStatusBtn.addEventListener("click", () => runAction(handleRunnerStatus));
+    if (els.runnerTranscriptBtn) els.runnerTranscriptBtn.addEventListener("click", () => runAction(handleRunnerTranscript));
+    if (els.runnerStopBtn) els.runnerStopBtn.addEventListener("click", () => runAction(handleRunnerStop));
+    if (els.runnerEvidenceBtn) els.runnerEvidenceBtn.addEventListener("click", () => runAction(handleRunnerEvidence));
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) return;
       runAction(async () => {
@@ -770,6 +785,62 @@
       });
     });
   }
+
+  async function handleRunnerStart() {
+    if (!state.selectedThreadId) {
+      window.alert("Create a session first.");
+      return;
+    }
+    const laneId = els.laneSelect ? els.laneSelect.value : "fake_test_lane";
+    const repoPath = els.repoSelect ? els.repoSelect.value : "";
+    let repoId = (state.repos.find(r => r.path === repoPath) || {}).repo_id || (repoPath.split("/").pop() || repoPath);
+    const qid = state.selectedQueueItemId || null;
+    const data = await requestJson(`${MCH}/sessions/${encodeURIComponent(state.selectedThreadId)}/runner/start`, {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({ lane_id: laneId, repo_id: repoId, queue_item_id: qid }),
+    });
+    if (els.runnerStatus) els.runnerStatus.textContent = JSON.stringify(data, null, 2);
+    if (data.tmux_session_name && els.runnerAttach) {
+      els.runnerAttach.textContent = `tmux attach -t ${data.tmux_session_name}  (on host)`;
+    }
+    await handleRunnerStatus();
+  }
+
+  async function handleRunnerStatus() {
+    if (!state.selectedThreadId) return;
+    try {
+      const data = await requestJson(`${MCH}/sessions/${encodeURIComponent(state.selectedThreadId)}/runner/status`);
+      if (els.runnerStatus) els.runnerStatus.textContent = JSON.stringify(data, null, 2);
+      if (data.tmux_session_name && els.runnerAttach) els.runnerAttach.textContent = `tmux attach -t ${data.tmux_session_name}`;
+    } catch (e) {
+      if (els.runnerStatus) els.runnerStatus.textContent = "status error: " + e.message;
+    }
+  }
+
+  async function handleRunnerTranscript() {
+    if (!state.selectedThreadId) return;
+    const data = await requestJson(`${MCH}/sessions/${encodeURIComponent(state.selectedThreadId)}/runner/transcript`);
+    if (els.runnerTranscript) {
+      els.runnerTranscript.style.display = "block";
+      els.runnerTranscript.textContent = data.transcript || "(empty)";
+    }
+  }
+
+  async function handleRunnerStop() {
+    if (!state.selectedThreadId) return;
+    const data = await requestJson(`${MCH}/sessions/${encodeURIComponent(state.selectedThreadId)}/runner/stop`, { method: "POST" });
+    if (els.runnerStatus) els.runnerStatus.textContent = JSON.stringify(data, null, 2);
+  }
+
+  async function handleRunnerEvidence() {
+    if (!state.selectedThreadId) return;
+    const data = await requestJson(`${MCH}/sessions/${encodeURIComponent(state.selectedThreadId)}/runner/transcript-to-evidence`, { method: "POST" });
+    if (els.runnerStatus) els.runnerStatus.textContent = "evidence saved: " + JSON.stringify(data, null, 2);
+    // trigger refresh of artifacts etc in existing flow
+    await refreshSelectedSession();
+  }
+
 
   async function runAction(action, event) {
     if (event && typeof event.preventDefault === "function") {

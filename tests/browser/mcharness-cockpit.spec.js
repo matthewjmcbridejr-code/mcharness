@@ -141,5 +141,12 @@ test("proves the full manual-compatible cockpit operator loop in the browser", a
   await expect(page.locator("#activity-log")).toContainText("Gate approved");
   await expect(page.locator("#activity-log")).toContainText("Session stopped");
 
+  // runner foundation UI presence (controls added; actual start uses test-only fake lane + env in unit tests)
+  await expect(page.locator('#runner-controls')).toBeVisible();
+  await expect(page.getByTestId('runner-start-btn')).toBeVisible();
+  await expect(page.getByTestId('runner-status-btn')).toBeVisible();
+  await expect(page.getByTestId('runner-transcript-btn')).toBeVisible();
+  await expect(page.getByTestId('runner-evidence-btn')).toBeVisible();
+
   await page.screenshot({ path: testInfo.outputPath("cockpit-final.png"), fullPage: true });
 });

@@ -96,6 +96,13 @@ AGENT_LANES = [
         "implemented": False,
         "manual_only": True,
     },
+    {
+        "lane_id": "fake_test_lane",
+        "title": "Fake Test Lane (internal/harmless for automated proof only)",
+        "implemented": True,
+        "manual_only": False,
+        "test_only": True,
+    },
 ]
 
 
@@ -280,6 +287,13 @@ class McHarnessRunnerIntentRequest(BaseModel):
     mode: str = "dry_run"
 
 
+class McHarnessRunnerStartRequest(BaseModel):
+    lane_id: str = Field(min_length=1)
+    repo_id: str = Field(min_length=1)
+    queue_item_id: Optional[str] = None
+    prompt_artifact_id: Optional[str] = None
+
+
 def _repo_entries() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for path in SAFE_REPO_PATHS:
@@ -319,6 +333,14 @@ def _lane_entries() -> list[dict[str, Any]]:
             auth = "not_checked"
             rmode = "manual"
             notes = ["Manual paste-back flow. Operator performs all CLI steps locally. No server-side execution."]
+        elif lid == "fake_test_lane":
+            det = {"installed": True, "executable_path": None, "version": "internal-fake-1.0"}
+            auth = "not_checked"
+            rmode = "controlled_run_ready"
+            notes = [
+                "FAKE TEST LANE: harmless python -c print only. No provider calls, no usage burn, no real CLI.",
+                "For automated tests and proof only. Gated behind MCHARNESS_TMUX_RUNNER_ENABLED or test override.",
+            ]
         else:
             det = _detect_executable(lid.split("_")[0])  # codex or agy
             auth = "unknown" if det["installed"] else "not_detected"
@@ -355,6 +377,7 @@ def _lane_entries() -> list[dict[str, Any]]:
         _rich_for("grok_placeholder", "Grok", "Grok CLI (placeholder, not wired for preview)."),
         _rich_for("jules_placeholder", "Jules", "Jules (placeholder, not wired for preview)."),
         _rich_for("opencode_placeholder", "OpenCode", "OpenCode (placeholder, not wired for preview)."),
+        _rich_for("fake_test_lane", "Fake Test Lane (internal/harmless for automated proof only)", "Internal fake lane for runner foundation tests/proof. Harmless python -c only."),
     ]
     # also surface tmux availability in notes for cli lanes if useful
     tmux_note = f"tmux available: {bool(_safe_cmd(['bash', '-c', 'command -v tmux || true'], timeout=1.0))}"
@@ -491,6 +514,78 @@ def _capture_git_status_artifacts(thread: dict[str, Any]) -> dict[str, Any]:
         "artifacts": [status_artifact, diff_artifact],
     }
 
+
+# --- Gated tmux runner foundation (fake_test_lane + controlled when enabled) ---
+
+RUNNER_STATE_ROOT = MCTABLE_ROOT / "mcharness" / "runners"
+
+
+def _runner_state_path(session_id: str) -> Path:
+    RUNNER_STATE_ROOT.mkdir(parents=True, exist_ok=True)
+    return RUNNER_STATE_ROOT / f"{session_id}.json"
+
+
+def _load_runner_state(session_id: str) -> Optional[dict[str, Any]]:
+    p = _runner_state_path(session_id)
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+    return None
+
+
+def _save_runner_state(state: dict[str, Any]) -> None:
+    p = _runner_state_path(state["session_id"])
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    tmp.replace(p)
+
+
+def _tmux_session_name(session_id: str, runner_id: str) -> str:
+    # safe, short, alnum + _ only
+    base = (session_id.replace("-", "") + runner_id.replace("-", ""))[-12:]
+    return "mch_" + "".join(c if c.isalnum() else "_" for c in base)
+
+
+def _get_tmux_transcript(name: str) -> str:
+    res = _safe_cmd(["tmux", "capture-pane", "-p", "-t", name], timeout=3.0)
+    if res is not None and res.returncode == 0:
+        return res.stdout or ""
+    return ""
+
+
+def _stop_tmux(name: str) -> None:
+    _safe_cmd(["tmux", "kill-session", "-t", name], timeout=2.0)
+
+
+def _start_fake_runner(state: dict[str, Any]) -> dict[str, Any]:
+    """Harmless fake only. Deterministic output for transcript proof. No providers, no usage."""
+    trans_p = Path(state["transcript_file_path"])
+    trans_p.parent.mkdir(parents=True, exist_ok=True)
+    # Use bash -c with *our* literal python -c (not from browser). Safe.
+    inner = (
+        "python -c "
+        "\"import time,sys; "
+        "print('MCHarness fake runner started'); "
+        "print('artifact proof line'); "
+        "time.sleep(0.2); "
+        "print('MCHarness fake runner complete'); "
+        "sys.exit(0)\" "
+        "2>&1 | tee " + str(trans_p) + " ; "
+        "echo \"MCH_EXIT_CODE:$?\" >> " + str(trans_p)
+    )
+    name = state["tmux_session_name"]
+    tmux_cmd = ["tmux", "new-session", "-d", "-s", name, "--", "bash", "-c", inner]
+    res = _safe_cmd(tmux_cmd, timeout=5.0)
+    if res is not None and res.returncode == 0:
+        state["status"] = "running"
+        state["notes"].append("tmux session started for fake_test_lane")
+    else:
+        state["status"] = "failed"
+        state["notes"].append(f"tmux start failed: {getattr(res, 'stderr', 'err') if res else 'subprocess err'}")
+    return state
+
 @router.get("/capabilities", response_model=List[CapabilityStatus])
 def get_capabilities():
     return get_runtime_capabilities()
@@ -520,6 +615,7 @@ def get_mcharness_health():
         "real_agent_launch_enabled": False,
         "arbitrary_command_execution_enabled": False,
         "public_write_enabled": _public_write_enabled(),
+        "tmux_runner_enabled": _tmux_runner_enabled(),
         "available_lanes_count": len(lanes),
         "repo_count": len(repos),
         "manual_mode": True,
@@ -807,6 +903,179 @@ def post_mcharness_runner_intent(session_id: str, payload: McHarnessRunnerIntent
         pass
 
     return resp
+
+
+@mcharness_router.post("/sessions/{session_id}/runner/start")
+def post_mcharness_runner_start(session_id: str, payload: McHarnessRunnerStartRequest):
+    """Start controlled runner for allowlisted lane (only fake_test_lane by default; real disabled).
+    Validates session, lane (known), repo (allowlist), uses backend generated paths/names/cmd only.
+    """
+    thread = _thread_for_session(session_id)
+    lane = next((entry for entry in AGENT_LANES if entry["lane_id"] == payload.lane_id), None)
+    if lane is None:
+        raise HTTPException(status_code=400, detail=f"Unknown agent lane: {payload.lane_id}")
+
+    if payload.lane_id != "fake_test_lane" and not _tmux_runner_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Controlled runner disabled (MCHARNESS_TMUX_RUNNER_ENABLED=false). Only fake_test_lane supported for tests/proof.",
+        )
+    if payload.lane_id != "fake_test_lane":
+        raise HTTPException(status_code=400, detail="Controlled run for real provider lanes not implemented yet (foundation only; fake_test_lane for proof).")
+
+    # map repo_id to allowlisted path (id or full)
+    repo_path: Optional[Path] = None
+    for p in SAFE_REPO_PATHS:
+        if p.name == payload.repo_id or str(p) == payload.repo_id:
+            repo_path = p
+            break
+    if repo_path is None:
+        raise HTTPException(status_code=400, detail=f"Unknown repo_id (must be allowlisted): {payload.repo_id}")
+
+    runner_id = f"run_{uuid.uuid4().hex[:8]}"
+    safe_name = _tmux_session_name(session_id, runner_id)
+    pid = payload.prompt_artifact_id or payload.queue_item_id or "head"
+    prompt_path = str(ARTIFACT_BODY_ROOT / session_id / f"prompt-{pid}.md")
+    trans_path = str(ARTIFACT_BODY_ROOT / session_id / f"transcript-runner-{runner_id}.txt")
+
+    state: dict[str, Any] = {
+        "session_id": session_id,
+        "runner_id": runner_id,
+        "lane_id": payload.lane_id,
+        "repo_id": payload.repo_id,
+        "queue_item_id": payload.queue_item_id,
+        "prompt_artifact_id": payload.prompt_artifact_id,
+        "status": "starting",
+        "tmux_session_name": safe_name,
+        "prompt_file_path": prompt_path,
+        "transcript_file_path": trans_path,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "stopped_at": None,
+        "exit_code": None,
+        "safety_policy": {
+            "allowlisted_lane": True,
+            "allowlisted_repo": True,
+            "tmux_runner_enabled": _tmux_runner_enabled(),
+            "real_provider": False,
+            "arbitrary_shell_disabled": True,
+            "public_real_agent_launch_disabled": True,
+        },
+        "notes": ["gated tmux runner foundation; fake_test_lane only for automated proof"],
+    }
+    _save_runner_state(state)
+
+    # only fake implemented
+    state = _start_fake_runner(state)
+    _save_runner_state(state)
+
+    # event for audit/proof
+    try:
+        run = _run_for_session(session_id)
+        _append_run_event(run["run_id"], "Runner started", f"Started {runner_id} lane={payload.lane_id} (fake)", "info", "runner")
+    except Exception:
+        pass
+
+    return state
+
+
+@mcharness_router.get("/sessions/{session_id}/runner/status")
+def get_mcharness_runner_status(session_id: str):
+    state = _load_runner_state(session_id)
+    if not state:
+        return {"status": "disabled", "notes": ["no runner for this session (or never started)"]}
+    name = state.get("tmux_session_name")
+    if name and state.get("status") in ("running", "starting"):
+        has = _safe_cmd(["tmux", "has-session", "-t", name], timeout=1.0)
+        if has is None or has.returncode != 0:
+            state["status"] = "exited"
+            # capture final transcript if not already
+            final = _get_tmux_transcript(name)
+            if final:
+                try:
+                    Path(state["transcript_file_path"]).write_text(final, encoding="utf-8")
+                except Exception:
+                    pass
+            _save_runner_state(state)
+    return state
+
+
+@mcharness_router.post("/sessions/{session_id}/runner/stop")
+def post_mcharness_runner_stop(session_id: str):
+    state = _load_runner_state(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="No runner state for session")
+    name = state.get("tmux_session_name")
+    if name:
+        _stop_tmux(name)
+    state["status"] = "stopped"
+    state["stopped_at"] = datetime.now(timezone.utc).isoformat()
+    state["notes"].append("stopped by operator")
+    _save_runner_state(state)
+    try:
+        run = _run_for_session(session_id)
+        _append_run_event(run.get("run_id", ""), "Runner stopped", f"Stopped runner {state.get('runner_id')}", "info", "runner")
+    except Exception:
+        pass
+    return state
+
+
+@mcharness_router.get("/sessions/{session_id}/runner/transcript")
+def get_mcharness_runner_transcript(session_id: str):
+    state = _load_runner_state(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="No runner for session")
+    p = Path(state["transcript_file_path"])
+    text = ""
+    if p.exists():
+        text = p.read_text(encoding="utf-8")
+    else:
+        name = state.get("tmux_session_name")
+        if name:
+            text = _get_tmux_transcript(name)
+    return {
+        "session_id": session_id,
+        "runner_id": state.get("runner_id"),
+        "lane_id": state.get("lane_id"),
+        "status": state.get("status"),
+        "transcript_path": str(p),
+        "transcript": text,
+    }
+
+
+@mcharness_router.post("/sessions/{session_id}/runner/transcript-to-evidence")
+def post_mcharness_runner_transcript_to_evidence(session_id: str):
+    """Save current runner transcript as evidence artifact (usable with proof gates)."""
+    state = _load_runner_state(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="No runner for session")
+    p = Path(state["transcript_file_path"])
+    text = p.read_text(encoding="utf-8") if p.exists() else _get_tmux_transcript(state.get("tmux_session_name", ""))
+    if not text:
+        text = "(no transcript captured yet)"
+
+    artifact = _create_artifact(
+        session_id,
+        "runner_transcript",
+        f"runner-transcript-{state.get('runner_id')}",
+        text,
+        "transcript from gated tmux runner",
+        "txt",
+    )
+    # also as evidence for gate flow (consistent with manual-result)
+    ev = _create_artifact(
+        session_id,
+        "evidence",
+        "Runner transcript evidence",
+        text[:2000] + ("\n... (truncated)" if len(text) > 2000 else ""),
+        "Saved runner transcript as evidence",
+        "md",
+    )
+    try:
+        run = _run_for_session(session_id)
+        _append_run_event(run["run_id"], "Runner transcript to evidence", f"Saved transcript for {state.get('runner_id')} as evidence", "info", "evidence")
+    except Exception:
+        pass
+    return {"ok": True, "artifact": artifact, "evidence_artifact": ev, "session_id": session_id}
 
 
 @mcharness_router.post("/sessions/{session_id}/manual-result")
