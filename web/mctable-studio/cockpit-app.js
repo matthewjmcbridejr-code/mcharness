@@ -23,6 +23,13 @@
     return res.json();
   }
 
+  function setQuickReplyStatus(message, isError = false) {
+    const el = document.getElementById("quick-reply-status");
+    if (!el) return;
+    el.textContent = message || "";
+    el.style.color = isError ? "var(--bad, #ff7e91)" : "var(--muted, #9cacbf)";
+  }
+
   function escapeHtml(v) {
     return String(v || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
@@ -198,6 +205,7 @@
     const modal = document.getElementById("live-cli-modal");
     if (!modal) return;
     modal.style.display = "flex";
+    setQuickReplyStatus("");
     refreshLiveMonitor();
     if (liveAutoRefresh) startMonitorPolling();
   }
@@ -205,6 +213,7 @@
   function closeLiveCLIMonitor() {
     const modal = document.getElementById("live-cli-modal");
     if (modal) modal.style.display = "none";
+    setQuickReplyStatus("");
     stopMonitorPolling();
   }
 
@@ -284,6 +293,29 @@
     }
   }
 
+  async function sendQuickReply(key) {
+    const sid = state.selectedThreadId;
+    if (!sid) {
+      setQuickReplyStatus("Failed: no active runner", true);
+      return;
+    }
+    setQuickReplyStatus(`Sending: ${key}`);
+    try {
+      const result = await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/send-key`, {
+        method: "POST",
+        body: { key },
+      });
+      setQuickReplyStatus(`Sent: ${key}`);
+      const pre = document.getElementById("modal-transcript");
+      if (pre && result && result.transcript_excerpt) {
+        pre.textContent = result.transcript_excerpt;
+      }
+      await refreshLiveMonitor();
+    } catch (e) {
+      setQuickReplyStatus(`Failed: ${e.message || e}`, true);
+    }
+  }
+
   // Wire simple UI events
   function wireSimpleUI() {
     // Use Agent
@@ -347,6 +379,13 @@
     const mClose = document.getElementById("modal-close");
     if (mClose) mClose.addEventListener("click", closeLiveCLIMonitor);
 
+    document.querySelectorAll("[data-quick-reply]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const key = button.getAttribute("data-quick-reply");
+        if (key) sendQuickReply(key);
+      });
+    });
+
     // close monitor on backdrop
     const mon = document.getElementById("live-cli-modal");
     if (mon) mon.addEventListener("click", (e) => { if (e.target === mon) closeLiveCLIMonitor(); });
@@ -381,4 +420,3 @@
   // boot
   init().catch((e) => console.error("init error", e));
 })();
-

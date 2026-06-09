@@ -86,6 +86,18 @@
           <div id="modal-info" class="monitor-info"></div>
           <div class="safety-note"><strong>Read-only monitor. No arbitrary shell input.</strong> Use your terminal with the attach command for manual control.</div>
           <pre id="modal-transcript" data-testid="modal-transcript">Waiting for CLI output...</pre>
+          <div id="quick-reply-panel" data-testid="quick-reply-panel" style="margin:10px 0 6px;">
+            <div style="font-size:0.8em; font-weight:600; margin-bottom:6px;">Quick Reply</div>
+            <div class="button-row">
+              <button id="quick-reply-1" data-quick-reply="1" class="btn" type="button">1</button>
+              <button id="quick-reply-2" data-quick-reply="2" class="btn" type="button">2</button>
+              <button id="quick-reply-3" data-quick-reply="3" class="btn" type="button">3</button>
+              <button id="quick-reply-enter" data-quick-reply="Enter" class="btn" type="button">Enter</button>
+              <button id="quick-reply-esc" data-quick-reply="Esc" class="btn" type="button">Esc</button>
+              <button id="quick-reply-ctrl-c" data-quick-reply="Ctrl+C" class="btn bad" type="button">Ctrl+C</button>
+            </div>
+            <div id="quick-reply-status" data-testid="quick-reply-status" class="muted" style="font-size:0.8em; margin-top:6px;"></div>
+          </div>
           <div id="modal-timestamp" class="muted" style="font-size:0.75em;"></div>
           <div id="modal-empty" class="empty-state" style="display:none;">No active runner. Start a controlled runner first.</div>
           <div id="modal-disabled" class="disabled-state" style="display:none;">Controlled runner disabled. Manual mode is available.</div>

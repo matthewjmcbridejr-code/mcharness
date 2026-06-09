@@ -639,6 +639,90 @@ class McHarnessRunnerSendPrompt(BaseModel):
     prompt: str = Field(min_length=1)
 
 
+class McHarnessRunnerSendKey(BaseModel):
+    key: Literal["1", "2", "3", "Enter", "Esc", "Ctrl+C"]
+
+
+ALLOWED_QUICK_REPLY_KEYS: dict[str, str] = {
+    "1": "1",
+    "2": "2",
+    "3": "3",
+    "Enter": "Enter",
+    "Esc": "Escape",
+    "Ctrl+C": "C-c",
+}
+
+ACTIVE_RUNNER_STATUSES = {"running", "waiting_for_codex", "prompt_sent"}
+
+
+def _runner_transcript_excerpt(state: dict[str, Any], limit: int = 1200) -> str:
+    text = ""
+    transcript_path = state.get("transcript_file_path")
+    if transcript_path:
+        p = Path(transcript_path)
+        if p.exists():
+            try:
+                text = p.read_text(encoding="utf-8")
+            except Exception:
+                text = ""
+    if not text:
+        name = state.get("tmux_session_name", "")
+        if name:
+            text = _get_tmux_transcript(name)
+    text = text or ""
+    if len(text) > limit:
+        return text[-limit:]
+    return text
+
+
+def _send_key_to_codex_runner(session_id: str, key: str) -> dict[str, Any]:
+    state = _load_runner_state(session_id)
+    if not state or state.get("lane_id") != "codex_cli":
+        raise HTTPException(status_code=400, detail="Quick reply only supported for active codex_cli runner")
+    if state.get("session_id") != session_id:
+        raise HTTPException(status_code=400, detail="Runner state/session mismatch")
+
+    status = state.get("status")
+    if status not in ACTIVE_RUNNER_STATUSES:
+        raise HTTPException(status_code=409, detail=f"Runner not active (status={status or 'unknown'})")
+
+    name = state.get("tmux_session_name")
+    if not name:
+        raise HTTPException(status_code=400, detail="No tmux session for runner")
+    expected_name = _tmux_session_name(session_id, str(state.get("runner_id", "")))
+    if name != expected_name:
+        raise HTTPException(status_code=400, detail="Runner tmux session mismatch")
+
+    has = _safe_cmd(["tmux", "has-session", "-t", name], timeout=1.0)
+    if has is None or has.returncode != 0:
+        raise HTTPException(status_code=409, detail="No active tmux session for runner")
+
+    tmux_key = ALLOWED_QUICK_REPLY_KEYS.get(key)
+    if tmux_key is None:
+        raise HTTPException(status_code=400, detail="Unsupported quick reply key")
+
+    res = _safe_cmd(["tmux", "send-keys", "-t", name, tmux_key], timeout=2.5)
+    if res is None or res.returncode != 0:
+        raise HTTPException(status_code=502, detail="Failed to send quick reply to tmux runner")
+
+    try:
+        run = _run_for_session(session_id)
+        _append_run_event(run.get("run_id", ""), "Quick reply sent", f"Sent quick reply key {key!r} to Codex via tmux", "info", "runner")
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "session_id": session_id,
+        "runner_id": state.get("runner_id"),
+        "lane_id": state.get("lane_id"),
+        "tmux_session_name": name,
+        "sent_key": key,
+        "status": state.get("status"),
+        "transcript_excerpt": _runner_transcript_excerpt(state),
+    }
+
+
 def _send_prompt_to_codex_runner(session_id: str, prompt_text: str):
     """Safe, allowlisted only: send the (controlled) prompt text to the codex tmux runner via send-keys -l (literal).
     No arbitrary shell. Only called for codex lane after start + delay.
@@ -675,6 +759,11 @@ def post_mcharness_runner_send_prompt(session_id: str, payload: McHarnessRunnerS
     """Smallest safe endpoint to inject the modal prompt into the running codex tmux (after startup delay)."""
     _send_prompt_to_codex_runner(session_id, payload.prompt)
     return {"ok": True, "injected": True}
+
+
+@mcharness_router.post("/sessions/{session_id}/runner/send-key")
+def post_mcharness_runner_send_key(session_id: str, payload: McHarnessRunnerSendKey):
+    return _send_key_to_codex_runner(session_id, payload.key)
 
 
 @router.get("/capabilities", response_model=List[CapabilityStatus])

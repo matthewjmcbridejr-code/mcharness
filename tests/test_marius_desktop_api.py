@@ -1,3 +1,4 @@
+import subprocess
 import shutil
 
 import pytest
@@ -644,3 +645,88 @@ def test_codex_cli_uses_interactive_tmux_mode_not_exec_wrapper(monkeypatch):
     # stop
     sp = client.post(f"/api/mcharness/sessions/{sid}/runner/stop")
     assert sp.json()["status"] == "stopped"
+
+
+def test_runner_send_key_allows_only_quick_reply_keys(monkeypatch, tmp_path):
+    client = TestClient(app)
+    import src.marius_desktop.api as api_mod
+
+    session_id = "quick-reply-session"
+    runner_id = "run_1234abcd"
+    tmux_name = api_mod._tmux_session_name(session_id, runner_id)
+    transcript_path = tmp_path / "transcript.txt"
+    transcript_path.write_text("before\n", encoding="utf-8")
+    state = {
+        "session_id": session_id,
+        "runner_id": runner_id,
+        "lane_id": "codex_cli",
+        "status": "prompt_sent",
+        "tmux_session_name": tmux_name,
+        "transcript_file_path": str(transcript_path),
+    }
+    calls = []
+
+    def fake_load_runner_state(sid):
+        assert sid == session_id
+        return state
+
+    def fake_safe_cmd(cmd, timeout=2.5, cwd=None):
+        calls.append((tuple(cmd), timeout))
+        if cmd[:3] == ["tmux", "has-session", "-t"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        if cmd[:4] == ["tmux", "send-keys", "-t", tmux_name]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(api_mod, "_load_runner_state", fake_load_runner_state)
+    monkeypatch.setattr(api_mod, "_safe_cmd", fake_safe_cmd)
+    monkeypatch.setattr(api_mod, "_run_for_session", lambda sid: {"run_id": "run-quick"})
+    monkeypatch.setattr(api_mod, "_append_run_event", lambda *args, **kwargs: None)
+
+    cases = [
+        ("1", "1"),
+        ("2", "2"),
+        ("3", "3"),
+        ("Enter", "Enter"),
+        ("Ctrl+C", "C-c"),
+    ]
+    for requested, mapped in cases:
+        response = client.post(f"/api/mcharness/sessions/{session_id}/runner/send-key", json={"key": requested})
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["ok"] is True
+        assert payload["sent_key"] == requested
+        assert payload["tmux_session_name"] == tmux_name
+        assert payload["transcript_excerpt"].startswith("before")
+        assert any(call[0][-1] == mapped for call in calls if call[0][:4] == ("tmux", "send-keys", "-t", tmux_name))
+
+
+def test_runner_send_key_rejects_invalid_state_and_arbitrary_tmux(monkeypatch):
+    client = TestClient(app)
+    import src.marius_desktop.api as api_mod
+
+    session_id = "quick-reply-reject"
+    runner_id = "run_deadbeef"
+    bad_state = {
+        "session_id": session_id,
+        "runner_id": runner_id,
+        "lane_id": "codex_cli",
+        "status": "stopped",
+        "tmux_session_name": "mch_arbitrary_target",
+        "transcript_file_path": "/tmp/does-not-matter.txt",
+    }
+
+    monkeypatch.setattr(api_mod, "_load_runner_state", lambda sid: bad_state if sid == session_id else None)
+    monkeypatch.setattr(api_mod, "_safe_cmd", lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, stdout="", stderr=""))
+
+    rejected_state = client.post(f"/api/mcharness/sessions/{session_id}/runner/send-key", json={"key": "1"})
+    assert rejected_state.status_code == 409
+
+    bad_state["status"] = "running"
+    rejected_tmux = client.post(f"/api/mcharness/sessions/{session_id}/runner/send-key", json={"key": "1"})
+    assert rejected_tmux.status_code == 400
+    assert "mismatch" in rejected_tmux.text.lower()
+
+    bad_state["tmux_session_name"] = api_mod._tmux_session_name(session_id, runner_id)
+    missing_runner = client.post("/api/mcharness/sessions/other-session/runner/send-key", json={"key": "1"})
+    assert missing_runner.status_code == 400
