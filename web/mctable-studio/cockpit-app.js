@@ -256,7 +256,7 @@
         const active = thread.thread_id === state.selectedThreadId ? " active" : "";
         const metadata = thread.metadata || {};
         return `
-          <button class="list-item${active}" type="button" data-thread-id="${escapeHtml(thread.thread_id)}">
+          <button class="list-item${active}" type="button" data-testid="session-card" data-thread-id="${escapeHtml(thread.thread_id)}">
             <h4>${escapeHtml(thread.title)}</h4>
             <small>${escapeHtml(thread.thread_id)}</small>
             <div class="pill">${escapeHtml(thread.status)}</div>
@@ -290,7 +290,7 @@
       .map((item) => {
         const active = item.queue_item_id === state.selectedQueueItemId ? " active" : "";
         return `
-          <button class="list-item${active}" type="button" data-queue-id="${escapeHtml(item.queue_item_id)}">
+          <button class="list-item${active}" type="button" data-testid="queue-item" data-queue-id="${escapeHtml(item.queue_item_id)}">
             <h4>${escapeHtml(item.title)}</h4>
             <small>${escapeHtml(item.queue_item_id)}</small>
             <div class="pill">${escapeHtml(item.status)}</div>
@@ -318,7 +318,7 @@
     }
     els.artifactList.innerHTML = state.artifacts
       .map((artifact) => `
-        <div class="card">
+        <div class="card" data-testid="artifact-card">
           <h4>${escapeHtml(artifact.title)}</h4>
           <div class="pill">${escapeHtml(artifact.kind)}</div>
           <p>${escapeHtml(artifact.summary || "")}</p>
@@ -335,7 +335,7 @@
     }
     els.evidenceList.innerHTML = state.evidence
       .map((item) => `
-        <div class="card">
+        <div class="card" data-testid="evidence-card">
           <h4>${escapeHtml(item.title)}</h4>
           <div class="pill">${escapeHtml(item.verdict)}</div>
           <p>${escapeHtml(item.summary)}</p>
@@ -355,7 +355,7 @@
       .map((gate) => {
         const active = gate.gate_id === activeGate()?.gate_id ? " active" : "";
         return `
-          <button class="list-item${active}" type="button" data-gate-id="${escapeHtml(gate.gate_id)}">
+          <button class="list-item${active}" type="button" data-testid="gate-card" data-gate-id="${escapeHtml(gate.gate_id)}">
             <h4>${escapeHtml(gate.title)}</h4>
             <small>${escapeHtml(gate.gate_id)}</small>
             <div class="pill">${escapeHtml(gate.status)}</div>
@@ -476,7 +476,7 @@
     }
     els.activityLog.innerHTML = merged
       .map((item) => `
-        <div class="timeline-item">
+        <div class="timeline-item" data-testid="activity-item">
           <div class="pill ${escapeHtml(item.status)}">${escapeHtml(item.kind)}</div>
           <h4>${escapeHtml(item.title)}</h4>
           <p>${escapeHtml(item.detail)}</p>
