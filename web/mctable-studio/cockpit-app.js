@@ -1,103 +1,362 @@
 (function () {
   const MCH = "/api/mcharness";
-  const MARIUS = "/api/marius";
-  const POLL_MS = 3000;
-  const STORAGE_KEY = "mcharness.selectedThreadId";
-
+  // Minimal state for Agent Library + Codex flow + Live Monitor
   const state = {
     repos: [],
     lanes: [],
-    threads: [],
-    thread: null,
-    run: null,
-    captain: null,
-    queue: [],
-    assignments: [],
-    artifacts: [],
-    evidence: [],
-    gates: [],
-    events: [],
-    transitions: [],
-    tools: [],
-    safetyProfiles: [],
-    selectedThreadId: localStorage.getItem(STORAGE_KEY) || "",
+    health: {},
+    selectedThreadId: "",
     selectedQueueItemId: "",
-    selectedGateId: "",
-    previewText: "",
-    refreshInFlight: false,
   };
 
-  const els = {
-    newSessionForm: document.getElementById("new-session-form"),
-    repoSelect: document.getElementById("repo-select"),
-    laneSelect: document.getElementById("lane-select"),
-    refreshSessions: document.getElementById("refresh-sessions"),
-    sessionsList: document.getElementById("sessions-list"),
-    queueList: document.getElementById("queue-list"),
-    artifactList: document.getElementById("artifact-list"),
-    evidenceList: document.getElementById("evidence-list"),
-    gateList: document.getElementById("gate-list"),
-    safetyList: document.getElementById("safety-list"),
-    sessionSummary: document.getElementById("session-summary"),
-    queueForm: document.getElementById("queue-form"),
-    previewTitle: document.getElementById("preview-title"),
-    previewLoad: document.getElementById("preview-load"),
-    previewCopy: document.getElementById("preview-copy"),
-    previewDownload: document.getElementById("preview-download"),
-    previewMarkExported: document.getElementById("preview-mark-exported"),
-    promptPreview: document.getElementById("prompt-preview"),
-    evidenceForm: document.getElementById("evidence-form"),
-    assignmentSelect: document.getElementById("assignment-select"),
-    evidenceSummary: document.getElementById("evidence-summary"),
-    evidenceSourceRef: document.getElementById("evidence-source-ref"),
-    evidenceVerdict: document.getElementById("evidence-verdict"),
-    evidenceOutput: document.getElementById("evidence-output"),
-    gitStatusInput: document.getElementById("git-status-input"),
-    gitDiffInput: document.getElementById("git-diff-input"),
-    testOutputInput: document.getElementById("test-output-input"),
-    completeAssignment: document.getElementById("complete-assignment"),
-    activityLog: document.getElementById("activity-log"),
-    runStatus: document.getElementById("run-status"),
-    currentGate: document.getElementById("current-gate"),
-    gateNote: document.getElementById("gate-note"),
-    gateApprove: document.getElementById("gate-approve"),
-    gateReject: document.getElementById("gate-reject"),
-    gateMoreEvidence: document.getElementById("gate-more-evidence"),
-    pauseSession: document.getElementById("pause-session"),
-    resumeSession: document.getElementById("resume-session"),
-    stopSession: document.getElementById("stop-session"),
-    captureGitStatus: document.getElementById("capture-git-status"),
-    reloadSession: document.getElementById("reload-session"),
-    laneRepoStatus: document.getElementById("lane-repo-status"),
-    runnerPreviewBtn: document.getElementById("runner-preview-btn"),
-    runnerPreviewOutput: document.getElementById("runner-preview-output"),
-    // gated runner foundation
-    runnerStartBtn: document.getElementById("runner-start-btn"),
-    runnerStatusBtn: document.getElementById("runner-status-btn"),
-    runnerTranscriptBtn: document.getElementById("runner-transcript-btn"),
-    runnerStopBtn: document.getElementById("runner-stop-btn"),
-    runnerEvidenceBtn: document.getElementById("runner-evidence-btn"),
-    runnerStatus: document.getElementById("runner-status"),
-    runnerTranscript: document.getElementById("runner-transcript"),
-    runnerAttach: document.getElementById("runner-attach"),
-    // Live CLI Monitor modal els
-    openLiveMonitorBtn: document.getElementById("open-live-monitor-btn"),
-    liveCLIModal: document.getElementById("live-cli-modal"),
-    modalLaneName: document.getElementById("modal-lane-name"),
-    modalInfo: document.getElementById("modal-info"),
-    modalTranscript: document.getElementById("modal-transcript"),
-    modalTimestamp: document.getElementById("modal-timestamp"),
-    modalEmpty: document.getElementById("modal-empty"),
-    modalDisabled: document.getElementById("modal-disabled"),
-    modalRefresh: document.getElementById("modal-refresh"),
-    modalAutoRefresh: document.getElementById("modal-autorefresh"),
-    modalCopyAttach: document.getElementById("modal-copy-attach"),
-    modalSaveEvidence: document.getElementById("modal-save-evidence"),
-    modalStop: document.getElementById("modal-stop"),
-    modalClose: document.getElementById("modal-close"),
-  };
+  // Helper for API calls (minimal)
+  async function requestJson(url, opts = {}) {
+    const res = await fetch(url, {
+      headers: { "content-type": "application/json" },
+      ...opts,
+      body: opts.body ? (typeof opts.body === "string" ? opts.body : JSON.stringify(opts.body)) : undefined,
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(txt || res.statusText);
+    }
+    return res.json();
+  }
 
-  let pollHandle = null;
+  function escapeHtml(v) {
+    return String(v || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  // Load for library card status (from lanes + health)
+  async function loadLibraryStatus() {
+    try {
+      const [lanesData, health] = await Promise.all([
+        requestJson(`${MCH}/agent-lanes`),
+        requestJson(`${MCH}/health`),
+      ]);
+      state.lanes = lanesData.lanes || [];
+      state.health = health || {};
+      const codex = state.lanes.find((l) => l.lane_id === "codex_cli") || {};
+      const installed = !!codex.installed;
+      const tmuxF = !!state.health.tmux_runner_enabled;
+      const codexF = !!state.health.codex_runner_enabled;
+      const line = document.getElementById("codex-status-line");
+      if (line) {
+        if (installed) {
+          line.textContent = `Installed • ${tmuxF && codexF ? "Ready (gated)" : "Disabled in public (enable private 8125 + both MCHARNESS_*_RUNNER_ENABLED)"}`;
+          line.style.color = (tmuxF && codexF) ? "var(--good, #63db9d)" : "var(--warn, #f0c66a)";
+        } else {
+          line.textContent = "Not detected on host";
+          line.style.color = "var(--bad, #ff7e91)";
+        }
+      }
+    } catch (e) {
+      const line = document.getElementById("codex-status-line");
+      if (line) line.textContent = "Status unavailable (public safe)";
+    }
+  }
+
+  // Populate repo select in use-agent modal (from /repos)
+  async function populateModalRepos() {
+    const sel = document.getElementById("modal-repo-select");
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Loading repos...</option>';
+    try {
+      const data = await requestJson(`${MCH}/repos`);
+      const repos = data.repos || [];
+      sel.innerHTML = "";
+      repos.forEach((r) => {
+        const opt = document.createElement("option");
+        opt.value = r.path || r.repo_id; // path for session, id for runner
+        opt.dataset.repoId = r.repo_id;
+        opt.textContent = r.label || r.path;
+        sel.appendChild(opt);
+      });
+      if (repos.length) sel.value = repos[0].path || repos[0].repo_id;
+    } catch (e) {
+      sel.innerHTML = '<option value="/root/mcharness-public-export">mcharness-public-export (fallback)</option>';
+    }
+  }
+
+  // Use Agent modal open
+  function openUseAgentModal() {
+    const modal = document.getElementById("use-agent-modal");
+    if (!modal) return;
+    modal.style.display = "flex";
+    populateModalRepos();
+    // clear fields
+    const t = document.getElementById("modal-task-title");
+    const p = document.getElementById("modal-prompt");
+    if (t) t.value = "";
+    if (p) p.value = "";
+    const note = document.getElementById("deploy-disabled-note");
+    if (note) note.style.display = "none";
+  }
+
+  function closeUseAgentModal() {
+    const modal = document.getElementById("use-agent-modal");
+    if (modal) modal.style.display = "none";
+  }
+
+  // Deploy Prompt flow (create, queue, export, start, open monitor, delayed send)
+  async function deployPrompt() {
+    const repoSel = document.getElementById("modal-repo-select");
+    const titleEl = document.getElementById("modal-task-title");
+    const promptEl = document.getElementById("modal-prompt");
+    const note = document.getElementById("deploy-disabled-note");
+    if (!repoSel || !titleEl || !promptEl) return;
+
+    const repoPath = repoSel.value || "/root/mcharness-public-export";
+    const repoId = (repoSel.selectedOptions[0] && repoSel.selectedOptions[0].dataset.repoId) || "mcharness-public-export";
+    const title = (titleEl.value || "Untitled task").trim();
+    const prompt = (promptEl.value || "Perform the task described.").trim();
+
+    if (!title || !prompt) {
+      alert("Title and prompt are required.");
+      return;
+    }
+
+    // Check flags for real codex (public usually false)
+    const health = state.health || {};
+    const canRunReal = !!(health.tmux_runner_enabled && health.codex_runner_enabled);
+    if (!canRunReal) {
+      if (note) {
+        note.textContent = "Codex runner is disabled. Start private runner mode (8125 + both MCHARNESS_TMUX_RUNNER_ENABLED=true and MCHARNESS_CODEX_RUNNER_ENABLED=true) to use Deploy Prompt for real Codex.";
+        note.style.display = "block";
+      }
+      // Still allow "dry" path or just show; for demo we can still create session/queue but not start real
+      // For this task we proceed to create/queue/start (will be disabled on backend) and open monitor which will show disabled
+    }
+
+    try {
+      // 1. create session (codex lane)
+      const sess = await requestJson(`${MCH}/sessions`, {
+        method: "POST",
+        body: {
+          title,
+          objective: title,
+          plan_instruction: prompt,
+          repo_path: repoPath,
+          agent_lane: "codex_cli",
+        },
+      });
+      const sid = sess.session_id || sess.id;
+      state.selectedThreadId = sid;
+
+      // 2. queue the prompt
+      const qres = await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/queue`, {
+        method: "POST",
+        body: { title: "Task prompt", prompt },
+      });
+      const qid = qres.queue_item_id || qres.id;
+
+      // 3. export to ensure artifact (optional but per flow)
+      try {
+        await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/prompt-export`, {
+          method: "POST",
+          body: { queue_item_id: qid, mark_sent: false },
+        });
+      } catch (e) { /* non fatal */ }
+
+      // 4. start the runner (backend respects flags; for codex will use the computed prompt path)
+      await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/start`, {
+        method: "POST",
+        body: { lane_id: "codex_cli", repo_id: repoId, queue_item_id: qid },
+      });
+
+      // 5. close use modal, open live monitor
+      closeUseAgentModal();
+      openLiveCLIMonitor();  // reuses/extends previous monitor impl
+
+      // 6. wait ~10s then send/inject the prompt (safe endpoint; only the modal prompt)
+      setTimeout(async () => {
+        try {
+          await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/send-prompt`, {
+            method: "POST",
+            body: { prompt },
+          });
+          // refresh monitor to show output
+          if (typeof refreshLiveMonitor === "function") await refreshLiveMonitor();
+        } catch (e) {
+          // if send not critical or not present, monitor will still show transcript from start/execution
+          if (typeof refreshLiveMonitor === "function") await refreshLiveMonitor();
+        }
+      }, 10000);
+
+    } catch (err) {
+      alert("Deploy failed: " + (err.message || err));
+      // still try to open monitor if sid
+      if (state.selectedThreadId) openLiveCLIMonitor();
+    }
+  }
+
+  // Live CLI Monitor (adapted from previous implementation, read-only, polls while open)
+  let liveMonitorInterval = null;
+  let liveAutoRefresh = true;
+
+  function openLiveCLIMonitor() {
+    const modal = document.getElementById("live-cli-modal");
+    if (!modal) return;
+    modal.style.display = "flex";
+    refreshLiveMonitor();
+    if (liveAutoRefresh) startMonitorPolling();
+  }
+
+  function closeLiveCLIMonitor() {
+    const modal = document.getElementById("live-cli-modal");
+    if (modal) modal.style.display = "none";
+    stopMonitorPolling();
+  }
+
+  function startMonitorPolling() {
+    stopMonitorPolling();
+    liveMonitorInterval = setInterval(() => {
+      const modal = document.getElementById("live-cli-modal");
+      if (modal && modal.style.display !== "none" && liveAutoRefresh) {
+        refreshLiveMonitor();
+      }
+    }, 1500);
+  }
+
+  function stopMonitorPolling() {
+    if (liveMonitorInterval) {
+      clearInterval(liveMonitorInterval);
+      liveMonitorInterval = null;
+    }
+  }
+
+  async function refreshLiveMonitor() {
+    const sid = state.selectedThreadId;
+    if (!sid) {
+      const empty = document.getElementById("modal-empty");
+      if (empty) empty.style.display = "";
+      return;
+    }
+    try {
+      const [status, trans] = await Promise.all([
+        requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/status`),
+        requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/transcript`),
+      ]);
+      // update UI elements (ids from the modal in html)
+      const laneEl = document.getElementById("modal-lane-name");
+      if (laneEl) laneEl.textContent = status.lane_id || "Codex CLI";
+      const infoEl = document.getElementById("modal-info");
+      if (infoEl) {
+        infoEl.textContent = `Repo: ${status.repo_id || "n/a"} | Status: ${status.status || "n/a"} | Tmux: ${status.tmux_session_name || "n/a"}`;
+      }
+      const pre = document.getElementById("modal-transcript");
+      const txt = (trans && trans.transcript) ? trans.transcript : (status.transcript || "");
+      if (pre) pre.textContent = txt || "Waiting for CLI output...";
+      const ts = document.getElementById("modal-timestamp");
+      if (ts) ts.textContent = `Last refreshed: ${new Date().toLocaleTimeString()}`;
+
+      // store for buttons
+      const modal = document.getElementById("live-cli-modal");
+      if (modal) {
+        modal.dataset.attach = status.attach_command || (status.tmux_session_name ? `tmux attach -t ${status.tmux_session_name}` : "");
+        modal.dataset.transcript = txt;
+      }
+
+      // hide states
+      const e = document.getElementById("modal-empty");
+      const d = document.getElementById("modal-disabled");
+      if (e) e.style.display = "none";
+      if (d) d.style.display = "none";
+    } catch (e) {
+      const empty = document.getElementById("modal-empty");
+      if (empty) {
+        empty.style.display = "";
+        empty.textContent = "No active runner or error fetching status. (Runner disabled in public mode?)";
+      }
+    }
+  }
+
+  // Wire simple UI events
+  function wireSimpleUI() {
+    // Use Agent
+    const useBtn = document.getElementById("use-codex-btn");
+    if (useBtn) useBtn.addEventListener("click", openUseAgentModal);
+
+    const cancel = document.getElementById("cancel-use-agent");
+    if (cancel) cancel.addEventListener("click", closeUseAgentModal);
+
+    const deploy = document.getElementById("deploy-prompt-btn");
+    if (deploy) deploy.addEventListener("click", () => {
+      // run deploy (async but fire)
+      deployPrompt().catch((e) => console.error(e));
+    });
+
+    // Legacy toggle (show old if present)
+    const legLink = document.getElementById("legacy-link");
+    const leg = document.getElementById("legacy-cockpit");
+    if (legLink && leg) {
+      legLink.addEventListener("click", (e) => {
+        e.preventDefault();
+        leg.open = !leg.open;
+      });
+    }
+
+    // Monitor buttons (if elements exist from the modal HTML)
+    const mRefresh = document.getElementById("modal-refresh");
+    if (mRefresh) mRefresh.addEventListener("click", refreshLiveMonitor);
+    const mAuto = document.getElementById("modal-autorefresh");
+    if (mAuto) mAuto.addEventListener("click", () => {
+      liveAutoRefresh = !liveAutoRefresh;
+      mAuto.textContent = `Auto-refresh: ${liveAutoRefresh ? "ON" : "OFF"}`;
+      if (liveAutoRefresh) startMonitorPolling();
+      else stopMonitorPolling();
+    });
+    const mCopy = document.getElementById("modal-copy-attach");
+    if (mCopy) mCopy.addEventListener("click", () => {
+      const modal = document.getElementById("live-cli-modal");
+      const cmd = modal ? modal.dataset.attach : "";
+      if (cmd) navigator.clipboard.writeText(cmd).catch(() => prompt("Copy:", cmd));
+    });
+    const mSave = document.getElementById("modal-save-evidence");
+    if (mSave) mSave.addEventListener("click", async () => {
+      const sid = state.selectedThreadId;
+      if (!sid) return;
+      try {
+        await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/transcript-to-evidence`, { method: "POST" });
+        alert("Transcript saved as evidence.");
+      } catch (e) { alert("Save failed: " + e.message); }
+    });
+    const mStop = document.getElementById("modal-stop");
+    if (mStop) mStop.addEventListener("click", async () => {
+      const sid = state.selectedThreadId;
+      if (!sid) return;
+      try { await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/stop`, { method: "POST" }); } catch (e) {}
+      refreshLiveMonitor();
+    });
+    const mClose = document.getElementById("modal-close");
+    if (mClose) mClose.addEventListener("click", closeLiveCLIMonitor);
+
+    // close monitor on backdrop
+    const mon = document.getElementById("live-cli-modal");
+    if (mon) mon.addEventListener("click", (e) => { if (e.target === mon) closeLiveCLIMonitor(); });
+  }
+
+  // Init
+  async function init() {
+    // Hide any remaining old complex UI elements (from previous full cockpit)
+    const oldSelectors = [".rail", ".panel", "#sessions-list", "#queue-list", "#artifact-list", "#evidence-list", "#gate-list", "#safety-list", "#log-hint"];
+    oldSelectors.forEach((sel) => {
+      document.querySelectorAll(sel).forEach((el) => { el.style.display = "none"; });
+    });
+
+    wireSimpleUI();
+    await loadLibraryStatus();
+
+    // initial status check for disabled note etc is handled in deploy
+    // If user has runner flags in this process (e.g. private), card will reflect Ready
+  }
+
+  // expose a couple for console/manual if needed
+  window.McHarnessSimple = { deployPrompt, openLiveCLIMonitor, refreshLiveMonitor };
+
+  // boot
+  init().catch((e) => console.error("init error", e));
+})();
 
   function escapeHtml(value) {
     return String(value || "")

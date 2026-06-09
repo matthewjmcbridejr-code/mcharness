@@ -615,32 +615,67 @@ def _start_fake_runner(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def _start_codex_runner(state: dict[str, Any], cwd: str) -> dict[str, Any]:
-    """Real Codex controlled via exec (non-int) + tmux. Backend generated paths only. No raw cmds from browser.
-    Uses --cd + stdin redirect from generated prompt file + --output-last-message for transcript.
-    Falls back to attach-able tmux if exec needs manual interaction.
+    """Launch Codex in tmux (interactive, waiting for prompt). Backend generated paths only.
+    Prompt will be sent later via safe send-keys after startup delay (10s in UI).
     """
     trans_p = Path(state["transcript_file_path"])
     trans_p.parent.mkdir(parents=True, exist_ok=True)
-    prompt_p = Path(state["prompt_file_path"])
-    # safe because prompt_p, cwd, trans_p are backend-controlled (allowlist + generated artifact)
-    # non-int exec preferred; redirect prompt, capture last + tee
+    # Launch codex in the repo dir; capture output to transcript. No prompt fed here.
     inner = (
-        f"codex exec --cd '{cwd}' --output-last-message '{trans_p}' - < '{prompt_p}' 2>&1 | tee -a '{trans_p}' ; "
+        f"cd '{cwd}' ; codex 2>&1 | tee -a '{trans_p}' ; "
         f"echo \"MCH_EXIT_CODE:$?\" >> '{trans_p}'"
     )
     name = state["tmux_session_name"]
     tmux_cmd = ["tmux", "new-session", "-d", "-s", name, "--", "bash", "-c", inner]
-    res = _safe_cmd(tmux_cmd, timeout=10.0)  # codex may take a bit to init
+    res = _safe_cmd(tmux_cmd, timeout=10.0)
     if res is not None and res.returncode == 0:
         state["status"] = "running"
-        state["notes"].append("codex exec started via gated tmux (non-int preferred; use attach cmd for manual if needed)")
-        # provide attach for user smoke
+        state["notes"].append("codex started in tmux (interactive); prompt will be injected after delay via send-keys")
         state["attach_command"] = f"tmux attach -t {name}"
     else:
         state["status"] = "failed"
         state["notes"].append(f"codex tmux start failed or exited early: {getattr(res, 'stderr', 'err') if res else 'subprocess err'}")
         state["attach_command"] = f"tmux attach -t {name}  # (may have failed to start)"
     return state
+
+
+class McHarnessRunnerSendPrompt(BaseModel):
+    prompt: str = Field(min_length=1)
+
+
+def _send_prompt_to_codex_runner(session_id: str, prompt_text: str):
+    """Safe, allowlisted only: send the (controlled) prompt text to the codex tmux runner via send-keys -l (literal).
+    No arbitrary shell. Only called for codex lane after start + delay.
+    """
+    state = _load_runner_state(session_id)
+    if not state or state.get("lane_id") != "codex_cli":
+        raise HTTPException(status_code=400, detail="Send prompt only supported for active codex_cli runner")
+    name = state.get("tmux_session_name")
+    if not name:
+        raise HTTPException(status_code=400, detail="No tmux session for runner")
+    # Use -l for literal text (safe, no shell interp of user prompt)
+    _safe_cmd(["tmux", "send-keys", "-t", name, "-l", prompt_text], timeout=5.0)
+    _safe_cmd(["tmux", "send-keys", "-t", name, "Enter"], timeout=2.0)
+    # append note to transcript file
+    try:
+        p = Path(state["transcript_file_path"])
+        with p.open("a", encoding="utf-8") as f:
+            f.write(f"\n# [McHarness injected prompt @ {datetime.now(timezone.utc).isoformat()}]\n{prompt_text}\n")
+    except Exception:
+        pass
+    try:
+        run = _run_for_session(session_id)
+        _append_run_event(run.get("run_id", ""), "Prompt sent to Codex", "User task prompt injected via safe tmux send-keys", "info", "runner")
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+@mcharness_router.post("/sessions/{session_id}/runner/send-prompt")
+def post_mcharness_runner_send_prompt(session_id: str, payload: McHarnessRunnerSendPrompt):
+    """Smallest safe endpoint to inject the modal prompt into the running codex tmux (after startup delay)."""
+    _send_prompt_to_codex_runner(session_id, payload.prompt)
+    return {"ok": True, "injected": True}
 
 
 @router.get("/capabilities", response_model=List[CapabilityStatus])

@@ -19,17 +19,18 @@ def test_functional_cockpit_page_is_served_with_control_plane_labels():
     client = TestClient(app)
     response = client.get("/web/mctable-studio/cockpit-app.html")
     assert response.status_code == 200
+    # Simple Agent Library default (SIMPLE MODE)
     for snippet in [
         "SERVER CONTROL PLANE",
         "ALLOWLISTED CLI LANES ONLY",
         "ARBITRARY COMMAND EXECUTION DISABLED",
         "PUBLIC REAL AGENT LAUNCH DISABLED",
         "FAKE/MANUAL MODE",
-        "Repo / worktree",
-        "CLI agent lane",
-        "Artifacts",
-        "Capture Result + Evidence",
-        "Capture Git Status",
+        "Agent Library",
+        "Codex CLI",
+        "Use Agent",
+        "Add Agent — Coming Soon",
+        "Advanced / Legacy Cockpit",
     ]:
         assert snippet in response.text
 

@@ -12,70 +12,46 @@
   <link rel="stylesheet" href="./cockpit-app.css" />
 </head>
 <body>
-  <div class="app">
-    <section class="banner-strip" aria-label="Safety mode">
-      <span class="banner good">SERVER CONTROL PLANE</span>
-      <span class="banner good">ALLOWLISTED CLI LANES ONLY</span>
-      <span class="banner warn">ARBITRARY COMMAND EXECUTION DISABLED</span>
-      <span class="banner bad">PUBLIC REAL AGENT LAUNCH DISABLED</span>
-      <span class="banner warn">FAKE/MANUAL MODE</span>
-    </section>
+  <!-- MINIMAL AGENT LIBRARY (SIMPLE MODE default) -->
+  <section class="banner-strip" aria-label="Safety mode" style="padding:4px 8px; font-size:0.7em; display:flex; gap:6px; flex-wrap:wrap;">
+    <span class="banner good">SERVER CONTROL PLANE</span>
+    <span class="banner good">ALLOWLISTED CLI LANES ONLY</span>
+    <span class="banner warn">ARBITRARY COMMAND EXECUTION DISABLED</span>
+    <span class="banner bad">PUBLIC REAL AGENT LAUNCH DISABLED</span>
+    <span class="banner warn">FAKE/MANUAL MODE (Codex gated)</span>
+  </section>
+  <header style="padding:16px 20px; border-bottom:1px solid var(--line, #333); background:var(--bg-2, #0c1727);">
+    <h1 style="margin:0; font-size:1.6rem;">McHarness</h1>
+    <p style="margin:2px 0 0; color:var(--muted, #9cacbf); font-size:0.95em;">Use your AI coding subscriptions like a real engineering control room.</p>
+    <div style="margin-top:6px; font-size:0.75em;">
+      <a href="#" id="legacy-link" style="color:var(--accent);">Advanced / Legacy Cockpit</a>
+      <span style="margin-left:10px; color:var(--bad);">Public real agent launch disabled</span>
+    </div>
+  </header>
 
-    <aside class="rail" aria-label="Left rail">
-      <section class="layout-stack">
-        <p class="section-title">McHarness Captain Cockpit</p>
-        <h1 class="page-title">Server-hosted control plane</h1>
-        <p class="lede">
-          Select an allowlisted repo/worktree and CLI lane, then drive the existing Captain loop through prompt export,
-          transcript/result capture, artifacts, evidence, gate decisions, and persisted continuation.
-        </p>
-      </section>
+  <main style="padding:20px; max-width:860px; margin:0 auto;">
+    <h2 style="margin-bottom:8px;">Agent Library</h2>
 
-      <section class="layout-stack">
-        <h2 class="section-title">New Session</h2>
-        <form id="new-session-form" class="form-stack">
-          <div class="field">
-            <label for="session-title">Session title</label>
-            <input id="session-title" name="title" required />
-          </div>
-          <div class="field">
-            <label for="repo-select">Repo / worktree</label>
-            <select id="repo-select" name="repoPath" required></select>
-          </div>
-          <div class="field">
-            <label for="lane-select">CLI agent lane</label>
-            <select id="lane-select" name="agentLane" required></select>
-          </div>
-          <div class="field">
-            <label for="session-objective">Objective</label>
-            <textarea id="session-objective" name="objective" required></textarea>
-          </div>
-          <div class="field">
-            <label for="session-plan">Plan instruction</label>
-            <textarea id="session-plan" name="planInstruction" required></textarea>
-          </div>
-          <button class="btn primary" type="submit">New Session</button>
-        </form>
-        <div id="lane-repo-status" data-testid="lane-repo-status" class="muted" style="margin:6px 0 4px;font-size:0.85em;"></div>
-        <div style="margin:4px 0 12px;">
-          <button id="runner-preview-btn" data-testid="runner-preview-btn" class="btn" type="button">Dry-run runner preview</button>
-          <pre id="runner-preview-output" data-testid="runner-preview-output" class="preview" style="display:none;white-space:pre-wrap;font-size:0.78em;margin-top:4px;padding:6px;border:1px solid var(--line);"></pre>
-          <div class="muted" style="font-size:0.75em;">Real execution disabled. Preview only.</div>
-        </div>
-      </section>
+    <div id="codex-card" style="border:1px solid var(--line); padding:14px; margin-bottom:12px; border-radius:6px; background:var(--bg-2);">
+      <h3 style="margin:0 0 4px; font-size:1.1rem;">Codex CLI</h3>
+      <div id="codex-status-line" style="font-size:0.85em; margin-bottom:6px; color:var(--muted);">Detecting status...</div>
+      <p style="margin:4px 0 10px; font-size:0.9em; color:var(--muted);">Run Codex against an allowlisted repo in a controlled tmux session. Gated behind explicit runner flags for safety.</p>
+      <button id="use-codex-btn" class="btn primary" type="button" style="padding:6px 14px;">Use Agent</button>
+    </div>
 
-      <!-- Simplified runner controls for SIMPLE MODE (raw debug moved to Live CLI Monitor modal) -->
-      <section class="layout-stack" id="runner-controls">
-        <h2 class="section-title">Controlled Runner</h2>
-        <div class="muted" style="font-size:0.8em;">No arbitrary shell. Public real agent launch disabled. Use Codex (Experimental) or Manual. See Live CLI Monitor for live output.</div>
-        <div class="button-row">
-          <button id="runner-start-btn" data-testid="runner-start-btn" class="btn" type="button">Start Controlled Runner</button>
-          <button id="open-live-monitor-btn" data-testid="open-live-monitor-btn" class="btn primary" type="button">Open Live CLI Monitor</button>
-          <button id="runner-evidence-btn" data-testid="runner-evidence-btn" class="btn good" type="button">Save Transcript as Evidence</button>
-          <button id="runner-stop-btn" data-testid="runner-stop-btn" class="btn bad" type="button">Stop Runner</button>
-        </div>
-        <!-- raw status/transcript/attach moved into the modal for clean SIMPLE MODE view; keep minimal badge if needed via lane-repo-status -->
-      </section>
+    <div style="border:1px dashed var(--line); padding:12px; border-radius:6px; opacity:0.65; font-size:0.9em;">
+      <strong>Add Agent — Coming Soon</strong><br>
+      AGY / Antigravity, Claude Code, Grok and others will appear here.
+    </div>
+
+    <!-- Legacy full cockpit (hidden by default; toggle via link) -->
+    <details id="legacy-cockpit" style="margin-top:20px;">
+      <summary style="cursor:pointer; color:var(--accent); font-size:0.85em;">Advanced / Legacy Cockpit (full old UI, hidden in simple mode)</summary>
+      <div style="margin-top:8px; padding:8px; border:1px solid var(--line); font-size:0.8em; color:var(--muted);">
+        Legacy Captain lists, gates, artifacts, full runner debug etc. Use private runner mode (8125 + flags) for real Codex.
+      </div>
+    </details>
+  </main>
 
       <!-- Live CLI Monitor Modal (read-only, focused popup for active tmux/Codex session) -->
       <div id="live-cli-modal" data-testid="live-cli-modal">
