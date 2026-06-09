@@ -32,7 +32,7 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await expect(page.locator("h1")).toContainText("McHarness");
   await expect(page.locator("text=Agent Library")).toBeVisible();
   await expect(page.locator("#codex-card")).toBeVisible();
-  await expect(page.locator("text=Codex CLI")).toBeVisible();
+  await expect(page.locator('#codex-card')).toContainText('Codex CLI');
   await expect(page.locator("text=Add Agent — Coming Soon")).toBeVisible();
 
   // Use Agent opens modal with required fields
@@ -51,20 +51,17 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await useModal.locator("#modal-prompt").fill("Print exactly: MCHARNESS_SIMPLE_MODE_PROOF_LINE");
   await useModal.locator("#deploy-prompt-btn").click();
 
-  // Since public runner disabled, the note or monitor disabled state should appear
-  await expect(page.locator("text=Codex runner is disabled").or(page.locator("#modal-disabled"))).toBeVisible({ timeout: 5000 });
+  // Since public runner disabled, the note in the use modal should appear (no real start)
+  await expect(useModal.locator("#deploy-disabled-note")).toBeVisible({ timeout: 5000 });
+  await expect(useModal.locator("#deploy-disabled-note")).toContainText("Codex runner is disabled");
 
   // Close use modal if still open
   const cancel = useModal.locator("#cancel-use-agent");
   if (await cancel.isVisible()) await cancel.click();
 
-  // Live monitor button exists (from previous foundation)
-  await expect(page.locator("#open-live-monitor-btn").or(page.getByTestId("open-live-monitor-btn"))).toBeVisible();
-
-  // Open monitor shows read-only, no arbitrary shell
-  await page.locator("#open-live-monitor-btn").or(page.getByTestId("open-live-monitor-btn")).click();
+  // Live monitor should have been opened by the deploy flow; verify it shows disabled/read-only
   const mon = page.locator("#live-cli-modal").or(page.getByTestId("live-cli-modal"));
-  await expect(mon).toBeVisible();
+  await expect(mon).toBeVisible({ timeout: 5000 });
   await expect(mon).toContainText("Read-only monitor");
   await expect(mon).toContainText("No arbitrary shell input");
 

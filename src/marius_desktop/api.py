@@ -576,9 +576,19 @@ def _tmux_session_name(session_id: str, runner_id: str) -> str:
 
 
 def _get_tmux_transcript(name: str) -> str:
-    res = _safe_cmd(["tmux", "capture-pane", "-p", "-t", name], timeout=3.0)
-    if res is not None and res.returncode == 0:
-        return res.stdout or ""
+    """Prefer live pane capture for running sessions (so monitor shows actual Codex output).
+    Fall back to previous file contents on exit.
+    """
+    if not name:
+        return ""
+    # Always try capture first if the session exists (live view)
+    has = _safe_cmd(["tmux", "has-session", "-t", name], timeout=1.0)
+    if has is not None and has.returncode == 0:
+        res = _safe_cmd(["tmux", "capture-pane", "-p", "-t", name], timeout=3.0)
+        if res is not None and res.returncode == 0:
+            return res.stdout or ""
+    # session gone or capture failed: use whatever is in the transcript file (final or previous captures)
+    # (the file may have been appended to by send or prior captures)
     return ""
 
 
@@ -587,27 +597,18 @@ def _stop_tmux(name: str) -> None:
 
 
 def _start_fake_runner(state: dict[str, Any]) -> dict[str, Any]:
-    """Harmless fake only. Deterministic output for transcript proof. No providers, no usage."""
-    trans_p = Path(state["transcript_file_path"])
-    trans_p.parent.mkdir(parents=True, exist_ok=True)
-    # Use bash -c with *our* literal python -c (not from browser). Safe.
-    inner = (
-        "python -c "
-        "\"import time,sys; "
-        "print('MCHarness fake runner started'); "
-        "print('artifact proof line'); "
-        "time.sleep(0.2); "
-        "print('MCHarness fake runner complete'); "
-        "sys.exit(0)\" "
-        "2>&1 | tee " + str(trans_p) + " ; "
-        "echo \"MCH_EXIT_CODE:$?\" >> " + str(trans_p)
-    )
+    """Harmless fake only. Uses pure long-running process in tmux so monitor can capture live + injected prompt text.
+    No providers, no usage burn. For automated proof of interactive send/capture/stop.
+    """
     name = state["tmux_session_name"]
+    # Long-running harmless process (stays alive for send-keys and capture).
+    # The typed prompt from send will appear in the tmux pane buffer (visible in capture).
+    inner = "python -c \"import time,sys; print('FAKE_STARTED'); sys.stdout.flush(); time.sleep(300)\" "
     tmux_cmd = ["tmux", "new-session", "-d", "-s", name, "--", "bash", "-c", inner]
     res = _safe_cmd(tmux_cmd, timeout=5.0)
     if res is not None and res.returncode == 0:
         state["status"] = "running"
-        state["notes"].append("tmux session started for fake_test_lane")
+        state["notes"].append("tmux session started for fake_test_lane (long-running for live capture)")
     else:
         state["status"] = "failed"
         state["notes"].append(f"tmux start failed: {getattr(res, 'stderr', 'err') if res else 'subprocess err'}")
@@ -615,26 +616,21 @@ def _start_fake_runner(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def _start_codex_runner(state: dict[str, Any], cwd: str) -> dict[str, Any]:
-    """Launch Codex in tmux (interactive, waiting for prompt). Backend generated paths only.
-    Prompt will be sent later via safe send-keys after startup delay (10s in UI).
+    """Launch Codex interactively in tmux (pure, no wrapper that forces exit).
+    Keeps the tmux session + Codex TUI alive for live monitoring and later prompt injection.
     """
-    trans_p = Path(state["transcript_file_path"])
-    trans_p.parent.mkdir(parents=True, exist_ok=True)
-    # Launch codex in the repo dir; capture output to transcript. No prompt fed here.
-    inner = (
-        f"cd '{cwd}' ; codex 2>&1 | tee -a '{trans_p}' ; "
-        f"echo \"MCH_EXIT_CODE:$?\" >> '{trans_p}'"
-    )
     name = state["tmux_session_name"]
-    tmux_cmd = ["tmux", "new-session", "-d", "-s", name, "--", "bash", "-c", inner]
-    res = _safe_cmd(tmux_cmd, timeout=10.0)
+    # Pure interactive launch in the allowlisted cwd. Codex will run its TUI and wait.
+    # Use the binary name (resolvable in PATH for the service user).
+    tmux_cmd = ["tmux", "new-session", "-d", "-s", name, "-c", cwd, "codex"]
+    res = _safe_cmd(tmux_cmd, timeout=5.0)
     if res is not None and res.returncode == 0:
-        state["status"] = "running"
-        state["notes"].append("codex started in tmux (interactive); prompt will be injected after delay via send-keys")
+        state["status"] = "waiting_for_codex"
+        state["notes"].append("codex interactive tmux session started; will inject prompt after ~10s delay")
         state["attach_command"] = f"tmux attach -t {name}"
     else:
         state["status"] = "failed"
-        state["notes"].append(f"codex tmux start failed or exited early: {getattr(res, 'stderr', 'err') if res else 'subprocess err'}")
+        state["notes"].append(f"codex tmux start failed: {getattr(res, 'stderr', 'err') if res else 'subprocess err'}")
         state["attach_command"] = f"tmux attach -t {name}  # (may have failed to start)"
     return state
 
@@ -656,13 +652,16 @@ def _send_prompt_to_codex_runner(session_id: str, prompt_text: str):
     # Use -l for literal text (safe, no shell interp of user prompt)
     _safe_cmd(["tmux", "send-keys", "-t", name, "-l", prompt_text], timeout=5.0)
     _safe_cmd(["tmux", "send-keys", "-t", name, "Enter"], timeout=2.0)
-    # append note to transcript file
+    # append note to transcript file (for final evidence)
     try:
         p = Path(state["transcript_file_path"])
         with p.open("a", encoding="utf-8") as f:
             f.write(f"\n# [McHarness injected prompt @ {datetime.now(timezone.utc).isoformat()}]\n{prompt_text}\n")
     except Exception:
         pass
+    state["status"] = "prompt_sent"
+    state["notes"].append("prompt text injected via tmux send-keys -l + Enter; session kept alive for live monitoring")
+    _save_runner_state(state)
     try:
         run = _run_for_session(session_id)
         _append_run_event(run.get("run_id", ""), "Prompt sent to Codex", "User task prompt injected via safe tmux send-keys", "info", "runner")

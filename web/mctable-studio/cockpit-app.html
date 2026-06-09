@@ -37,6 +37,7 @@
       <div id="codex-status-line" style="font-size:0.85em; margin-bottom:6px; color:var(--muted);">Detecting status...</div>
       <p style="margin:4px 0 10px; font-size:0.9em; color:var(--muted);">Run Codex against an allowlisted repo in a controlled tmux session. Gated behind explicit runner flags for safety.</p>
       <button id="use-codex-btn" class="btn primary" type="button" style="padding:6px 14px;">Use Agent</button>
+      <button id="open-live-monitor-btn" class="btn" type="button" style="margin-left:8px; padding:6px 14px;">Open Live CLI Monitor</button>
     </div>
 
     <div style="border:1px dashed var(--line); padding:12px; border-radius:6px; opacity:0.65; font-size:0.9em;">
@@ -52,6 +53,31 @@
       </div>
     </details>
   </main>
+
+  <!-- Use Agent Modal (simple) -->
+  <div id="use-agent-modal" data-testid="use-agent-modal" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:none; align-items:center; justify-content:center; z-index:10000;">
+    <div style="background:var(--bg-2); border:1px solid var(--line); padding:16px; width:90%; max-width:520px; border-radius:6px;">
+      <h3 style="margin-top:0;">Use Codex CLI</h3>
+      <div style="margin:8px 0;">
+        <label style="display:block; font-size:0.85em;">Repo / worktree</label>
+        <select id="modal-repo-select" style="width:100%; padding:6px;"></select>
+      </div>
+      <div style="margin:8px 0;">
+        <label style="display:block; font-size:0.85em;">Task title</label>
+        <input id="modal-task-title" style="width:100%; padding:6px;" placeholder="e.g. Fix the login bug" />
+      </div>
+      <div style="margin:8px 0;">
+        <label style="display:block; font-size:0.85em;">Prompt / task description</label>
+        <textarea id="modal-prompt" style="width:100%; height:120px; padding:6px;" placeholder="Describe the change or task for Codex..."></textarea>
+      </div>
+      <div id="deploy-disabled-note" style="display:none; color:var(--bad); font-size:0.85em; margin:6px 0;"></div>
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button id="deploy-prompt-btn" class="btn primary" type="button">Deploy Prompt</button>
+        <button id="cancel-use-agent" class="btn" type="button">Cancel</button>
+      </div>
+      <div style="font-size:0.7em; color:var(--muted); margin-top:8px;">Real execution only when private runner flags enabled. Public is safe.</div>
+    </div>
+  </div>
 
       <!-- Live CLI Monitor Modal (read-only, focused popup for active tmux/Codex session) -->
       <div id="live-cli-modal" data-testid="live-cli-modal">
