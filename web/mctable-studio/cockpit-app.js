@@ -698,6 +698,34 @@
       html += `<span data-testid="repo-status-${rid}">${escapeHtml(repo.label || rid)}: ${d} ${repo.changed_files_count || 0} files, branch=${escapeHtml(repo.current_branch || "?")}</span>`;
     }
     container.innerHTML = html;
+    updateRunnerUIForLane();
+  }
+
+  function updateRunnerUIForLane() {
+    const laneVal = els.laneSelect ? els.laneSelect.value : "";
+    const lane = state.lanes.find((l) => l.lane_id === laneVal) || {};
+    const btn = els.runnerStartBtn;
+    if (btn) {
+      if (laneVal === "codex_cli") {
+        btn.textContent = "Start Codex Session (gated)";
+        const ready = !!lane.installed && lane.runner_mode === "controlled_run_ready";
+        btn.disabled = !ready;
+        btn.style.display = (lane.installed || ready) ? "" : "none";
+      } else if (laneVal === "fake_test_lane") {
+        btn.textContent = "Start Controlled Runner (fake)";
+        btn.disabled = false;
+        btn.style.display = "";
+      } else {
+        btn.textContent = "Start Controlled Runner";
+        btn.disabled = (lane.runner_mode === "controlled_run_disabled");
+        btn.style.display = "";
+      }
+    }
+    // initial note for codex mode/readiness in attach or status if empty
+    if (laneVal === "codex_cli" && els.runnerAttach && !els.runnerAttach.textContent) {
+      const mode = lane.runner_mode || "unavailable";
+      els.runnerAttach.textContent = `codex mode: ${mode} (installed=${lane.installed}) | attach: tmux attach -t <name> when running`;
+    }
   }
 
   async function handleRunnerPreview() {

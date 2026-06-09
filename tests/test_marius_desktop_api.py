@@ -468,3 +468,89 @@ def test_runner_rejects_unknown_lane_repo(monkeypatch):
     assert badl.status_code == 400
     badr = client.post(f"/api/mcharness/sessions/{sid}/runner/start", json={"lane_id": "fake_test_lane", "repo_id": "nope"})
     assert badr.status_code == 400
+
+
+def test_codex_detection_and_disabled_without_both_envs(monkeypatch):
+    client = TestClient(app)
+    # force codex "installed" via patch, no real exec
+    import src.marius_desktop.api as api_mod
+    orig_detect = api_mod._detect_executable
+    def fake_detect(name):
+        if name == "codex":
+            return {"installed": True, "executable_path": "/fake/codex", "version": "codex-cli 0.137.0"}
+        return orig_detect(name)
+    monkeypatch.setattr(api_mod, "_detect_executable", fake_detect)
+
+    # default: both false -> codex start disabled
+    s = client.post("/api/mcharness/sessions", json={
+        "title": "c1", "objective": "o", "plan_instruction": "p",
+        "repo_path": "/root/mcharness-public-export", "agent_lane": "manual_paste"
+    })
+    sid = s.json()["session_id"]
+    r = client.post(f"/api/mcharness/sessions/{sid}/runner/start", json={"lane_id": "codex_cli", "repo_id": "mcharness-public-export"})
+    assert r.status_code == 403
+    assert "codex_runner" in (r.text or "").lower() or "disabled" in (r.text or "").lower()
+
+    # with only tmux true, still disabled for codex
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    r2 = client.post(f"/api/mcharness/sessions/{sid}/runner/start", json={"lane_id": "codex_cli", "repo_id": "mcharness-public-export"})
+    assert r2.status_code == 403
+
+    # with both, would allow (but we don't start real here, just reach)
+    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
+    # patch start to avoid actual codex/tmux in this unit test
+    def fake_start_codex(st, c):
+        st["status"] = "running"
+        st["notes"].append("codex (patched, no real exec)")
+        return st
+    monkeypatch.setattr(api_mod, "_start_codex_runner", fake_start_codex)
+    r3 = client.post(f"/api/mcharness/sessions/{sid}/runner/start", json={"lane_id": "codex_cli", "repo_id": "mcharness-public-export"})
+    assert r3.status_code == 200
+    d = r3.json()
+    assert d["lane_id"] == "codex_cli"
+    assert d["safety_policy"]["codex_runner_enabled"] is True
+    assert "real_provider" in d["safety_policy"]
+
+
+def test_codex_command_template_and_missing_handling(monkeypatch):
+    client = TestClient(app)
+    import src.marius_desktop.api as api_mod
+    # patch detect to installed
+    def fake_detect(name):
+        if name == "codex":
+            return {"installed": True, "executable_path": "/fake/codex", "version": "0.137"}
+        return {"installed": False, "executable_path": None, "version": None}
+    monkeypatch.setattr(api_mod, "_detect_executable", fake_detect)
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
+    def fake_start(st, c): 
+        st["status"] = "running"
+        return st
+    monkeypatch.setattr(api_mod, "_start_codex_runner", fake_start)
+
+    s = client.post("/api/mcharness/sessions", json={
+        "title": "c2", "objective": "o", "plan_instruction": "p",
+        "repo_path": "/root/mcharness-public-export", "agent_lane": "manual_paste"
+    })
+    sid = s.json()["session_id"]
+    st = client.post(f"/api/mcharness/sessions/{sid}/runner/start", json={"lane_id": "codex_cli", "repo_id": "mcharness-public-export"})
+    assert st.status_code == 200
+    # intent preview shape for codex uses exec template
+    intent = client.post(f"/api/mcharness/sessions/{sid}/runner-intent", json={"lane_id": "codex_cli", "repo_id": "mcharness-public-export", "mode": "dry_run"})
+    assert intent.status_code == 200
+    ip = intent.json()
+    assert "codex exec --cd" in ip["command_preview"]
+    assert "--output-last-message" in ip["command_preview"]
+
+    # missing codex
+    def fake_missing(name):
+        if name == "codex":
+            return {"installed": False, "executable_path": None, "version": None}
+        return fake_detect(name)
+    monkeypatch.setattr(api_mod, "_detect_executable", fake_missing)
+    # lanes should reflect
+    lanes = client.get("/api/mcharness/agent-lanes").json()["lanes"]
+    cod = next((l for l in lanes if l["lane_id"] == "codex_cli"), None)
+    assert cod is not None
+    assert cod["installed"] is False
+    assert "not found" in " ".join(cod.get("safety_notes", [])).lower()

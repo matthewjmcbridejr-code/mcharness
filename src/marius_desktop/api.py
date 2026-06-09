@@ -141,6 +141,15 @@ def _tmux_runner_enabled() -> bool:
     )
 
 
+def _codex_runner_enabled() -> bool:
+    # Explicit second gate for real Codex (personal manual smoke only). Tolerate misspelling.
+    return _env_flag(
+        "MCHARNESS_CODEX_RUNNER_ENABLED",
+        "MCHARNESSS_CODEX_RUNNER_ENABLED",
+        default="false",
+    )
+
+
 def _safe_cmd(cmd: list[str], timeout: float = 2.5, cwd: str | None = None) -> subprocess.CompletedProcess | None:
     """Run a command with timeout; never raise, always return structured result or None."""
     try:
@@ -346,7 +355,25 @@ def _lane_entries() -> list[dict[str, Any]]:
             auth = "unknown" if det["installed"] else "not_detected"
             rmode = "dry_run_ready" if det["installed"] else "controlled_run_disabled"
             notes = []
-            if det["installed"]:
+            if lid == "codex_cli":
+                # Improve auth for codex using safe non-int doctor (no secrets, no login)
+                if det["installed"]:
+                    exe = det["executable_path"]
+                    dres = _safe_cmd([exe, "doctor"], timeout=5.0)
+                    dout = ((dres.stdout or "") + (dres.stderr or "")).lower() if dres else ""
+                    if dres is not None and (dres.returncode == 0) and any(k in dout for k in ["authenticated", "logged in", "ready", "health"]):
+                        auth = "likely_ready"
+                    else:
+                        auth = "unknown"
+                    tmux_f = _tmux_runner_enabled()
+                    codex_f = _codex_runner_enabled()
+                    rmode = "controlled_run_ready" if (det["installed"] and tmux_f and codex_f) else "controlled_run_disabled"
+                    notes.append("Real Codex gated: requires BOTH MCHARNESS_TMUX_RUNNER_ENABLED=true AND MCHARNESS_CODEX_RUNNER_ENABLED=true for controlled start.")
+                    notes.append("Uses codex exec (non-int) + --cd + --output-last-message for transcript. Attach mode fallback via tmux if needed.")
+                    notes.append("Auth via safe non-interactive 'codex doctor' check only; no token files or login commands ever inspected.")
+                else:
+                    notes.append("Codex not found via command -v. Install via subscription to enable (preview still works).")
+            elif det["installed"]:
                 notes.append("Real execution disabled (public_manual + MCHARNESS_TMUX_RUNNER_ENABLED=false).")
                 notes.append("Dry-run intent preview supported. No auth files, cookies, or secrets are inspected.")
             else:
@@ -586,6 +613,36 @@ def _start_fake_runner(state: dict[str, Any]) -> dict[str, Any]:
         state["notes"].append(f"tmux start failed: {getattr(res, 'stderr', 'err') if res else 'subprocess err'}")
     return state
 
+
+def _start_codex_runner(state: dict[str, Any], cwd: str) -> dict[str, Any]:
+    """Real Codex controlled via exec (non-int) + tmux. Backend generated paths only. No raw cmds from browser.
+    Uses --cd + stdin redirect from generated prompt file + --output-last-message for transcript.
+    Falls back to attach-able tmux if exec needs manual interaction.
+    """
+    trans_p = Path(state["transcript_file_path"])
+    trans_p.parent.mkdir(parents=True, exist_ok=True)
+    prompt_p = Path(state["prompt_file_path"])
+    # safe because prompt_p, cwd, trans_p are backend-controlled (allowlist + generated artifact)
+    # non-int exec preferred; redirect prompt, capture last + tee
+    inner = (
+        f"codex exec --cd '{cwd}' --output-last-message '{trans_p}' - < '{prompt_p}' 2>&1 | tee -a '{trans_p}' ; "
+        f"echo \"MCH_EXIT_CODE:$?\" >> '{trans_p}'"
+    )
+    name = state["tmux_session_name"]
+    tmux_cmd = ["tmux", "new-session", "-d", "-s", name, "--", "bash", "-c", inner]
+    res = _safe_cmd(tmux_cmd, timeout=10.0)  # codex may take a bit to init
+    if res is not None and res.returncode == 0:
+        state["status"] = "running"
+        state["notes"].append("codex exec started via gated tmux (non-int preferred; use attach cmd for manual if needed)")
+        # provide attach for user smoke
+        state["attach_command"] = f"tmux attach -t {name}"
+    else:
+        state["status"] = "failed"
+        state["notes"].append(f"codex tmux start failed or exited early: {getattr(res, 'stderr', 'err') if res else 'subprocess err'}")
+        state["attach_command"] = f"tmux attach -t {name}  # (may have failed to start)"
+    return state
+
+
 @router.get("/capabilities", response_model=List[CapabilityStatus])
 def get_capabilities():
     return get_runtime_capabilities()
@@ -616,6 +673,7 @@ def get_mcharness_health():
         "arbitrary_command_execution_enabled": False,
         "public_write_enabled": _public_write_enabled(),
         "tmux_runner_enabled": _tmux_runner_enabled(),
+        "codex_runner_enabled": _codex_runner_enabled(),
         "available_lanes_count": len(lanes),
         "repo_count": len(repos),
         "manual_mode": True,
@@ -856,7 +914,7 @@ def post_mcharness_runner_intent(session_id: str, payload: McHarnessRunnerIntent
             f"MANUAL: cd {cwd} && cat {prompt_file_path}  # run your local CLI in cwd, then POST transcript to /sessions/{session_id}/manual-result"
         )
     elif payload.lane_id == "codex_cli":
-        command_preview = f"codex --prompt-file {prompt_file_path}  # (dry-run preview only; cwd={cwd}; real launch disabled)"
+        command_preview = f"codex exec --cd {cwd} --output-last-message {transcript_file_path} < {prompt_file_path}  # (gated real; requires MCHARNESS_*_RUNNER_ENABLED=true for both tmux+codex; non-int or tmux attach)"
     elif payload.lane_id == "agy_cli":
         command_preview = f"agy --prompt {prompt_file_path}  # (dry-run preview only; cwd={cwd}; real launch disabled)"
     else:
@@ -915,13 +973,19 @@ def post_mcharness_runner_start(session_id: str, payload: McHarnessRunnerStartRe
     if lane is None:
         raise HTTPException(status_code=400, detail=f"Unknown agent lane: {payload.lane_id}")
 
-    if payload.lane_id != "fake_test_lane" and not _tmux_runner_enabled():
+    if payload.lane_id == "codex_cli":
+        if not (_tmux_runner_enabled() and _codex_runner_enabled()):
+            raise HTTPException(
+                status_code=403,
+                detail="Controlled Codex runner disabled (requires BOTH MCHARNESS_TMUX_RUNNER_ENABLED=true AND MCHARNESS_CODEX_RUNNER_ENABLED=true). For personal manual smoke only; no automated real Codex.",
+            )
+    elif payload.lane_id != "fake_test_lane" and not _tmux_runner_enabled():
         raise HTTPException(
             status_code=403,
             detail="Controlled runner disabled (MCHARNESS_TMUX_RUNNER_ENABLED=false). Only fake_test_lane supported for tests/proof.",
         )
-    if payload.lane_id != "fake_test_lane":
-        raise HTTPException(status_code=400, detail="Controlled run for real provider lanes not implemented yet (foundation only; fake_test_lane for proof).")
+    if payload.lane_id != "fake_test_lane" and payload.lane_id != "codex_cli":
+        raise HTTPException(status_code=400, detail="Controlled run for this lane not implemented yet (only codex_cli + fake_test_lane).")
 
     # map repo_id to allowlisted path (id or full)
     repo_path: Optional[Path] = None
@@ -956,22 +1020,26 @@ def post_mcharness_runner_start(session_id: str, payload: McHarnessRunnerStartRe
             "allowlisted_lane": True,
             "allowlisted_repo": True,
             "tmux_runner_enabled": _tmux_runner_enabled(),
-            "real_provider": False,
+            "codex_runner_enabled": _codex_runner_enabled() if payload.lane_id == "codex_cli" else False,
+            "real_provider": payload.lane_id == "codex_cli",
             "arbitrary_shell_disabled": True,
             "public_real_agent_launch_disabled": True,
         },
-        "notes": ["gated tmux runner foundation; fake_test_lane only for automated proof"],
+        "notes": [f"gated tmux runner; lane={payload.lane_id} (codex real only with both flags; fake for tests)"],
     }
     _save_runner_state(state)
 
-    # only fake implemented
-    state = _start_fake_runner(state)
+    if payload.lane_id == "codex_cli":
+        state = _start_codex_runner(state, str(repo_path))
+    else:
+        # fake
+        state = _start_fake_runner(state)
     _save_runner_state(state)
 
     # event for audit/proof
     try:
         run = _run_for_session(session_id)
-        _append_run_event(run["run_id"], "Runner started", f"Started {runner_id} lane={payload.lane_id} (fake)", "info", "runner")
+        _append_run_event(run["run_id"], "Runner started", f"Started {runner_id} lane={payload.lane_id}", "info", "runner")
     except Exception:
         pass
 
