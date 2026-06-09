@@ -46,6 +46,52 @@ def test_status_endpoint():
     assert isinstance(data["checkpoint_exists"], bool)
 
 
+def test_mcharness_health_endpoint_reports_public_manual_mode():
+    client = TestClient(app)
+    response = client.get("/api/mcharness/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["service"] == "mcharness-control-plane"
+    assert data["mode"] == "public_manual"
+    assert data["real_agent_launch_enabled"] is False
+    assert data["arbitrary_command_execution_enabled"] is False
+    assert isinstance(data["commit"], str) and len(data["commit"]) == 40
+    assert data["available_lanes_count"] >= 1
+    assert data["repo_count"] >= 1
+
+
+def test_public_write_guard_blocks_worker_routes_when_disabled(monkeypatch):
+    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "false")
+    monkeypatch.delenv("MCHARNESS_ADMIN_TOKEN", raising=False)
+    client = TestClient(app)
+
+    dangerous = client.post(
+        "/api/marius/tasks",
+        json={
+            "task_id": "guarded-task",
+            "title": "Guarded Task",
+            "description": "Should be blocked when public writes are off",
+            "command": "fake-worker-success",
+            "args": [],
+        },
+    )
+    assert dangerous.status_code == 403
+    assert "disabled" in dangerous.json()["detail"].lower()
+
+    manual = client.post(
+        "/api/mcharness/sessions",
+        json={
+            "title": "Manual cockpit session",
+            "objective": "Manual cockpit writes remain available.",
+            "plan_instruction": "Create a bounded manual queue.",
+            "repo_path": "/root/mcharness-public-export",
+            "agent_lane": "manual_paste",
+        },
+    )
+    assert manual.status_code == 200
+
+
 def test_create_task_validation():
     client = TestClient(app)
 

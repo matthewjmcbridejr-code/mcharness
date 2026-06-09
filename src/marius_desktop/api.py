@@ -1,8 +1,9 @@
+import os
 import subprocess
 import uuid
 from pathlib import Path
 from typing import List, Literal, Optional, Any, Dict
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .captain import (
@@ -53,7 +54,9 @@ SAFE_REPO_PATHS = [
     Path("/root/hybrid-agent-os"),
     Path("/root/mcharness-public-export"),
 ]
-ARTIFACT_BODY_ROOT = Path("_mctable") / "mcharness" / "artifacts"
+MCTABLE_ROOT = Path(os.getenv("MCHARNESS_DATA_ROOT", "_mctable"))
+ARTIFACT_BODY_ROOT = MCTABLE_ROOT / "mcharness" / "artifacts"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 AGENT_LANES = [
     {
         "lane_id": "codex_cli",
@@ -92,6 +95,45 @@ AGENT_LANES = [
         "manual_only": True,
     },
 ]
+
+
+def _env_flag(*names: str, default: str = "false") -> bool:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None:
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+    return default.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _git_commit() -> Optional[str]:
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception:
+        return None
+    commit = proc.stdout.strip()
+    return commit or None
+
+
+def _public_write_enabled() -> bool:
+    return _env_flag("MCHARNESS_PUBLIC_WRITE_ENABLED", "MCHARNESSS_PUBLIC_WRITE_ENABLED", default="true")
+
+
+def _require_public_write_access(request: Request) -> None:
+    if _public_write_enabled():
+        return
+    expected_token = os.getenv("MCHARNESS_ADMIN_TOKEN", "").strip()
+    presented_token = request.headers.get("X-MCHarness-Admin-Token", "").strip()
+    if expected_token and presented_token == expected_token:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Public write access is disabled for this deployment.",
+    )
 
 class TaskCreateRequest(BaseModel):
     task_id: str = Field(..., pattern=r"^[a-zA-Z0-9_-]+$")
@@ -307,7 +349,25 @@ def get_status():
         "sqlite_checkpointing_available": LANGGRAPH_AVAILABLE,
         "checkpoint_db_path": str(CHECKPOINT_DB_PATH.resolve()),
         "checkpoint_exists": checkpoint_file_exists(),
-        "mctable_root": str(Path("_mctable").resolve())
+        "mctable_root": str(MCTABLE_ROOT.resolve())
+    }
+
+
+@mcharness_router.get("/health")
+def get_mcharness_health():
+    repos = _repo_entries()
+    lanes = _lane_entries()
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "commit": _git_commit(),
+        "mode": "public_manual",
+        "real_agent_launch_enabled": False,
+        "arbitrary_command_execution_enabled": False,
+        "public_write_enabled": _public_write_enabled(),
+        "available_lanes_count": len(lanes),
+        "repo_count": len(repos),
+        "manual_mode": True,
     }
 
 @router.get("/tasks", response_model=List[TaskState])
@@ -323,7 +383,7 @@ def get_tasks():
                 pass
     return tasks
 
-@router.post("/tasks", response_model=TaskState)
+@router.post("/tasks", response_model=TaskState, dependencies=[Depends(_require_public_write_access)])
 def create_task(req: TaskCreateRequest):
     if req.command not in ALLOWED_COMMANDS:
         raise HTTPException(status_code=400, detail=f"Command '{req.command}' is not allowlisted.")
@@ -358,7 +418,7 @@ def get_task_events(task_id: str):
         {"event": "step_executed", "step": state.current_step, "timestamp": state.updated_at.isoformat()}
     ]
 
-@router.post("/tasks/{task_id}/decision", response_model=TaskState)
+@router.post("/tasks/{task_id}/decision", response_model=TaskState, dependencies=[Depends(_require_public_write_access)])
 def post_task_decision(task_id: str, req: DecisionRequest):
     graph = McTableTaskGraph()
     try:
@@ -388,7 +448,7 @@ def get_worker_run_logs(run_id: str):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Worker run {run_id} not found.")
 
-@router.post("/worker-runs/{run_id}/cancel")
+@router.post("/worker-runs/{run_id}/cancel", dependencies=[Depends(_require_public_write_access)])
 def cancel_worker_run(run_id: str):
     try:
         WorkerStub.cancel_run(run_id)

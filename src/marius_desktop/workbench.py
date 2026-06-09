@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import json
 import re
 import threading
@@ -15,7 +16,7 @@ from pydantic import BaseModel, Field
 from .contracts import EvidenceRecord as ThreadEvidenceRecord
 from .contracts import HardGate, MinionTask, PromptQueueItem, ScopedCommitPlan
 
-MCTABLE_ROOT = Path("_mctable")
+MCTABLE_ROOT = Path(os.getenv("MCHARNESS_DATA_ROOT", "_mctable"))
 WORKBENCH_ROOT = MCTABLE_ROOT / "workbench"
 FILE_LOCK = threading.Lock()
 

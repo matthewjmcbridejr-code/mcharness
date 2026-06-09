@@ -1,4 +1,5 @@
 import atexit
+import os
 import json
 import logging
 import time
@@ -25,7 +26,7 @@ except Exception:  # pragma: no cover - exercised only when dependency is missin
 
 logger = logging.getLogger(__name__)
 
-MCTABLE_ROOT = Path("_mctable")
+MCTABLE_ROOT = Path(os.getenv("MCHARNESS_DATA_ROOT", "_mctable"))
 TASKS_DIR = MCTABLE_ROOT / "tasks"
 CHECKPOINTS_DIR = MCTABLE_ROOT / "checkpoints"
 CHECKPOINT_DB_PATH = CHECKPOINTS_DIR / "marius_desktop.sqlite"
