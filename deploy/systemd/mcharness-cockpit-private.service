@@ -1,5 +1,5 @@
 [Unit]
-Description=McHarness public cockpit backend
+Description=McHarness private cockpit backend
 After=network-online.target
 Wants=network-online.target
 
@@ -9,9 +9,11 @@ WorkingDirectory=/root/mcharness-public-export
 Environment=PATH=/root/.hermes/node/bin:/root/hybrid-agent-os/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=PYTHONPATH=/root/mcharness-public-export
 Environment=PYTHONUNBUFFERED=1
-Environment=MCHARNESS_DATA_ROOT=/var/lib/mcharness-cockpit
-Environment=MCHARNESS_PUBLIC_WRITE_ENABLED=false
-ExecStart=/root/hybrid-agent-os/.venv/bin/python -m uvicorn src.server.api:app --host 127.0.0.1 --port 8124 --log-level warning
+Environment=MCHARNESS_DATA_ROOT=/var/lib/mcharness-cockpit-private
+Environment=MCHARNESS_PUBLIC_WRITE_ENABLED=true
+Environment=MCHARNESS_TMUX_RUNNER_ENABLED=true
+Environment=MCHARNESS_CODEX_RUNNER_ENABLED=true
+ExecStart=/root/hybrid-agent-os/.venv/bin/python -m uvicorn src.server.api:app --host 127.0.0.1 --port 8125 --log-level warning
 Restart=on-failure
 RestartSec=3
 StandardOutput=journal
