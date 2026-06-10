@@ -72,9 +72,11 @@ from .run_history import (
 )
 from .worklog import EVENT_LABELS, list_recent_worklog
 from .proof_gates import (
+    assert_step_completion_allowed,
     create_proof_gate,
     decide_proof_gate,
     gate_status_summary_for_run,
+    gate_ui_label,
     get_proof_gate,
     list_gates_for_run,
     list_recent_gates,
@@ -880,16 +882,25 @@ def _save_captain_plan_artifact(plan: dict[str, Any], *, goal: str, repo: dict[s
 
 def _captain_plan_response(plan: dict[str, Any], *, notes: list[str] | None = None) -> dict[str, Any]:
     steps: list[dict[str, Any]] = []
+    current_step_id = plan.get("current_step_id")
+    current_gate_status: str | None = None
     for step in plan.get("steps") or []:
+        step_id = step.get("step_id") or step.get("id")
+        run_id = step.get("run_id")
+        gate_status = gate_status_summary_for_run(MCTABLE_ROOT, str(run_id)) if run_id else None
+        if step_id == current_step_id:
+            current_gate_status = gate_status
         steps.append(
             {
-                "id": step.get("step_id") or step.get("id"),
+                "id": step_id,
                 "title": step.get("title"),
                 "agent": step.get("agent_id") or step.get("agent") or "codex_cli",
                 "prompt": step.get("prompt") or step.get("prompt_preview") or "",
                 "status": step.get("status"),
-                "run_id": step.get("run_id"),
+                "run_id": run_id,
                 "evidence_ids": list(step.get("evidence_ids") or []),
+                "gate_status": gate_status,
+                "gate_label": gate_ui_label(gate_status),
             }
         )
     return {
@@ -900,7 +911,9 @@ def _captain_plan_response(plan: dict[str, Any], *, notes: list[str] | None = No
         "goal": plan.get("goal"),
         "repo_id": plan.get("repo_id"),
         "status": plan.get("status"),
-        "current_step_id": plan.get("current_step_id"),
+        "current_step_id": current_step_id,
+        "current_gate_status": current_gate_status,
+        "current_gate_label": gate_ui_label(current_gate_status),
         "steps": steps,
         "decision_log": list(plan.get("decision_log") or []),
         "notes": list(notes or []),
@@ -1694,6 +1707,14 @@ def post_mcharness_captain_plan_step_dispatch(plan_id: str, step_id: str):
 
 @mcharness_router.post("/captain/plans/{plan_id}/steps/{step_id}/complete", dependencies=[Depends(_require_run_history_write)])
 def post_mcharness_captain_plan_step_complete(plan_id: str, step_id: str, payload: McHarnessCaptainStepCompleteRequest):
+    plan = get_plan_record(MCTABLE_ROOT, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Captain plan not found: {plan_id}")
+    step = next((item for item in plan.get("steps") or [] if item.get("step_id") == step_id), None)
+    if step is None:
+        raise HTTPException(status_code=404, detail=f"Captain plan step not found: {step_id}")
+    if step.get("run_id"):
+        assert_step_completion_allowed(MCTABLE_ROOT, str(step["run_id"]))
     updated = complete_captain_plan_step(
         MCTABLE_ROOT,
         plan_id,
@@ -2600,7 +2621,10 @@ def get_mcharness_run_detail(run_id: str):
         "service_mode": _service_mode_label(),
         "run": {
             **run,
-            "gate_status": gate_status_summary_for_run(MCTABLE_ROOT, run_id),
+            "gate_status": (
+                gate_summary := gate_status_summary_for_run(MCTABLE_ROOT, run_id)
+            ),
+            "gate_label": gate_ui_label(gate_summary),
         },
         "evidence": evidence,
         "gates": gates,

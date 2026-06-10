@@ -50,10 +50,25 @@ def _write_gates(path: Path, rows: list[dict[str, Any]]) -> None:
     path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
 
 
+def _sanitize_decision_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    reason, _ = redact_secrets(str(entry.get("reason") or ""))
+    return {
+        "at": entry.get("at"),
+        "decision": entry.get("decision"),
+        "decided_by": entry.get("decided_by"),
+        "reason": reason or None,
+    }
+
+
 def _sanitize_gate(gate: dict[str, Any]) -> dict[str, Any]:
     title, _ = redact_secrets(str(gate.get("title") or ""))
     summary, _ = redact_secrets(str(gate.get("summary") or ""))
     reason, _ = redact_secrets(str(gate.get("decision_reason") or ""))
+    decision_log = [
+        _sanitize_decision_entry(entry)
+        for entry in list(gate.get("decision_log") or [])
+        if isinstance(entry, dict)
+    ]
     return {
         "gate_id": gate.get("gate_id"),
         "run_id": gate.get("run_id"),
@@ -68,6 +83,7 @@ def _sanitize_gate(gate: dict[str, Any]) -> dict[str, Any]:
         "decided_at": gate.get("decided_at"),
         "decided_by": gate.get("decided_by"),
         "decision_reason": reason or None,
+        "decision_log": decision_log[:20],
     }
 
 
@@ -130,6 +146,40 @@ def list_recent_gates(root: Path, *, limit: int = 30) -> list[dict[str, Any]]:
     with _FILE_LOCK:
         rows = _read_gates(gates_index_path(root))
     return [_sanitize_gate(row) for row in rows[:limit]]
+
+
+GATE_UI_LABELS: dict[str, str] = {
+    "none": "No gate",
+    "pending": "Proof pending",
+    "approved": "Approved",
+    "needs_more_evidence": "Needs more evidence",
+    "blocked": "Blocked",
+}
+
+
+def gate_ui_label(status: str | None) -> str:
+    if not status:
+        return GATE_UI_LABELS["none"]
+    return GATE_UI_LABELS.get(str(status), str(status).replace("_", " ").title())
+
+
+def completion_block_reason(gate_status: str | None) -> str | None:
+    if gate_status == "pending":
+        return "Cannot mark step done while a proof gate is pending."
+    if gate_status == "blocked":
+        return "Step is blocked by a proof gate. Resolve or revise before continuing."
+    if gate_status == "needs_more_evidence":
+        return "Step needs more evidence before it can be marked done."
+    return None
+
+
+def assert_step_completion_allowed(root: Path, run_id: str | None) -> None:
+    if not run_id:
+        return
+    status = gate_status_summary_for_run(root, str(run_id))
+    reason = completion_block_reason(status)
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
 
 
 def gate_status_summary_for_run(root: Path, run_id: str) -> str | None:

@@ -276,7 +276,9 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await expect(page.locator("[data-testid='mission-command']")).toContainText("What do you want Warden to build?");
   await expect(page.locator("[data-testid='mission-command']")).toContainText("Captain breaks goals into bounded agent steps");
   await expect(page.locator("[data-testid='current-mission-card']")).toContainText("No active mission yet");
-  await expect(page.locator("[data-testid='mission-worklog-empty']")).toContainText("No mission activity yet");
+  await expect(page.locator("[data-testid='mission-timeline-empty']")).toContainText("No mission activity yet");
+  await expect(page.locator("[data-testid='mission-timeline-filter']")).toBeVisible();
+  await expect(page.locator("[data-testid='mission-timeline-filter'] button", { hasText: "All" })).toHaveClass(/active/);
   await expect(page.locator("[data-testid='operator-inspector']")).toBeVisible();
   await expect(page.locator("[data-testid='inspector-next-move']")).toContainText("Next Move");
   await expect(page.locator("[data-testid='control-room-status']")).toContainText("Control Room Status");
@@ -2003,4 +2005,141 @@ test("run history and evidence appear after private Codex dispatch", async ({ pa
   await expect(evidenceModal).toBeVisible();
   await expect(evidenceModal.locator("[data-testid='evidence-detail-content']")).toContainText("Codex output line 1");
   await expect(page.locator("text=sk-or-")).toHaveCount(0);
+});
+
+test("Mission timeline filters gate events and shows honest empty states", async ({ page }) => {
+  const worklogItems = [
+    {
+      id: "wl_plan_1",
+      kind: "plan_created",
+      label: "Plan created",
+      title: "Captain plan",
+      summary: "Plan persisted.",
+      status: "saved",
+      created_at: "2026-06-09T12:00:00Z",
+      links: { plan_id: "plan_1" },
+    },
+    {
+      id: "wl_gate_created_1",
+      kind: "gate_created",
+      label: "Proof gate created",
+      title: "Review gate",
+      summary: "Manual proof gate created.",
+      status: "pending",
+      created_at: "2026-06-09T12:05:00Z",
+      links: { gate_id: "gate_1", run_id: "run_1" },
+    },
+    {
+      id: "wl_gate_approved_1",
+      kind: "gate_approved",
+      label: "Proof gate approved",
+      title: "Review gate",
+      summary: "Looks good.",
+      status: "approved",
+      created_at: "2026-06-09T12:10:00Z",
+      links: { gate_id: "gate_1", run_id: "run_1" },
+    },
+  ];
+
+  await page.route("**/api/mcharness/worklog/recent", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ items: worklogItems }),
+    });
+  });
+
+  await page.goto("/web/warden/index.html");
+  await expect(page.locator("[data-testid='mission-timeline-list']")).toBeVisible();
+  await expect(page.locator("[data-testid='worklog-event-plan_created']")).toBeVisible();
+  await expect(page.locator("[data-testid='worklog-event-gate_created']")).toBeVisible();
+
+  await page.locator("[data-timeline-filter='gates']").click();
+  await expect(page.locator("[data-testid='worklog-event-gate_created']")).toBeVisible();
+  await expect(page.locator("[data-testid='worklog-event-gate_approved']")).toBeVisible();
+  await expect(page.locator("[data-testid='worklog-event-plan_created']")).toHaveCount(0);
+
+  await page.locator("[data-timeline-filter='evidence']").click();
+  await expect(page.locator("[data-testid='mission-timeline-empty']")).toContainText("No evidence events yet");
+  await expect(page.locator("text=Advanced / Legacy Cockpit")).toHaveCount(0);
+  await expect(page.locator("text=SERVER CONTROL PLANE")).toHaveCount(0);
+});
+
+test("Run detail review flow exposes sections and manual actions by gate state", async ({ page }) => {
+  const pendingGate = {
+    gate_id: "gate_review_1",
+    title: "Pending gate",
+    status: "pending",
+    gate_type: "manual_review",
+    created_at: "2026-06-09T12:01:00Z",
+    summary: "Awaiting review.",
+    decision_log: [],
+  };
+  const runDetail = {
+    run_id: "run_review_1",
+    title: "Review smoke",
+    agent_id: "codex_cli",
+    status: "completed",
+    started_at: "2026-06-09T12:00:00Z",
+    prompt_excerpt: "Review this run.",
+    transcript_excerpt: "Done.",
+    gate_status: "pending",
+    gate_label: "Proof pending",
+  };
+
+  await page.route("**/api/mcharness/**", async (route) => {
+    const url = new URL(route.request().url());
+    const { pathname } = url;
+    if (pathname.endsWith("/health")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ tmux_runner_enabled: true, codex_runner_enabled: true }),
+      });
+      return;
+    }
+    if (pathname.endsWith("/runs/recent")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ runs: [runDetail] }),
+      });
+      return;
+    }
+    if (pathname.endsWith("/runs/run_review_1/gates")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ gates: [pendingGate] }),
+      });
+      return;
+    }
+    if (pathname.endsWith("/runs/run_review_1")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          run: runDetail,
+          evidence: [{ evidence_id: "ev_1", title: "Transcript", type: "transcript" }],
+          gates: [pendingGate],
+        }),
+      });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+  });
+
+  await page.goto("/web/warden/index.html");
+  await page.locator("[data-testid='nav-runs']").click();
+  await page.locator("[data-testid='runs-list'] button", { hasText: "View Run" }).click();
+  const runModal = page.locator("#run-detail-modal");
+  await expect(runModal).toBeVisible();
+  await expect(runModal.locator("[data-testid='run-detail-summary-section']")).toBeVisible();
+  await expect(runModal.locator("[data-testid='run-detail-transcript-section']")).toBeVisible();
+  await expect(runModal.locator("[data-testid='run-detail-evidence-section']")).toBeVisible();
+  await expect(runModal.locator("[data-testid='run-detail-gates-section']")).toBeVisible();
+  await expect(runModal.locator("[data-testid='run-detail-decisions-section']")).toBeVisible();
+  await expect(runModal.locator("[data-testid='run-detail-next-actions-section']")).toBeVisible();
+  await expect(runModal.locator("[data-testid='run-detail-approve-gate']")).toBeVisible();
+  await expect(runModal.locator("[data-testid='run-detail-export']")).toBeVisible();
 });

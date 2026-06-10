@@ -75,10 +75,19 @@
               <div id="captain-plan-controls" data-testid="captain-plan-controls" class="captain-plan-controls"></div>
             </div>
           </div>
-          <div class="mission-card" data-testid="mission-worklog-card">
-            <h3 class="mission-card-title">Mission Worklog</h3>
-            <div id="mission-worklog-list" data-testid="mission-worklog-list" class="mission-worklog-list"></div>
-            <p id="mission-worklog-empty" data-testid="mission-worklog-empty" class="mission-card-copy">No mission activity yet. Create a plan to start the worklog.</p>
+          <div class="mission-card mission-card-timeline" data-testid="mission-timeline-card">
+            <div class="mission-timeline-header">
+              <h3 class="mission-card-title">Mission Timeline</h3>
+              <div id="mission-timeline-filter" data-testid="mission-timeline-filter" class="mission-timeline-filter">
+                <button type="button" class="btn active" data-timeline-filter="all">All</button>
+                <button type="button" class="btn" data-timeline-filter="plans">Plans</button>
+                <button type="button" class="btn" data-timeline-filter="runs">Runs</button>
+                <button type="button" class="btn" data-timeline-filter="evidence">Evidence</button>
+                <button type="button" class="btn" data-timeline-filter="gates">Gates</button>
+              </div>
+            </div>
+            <div id="mission-worklog-list" data-testid="mission-timeline-list" class="mission-timeline-list"></div>
+            <p id="mission-worklog-empty" data-testid="mission-timeline-empty" class="mission-card-copy">No mission activity yet. Create a plan to start the timeline.</p>
           </div>
         </div>
       </section>
@@ -427,25 +436,36 @@
 
   <!-- Run Detail Modal -->
   <div id="run-detail-modal" data-testid="run-detail-modal" class="history-modal" style="display:none;">
-    <div class="history-modal-content">
+    <div class="history-modal-content run-detail-review">
       <h3 id="run-detail-title" data-testid="run-detail-title">Run Detail</h3>
-      <div id="run-detail-meta" data-testid="run-detail-meta" class="history-modal-meta"></div>
-      <div class="history-modal-section">
-        <h4>Prompt excerpt</h4>
-        <pre id="run-detail-prompt" data-testid="run-detail-prompt" class="history-modal-pre"></pre>
+      <div class="history-modal-section" data-testid="run-detail-summary-section">
+        <h4>Run Summary</h4>
+        <div id="run-detail-meta" data-testid="run-detail-meta" class="history-modal-meta"></div>
+        <div id="run-detail-gate-state" data-testid="run-detail-gate-state" class="history-modal-meta"></div>
       </div>
-      <div class="history-modal-section">
-        <h4>Transcript excerpt</h4>
+      <div class="history-modal-section" data-testid="run-detail-transcript-section">
+        <h4>Transcript Excerpt</h4>
         <pre id="run-detail-transcript" data-testid="run-detail-transcript" class="history-modal-pre"></pre>
       </div>
-      <div class="history-modal-section">
-        <h4>Evidence</h4>
+      <div class="history-modal-section" data-testid="run-detail-prompt-section">
+        <h4>Prompt Excerpt</h4>
+        <pre id="run-detail-prompt" data-testid="run-detail-prompt" class="history-modal-pre"></pre>
+      </div>
+      <div class="history-modal-section" data-testid="run-detail-evidence-section">
+        <h4>Evidence Records</h4>
         <ul id="run-detail-evidence" data-testid="run-detail-evidence" class="history-modal-list"></ul>
       </div>
       <div class="history-modal-section" data-testid="run-detail-gates-section">
         <h4>Proof Gates</h4>
         <div id="run-detail-gates" data-testid="run-detail-gates" class="proof-gate-list"></div>
-        <button type="button" id="run-detail-create-gate" data-testid="run-detail-create-gate" class="btn" style="display:none;">Create Proof Gate</button>
+      </div>
+      <div class="history-modal-section" data-testid="run-detail-decisions-section">
+        <h4>Decision History</h4>
+        <ul id="run-detail-decisions" data-testid="run-detail-decisions" class="history-modal-list"></ul>
+      </div>
+      <div class="history-modal-section" data-testid="run-detail-next-actions-section">
+        <h4>Next Allowed Manual Action</h4>
+        <div id="run-detail-next-actions" data-testid="run-detail-next-actions" class="run-detail-next-actions"></div>
       </div>
       <div class="history-modal-actions">
         <button type="button" id="run-detail-export" data-testid="run-detail-export" class="btn">Export Report</button>

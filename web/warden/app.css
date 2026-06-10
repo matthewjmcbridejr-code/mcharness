@@ -890,8 +890,16 @@ textarea {
 
 .mission-cards-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(360px, 1fr) minmax(420px, 1.25fr);
   gap: 16px;
+  align-items: stretch;
+}
+
+@media (min-width: 1600px) {
+  .mission-cards-grid {
+    grid-template-columns: minmax(420px, 0.95fr) minmax(520px, 1.35fr);
+    gap: 20px;
+  }
 }
 
 .mission-card {
@@ -919,12 +927,47 @@ textarea {
   line-height: 1.45;
 }
 
+.mission-card-timeline {
+  display: flex;
+  flex-direction: column;
+  min-height: 360px;
+}
+
+.mission-timeline-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.mission-timeline-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mission-timeline-filter .btn {
+  font-size: 0.78rem;
+  padding: 4px 10px;
+}
+
+.mission-timeline-filter .btn.active {
+  border-color: rgba(125, 176, 255, 0.45);
+  background: rgba(125, 176, 255, 0.12);
+}
+
+.mission-timeline-list,
 .mission-worklog-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 320px;
+  flex: 1;
+  min-height: 0;
+  max-height: 420px;
   overflow-y: auto;
+  padding-right: 4px;
 }
 
 .worklog-event-card {
@@ -997,6 +1040,29 @@ textarea {
   margin-top: 12px;
 }
 
+.run-detail-review .history-modal-section h4 {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.run-detail-next-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.run-detail-next-actions .run-detail-action-note {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+  line-height: 1.45;
+  flex: 1 1 100%;
+}
+
 .evidence-type-filter {
   display: flex;
   flex-wrap: wrap;
@@ -1015,6 +1081,17 @@ textarea {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.captain-gate-banner {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(240, 198, 106, 0.35);
+  background: rgba(240, 198, 106, 0.08);
+  color: var(--warn, #f0c66a);
+  font-size: 0.82rem;
+  line-height: 1.4;
 }
 
 .mission-card-wide {
