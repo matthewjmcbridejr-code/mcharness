@@ -561,9 +561,15 @@ test("private runner quick replies send allowed keys and refresh transcript", as
     }
 
     if (pathname.endsWith("/runner/send-key") && method === "POST") {
-      sendKeyCalls.push(body.key);
-      runnerStatus = { ...runnerStatus, status: "prompt_sent" };
-      transcriptText = `${transcriptText}\n# [quick reply ${body.key}]\nSent: ${body.key}\n`;
+      if (body.key === "Submit / Continue") {
+        sendKeyCalls.push("Tab", "Enter");
+        runnerStatus = { ...runnerStatus, status: "prompt_sent" };
+        transcriptText = `${transcriptText}\n# [submit/continue]\nPrompt sent to Codex.\n`;
+      } else {
+        sendKeyCalls.push(body.key);
+        runnerStatus = { ...runnerStatus, status: "prompt_sent" };
+        transcriptText = `${transcriptText}\n# [quick reply ${body.key}]\nSent: ${body.key}\n`;
+      }
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -575,6 +581,7 @@ test("private runner quick replies send allowed keys and refresh transcript", as
           tmux_session_name: runnerStatus.tmux_session_name,
           sent_key: body.key,
           status: runnerStatus.status,
+          status_note: body.key === "Submit / Continue" ? "Prompt sent to Codex." : undefined,
           transcript_excerpt: transcriptText,
         }),
       });
@@ -639,6 +646,7 @@ test("private runner quick replies send allowed keys and refresh transcript", as
   await expect(mon.locator("[data-quick-reply='1']")).toBeVisible();
   await expect(mon.locator("[data-quick-reply='2']")).toBeVisible();
   await expect(mon.locator("[data-quick-reply='3']")).toBeVisible();
+  await expect(mon.locator("[data-quick-reply='Submit / Continue']")).toBeVisible();
   await expect(mon.locator("[data-quick-reply='Enter']")).toBeVisible();
   await expect(mon.locator("[data-quick-reply='Esc']")).toBeVisible();
   await expect(mon.locator("[data-quick-reply='Ctrl+C']")).toBeVisible();
@@ -697,6 +705,12 @@ test("private runner quick replies send allowed keys and refresh transcript", as
   await expect.poll(() => sendKeyCalls.length).toBe(2);
   await expect(sendKeyCalls[1]).toBe("Enter");
   await expect(page.locator("[data-testid='quick-reply-status']")).toContainText("Sent: Enter");
+
+  await mon.locator("[data-quick-reply='Submit / Continue']").click();
+  await expect.poll(() => sendKeyCalls.length).toBe(4);
+  await expect(sendKeyCalls.slice(-2)).toEqual(["Tab", "Enter"]);
+  await expect(page.locator("[data-testid='quick-reply-status']")).toContainText("Prompt sent to Codex.");
+  await expect(page.locator("[data-testid='modal-transcript']")).toContainText("Prompt sent to Codex.");
 
   await mon.locator("#modal-stop").click();
   await expect.poll(() => runnerStatus.status).toBe("stopped");
@@ -969,12 +983,14 @@ test("Captain Deck creates a plan and deploys the first prompt", async ({ page }
   await captainModal.locator("[data-testid='captain-deploy-first']").click();
   await expect.poll(() => runnerStartCalls.length).toBe(1);
   await expect.poll(() => sendPromptCalls.length).toBe(1);
+  await expect(sendPromptCalls[0]).toContain("Exact goal: Build a webpage just like aol.com");
   await expect(page.locator("#captain-deck-modal")).not.toBeVisible();
 
   const mon = page.locator("#live-cli-modal");
   await expect(mon).toBeVisible();
   await expect(page.locator("#modal-info")).toContainText("Repo: hybrid-agent-os");
   await expect(page.locator("#modal-info")).toContainText("Status: Running");
+  await expect(page.locator("[data-testid='quick-reply-status']")).toContainText("Prompt sent to Codex.");
   await expect(mon.locator("[data-testid='modal-transcript']")).toContainText("Captain response pending.");
   await mon.locator("#modal-stop").click();
   await expect.poll(() => runnerStatus.status).toBe("stopped");

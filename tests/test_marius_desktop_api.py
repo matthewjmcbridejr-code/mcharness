@@ -1099,6 +1099,53 @@ def test_runner_send_key_allows_only_quick_reply_keys(monkeypatch, tmp_path):
         assert any(call[0][-1] == mapped for call in calls if call[0][:4] == ("tmux", "send-keys", "-t", tmux_name))
 
 
+def test_runner_send_key_submit_continue_sends_tab_then_enter(monkeypatch, tmp_path):
+    client = TestClient(app)
+    import src.marius_desktop.api as api_mod
+
+    session_id = "submit-continue-session"
+    runner_id = "run_5678abcd"
+    tmux_name = api_mod._tmux_session_name(session_id, runner_id)
+    transcript_path = tmp_path / "transcript.txt"
+    transcript_path.write_text("before\n", encoding="utf-8")
+    state = {
+        "session_id": session_id,
+        "runner_id": runner_id,
+        "lane_id": "codex_cli",
+        "status": "waiting_for_codex",
+        "tmux_session_name": tmux_name,
+        "transcript_file_path": str(transcript_path),
+    }
+    calls = []
+
+    def fake_load_runner_state(sid):
+        assert sid == session_id
+        return state
+
+    def fake_safe_cmd(cmd, timeout=2.5, cwd=None):
+        calls.append((tuple(cmd), timeout))
+        if cmd[:3] == ["tmux", "has-session", "-t"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        if cmd[:4] == ["tmux", "send-keys", "-t", tmux_name]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(api_mod, "_load_runner_state", fake_load_runner_state)
+    monkeypatch.setattr(api_mod, "_safe_cmd", fake_safe_cmd)
+    monkeypatch.setattr(api_mod, "_run_for_session", lambda sid: {"run_id": "run-submit"})
+    monkeypatch.setattr(api_mod, "_append_run_event", lambda *args, **kwargs: None)
+
+    response = client.post(f"/api/mcharness/sessions/{session_id}/runner/send-key", json={"key": "Submit / Continue"})
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["sent_key"] == "Submit / Continue"
+    assert payload["status_note"] == "Prompt sent to Codex."
+    sent_keys = [call[0][-1] for call in calls if call[0][:3] == ("tmux", "send-keys", "-t")]
+    assert "Tab" in sent_keys
+    assert "Enter" in sent_keys
+
+
 def test_runner_send_key_rejects_invalid_state_and_arbitrary_tmux(monkeypatch):
     client = TestClient(app)
     import src.marius_desktop.api as api_mod

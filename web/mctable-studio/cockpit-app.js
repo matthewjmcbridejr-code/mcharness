@@ -598,6 +598,7 @@
           if (result && result.status) {
             state.health.runner_status = result.status;
           }
+          setQuickReplyStatus("Prompt sent to Codex.");
           if (typeof refreshLiveMonitor === "function") await refreshLiveMonitor();
         } catch (e) {
           if (typeof refreshLiveMonitor === "function") await refreshLiveMonitor();
@@ -770,13 +771,21 @@
       setQuickReplyStatus("Failed: no active runner", true);
       return;
     }
-    setQuickReplyStatus(`Sending: ${key}`);
+    if (key === "Submit / Continue") {
+      setQuickReplyStatus("Sending: Submit / Continue");
+    } else {
+      setQuickReplyStatus(`Sending: ${key}`);
+    }
     try {
       const result = await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/send-key`, {
         method: "POST",
         body: { key },
       });
-      setQuickReplyStatus(`Sent: ${key}`);
+      if (key === "Submit / Continue") {
+        setQuickReplyStatus((result && result.status_note) || "Prompt sent to Codex.");
+      } else {
+        setQuickReplyStatus(`Sent: ${key}`);
+      }
       const pre = document.getElementById("modal-transcript");
       if (pre && result && result.transcript_excerpt) {
         const shouldStick = state.liveAutoScroll && isModalTranscriptNearBottom(pre);

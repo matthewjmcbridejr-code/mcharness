@@ -1040,7 +1040,7 @@ class McHarnessRunnerSendPrompt(BaseModel):
 
 
 class McHarnessRunnerSendKey(BaseModel):
-    key: Literal["1", "2", "3", "Enter", "Esc", "Ctrl+C"]
+    key: Literal["1", "2", "3", "Enter", "Esc", "Ctrl+C", "Submit / Continue"]
 
 
 ALLOWED_QUICK_REPLY_KEYS: dict[str, str] = {
@@ -1102,17 +1102,28 @@ def _send_key_to_codex_runner(session_id: str, key: str) -> dict[str, Any]:
     if has is None or has.returncode != 0:
         raise HTTPException(status_code=409, detail="No active tmux session for runner")
 
-    tmux_key = ALLOWED_QUICK_REPLY_KEYS.get(key)
-    if tmux_key is None:
-        raise HTTPException(status_code=400, detail="Unsupported quick reply key")
+    status_note = None
+    if key == "Submit / Continue":
+        res_tab = _safe_cmd(["tmux", "send-keys", "-t", name, "Tab"], timeout=2.5)
+        res_enter = _safe_cmd(["tmux", "send-keys", "-t", name, "Enter"], timeout=2.5)
+        if res_tab is None or res_tab.returncode != 0 or res_enter is None or res_enter.returncode != 0:
+            raise HTTPException(status_code=502, detail="Failed to submit prompt to tmux runner")
+        status_note = "Prompt sent to Codex."
+    else:
+        tmux_key = ALLOWED_QUICK_REPLY_KEYS.get(key)
+        if tmux_key is None:
+            raise HTTPException(status_code=400, detail="Unsupported quick reply key")
 
-    res = _safe_cmd(["tmux", "send-keys", "-t", name, tmux_key], timeout=2.5)
-    if res is None or res.returncode != 0:
-        raise HTTPException(status_code=502, detail="Failed to send quick reply to tmux runner")
+        res = _safe_cmd(["tmux", "send-keys", "-t", name, tmux_key], timeout=2.5)
+        if res is None or res.returncode != 0:
+            raise HTTPException(status_code=502, detail="Failed to send quick reply to tmux runner")
 
     try:
         run = _run_for_session(session_id)
-        _append_run_event(run.get("run_id", ""), "Quick reply sent", f"Sent quick reply key {key!r} to Codex via tmux", "info", "runner")
+        if key == "Submit / Continue":
+            _append_run_event(run.get("run_id", ""), "Prompt sent to Codex", "Prompt sent to Codex via tmux Tab + Enter", "info", "runner")
+        else:
+            _append_run_event(run.get("run_id", ""), "Quick reply sent", f"Sent quick reply key {key!r} to Codex via tmux", "info", "runner")
     except Exception:
         pass
 
@@ -1124,6 +1135,7 @@ def _send_key_to_codex_runner(session_id: str, key: str) -> dict[str, Any]:
         "tmux_session_name": name,
         "sent_key": key,
         "status": state.get("status"),
+        "status_note": status_note,
         "transcript_excerpt": _runner_transcript_excerpt(state),
     }
 
