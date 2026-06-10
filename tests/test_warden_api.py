@@ -1837,6 +1837,105 @@ def test_run_report_includes_evidence_gates_and_redacts_secrets(monkeypatch, tmp
     assert "[REDACTED]" in report.text
 
 
+def test_mission_control_snapshot_idle_public(monkeypatch):
+    client = TestClient(app)
+    response = client.get("/api/mcharness/mission-control/snapshot")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["mission"]["status"] == "idle"
+    assert body["mission"]["mission_id"] is None
+    assert body["safety"]["public_runner_enabled"] is False
+    assert body["safety"]["jules_runnable"] is False
+    assert body["service_mode"] == "public"
+    assert "sample" not in response.text.lower()
+    assert "fake" not in response.text.lower()
+
+
+def test_mission_control_snapshot_active_private(monkeypatch, tmp_path):
+    _enable_private_captain_loop(monkeypatch, tmp_path)
+    client = TestClient(app)
+    _sample_persisted_plan(client)
+    response = client.get("/api/mcharness/mission-control/snapshot")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["mission"]["status"] in {"planned", "running"}
+    assert body["mission"]["mission_id"] == "plan_loop01"
+    assert body["plan"]["plan_id"] == "plan_loop01"
+    assert len(body["plan"]["steps"]) == 2
+    assert body["timeline"]["items"]
+    assert body["next_move"]["action"] in {"view_codex", "develop_plan", "none", "mark_step_done", "review_gate"}
+    assert body["service_mode"] == "private"
+
+
+def test_agents_health_public_codex_disabled_private_runnable(monkeypatch, tmp_path):
+    public = TestClient(app)
+    public_health = public.get("/api/mcharness/agents/health")
+    assert public_health.status_code == 200
+    public_codex = next(item for item in public_health.json()["items"] if item["id"] == "codex_cli")
+    assert public_codex["runnable"] is False
+    assert public_codex["mode"] == "disabled"
+
+    _enable_private_run_history(monkeypatch, tmp_path)
+    private = TestClient(app)
+    private_health = private.get("/api/mcharness/agents/health")
+    assert private_health.status_code == 200
+    private_codex = next(item for item in private_health.json()["items"] if item["id"] == "codex_cli")
+    assert private_codex["runnable"] is True
+    assert private_codex["mode"] == "execution"
+    jules_items = [item for item in private_health.json()["items"] if item.get("adapter") == "jules_remote" or item.get("mode") == "planning_only"]
+    for item in jules_items:
+        if item["id"] != "captain":
+            assert item.get("mode") == "planning_only" or item.get("runnable") is False
+
+
+def test_safety_status_public_and_private(monkeypatch, tmp_path):
+    public = TestClient(app)
+    public_safety = public.get("/api/mcharness/safety/status")
+    assert public_safety.status_code == 200
+    assert public_safety.json()["public_runner_enabled"] is False
+    assert public_safety.json()["arbitrary_shell_input"] is False
+    assert public_safety.json()["jules_runnable"] is False
+    assert public_safety.json()["secrets_exposed"] is False
+
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
+    import src.warden.api as api_mod
+
+    monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
+    private = TestClient(app)
+    private_safety = private.get("/api/mcharness/safety/status")
+    assert private_safety.status_code == 200
+    assert private_safety.json()["private_runner_enabled"] is True
+    assert private_safety.json()["public_runner_enabled"] is False
+
+
+def test_mission_pause_and_adjust_plan_private_only(monkeypatch, tmp_path):
+    public_blocked = TestClient(app)
+    assert public_blocked.post("/api/mcharness/missions/plan_loop01/pause", json={}).status_code == 403
+
+    _enable_private_captain_loop(monkeypatch, tmp_path)
+    client = TestClient(app)
+    _sample_persisted_plan(client)
+
+    paused = client.post("/api/mcharness/missions/plan_loop01/pause", json={"note": "Operator hold."})
+    assert paused.status_code == 200, paused.text
+    assert paused.json()["status"] == "stopped"
+    snapshot = client.get("/api/mcharness/mission-control/snapshot")
+    assert snapshot.json()["mission"]["status"] == "stopped"
+    kinds = {item["kind"] for item in client.get("/api/mcharness/worklog/recent").json()["items"]}
+    assert "mission_paused" in kinds
+
+    _sample_persisted_plan(client)
+    adjusted = client.post(
+        "/api/mcharness/missions/plan_loop01/adjust-plan",
+        json={"note": "Need narrower scope.", "adjustments": {"scope": "smaller"}},
+    )
+    assert adjusted.status_code == 200, adjusted.text
+    assert adjusted.json()["human_review_required"] is True
+    kinds = {item["kind"] for item in client.get("/api/mcharness/worklog/recent").json()["items"]}
+    assert "plan_adjustment_requested" in kinds
+
+
 def test_agent_refresh_status_public_codex_not_runnable(monkeypatch):
     client = TestClient(app)
     refreshed = client.post("/api/mcharness/agents/refresh-status")

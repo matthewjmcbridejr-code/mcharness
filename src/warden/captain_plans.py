@@ -325,6 +325,48 @@ def stop_plan(root: Path, plan_id: str, *, note: str | None = None) -> dict[str,
     return sanitize_plan_detail(saved)
 
 
+def pause_mission_plan(root: Path, plan_id: str, *, note: str | None = None) -> dict[str, Any]:
+    plan = get_plan_record(root, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Captain plan not found: {plan_id}")
+    plan["status"] = "stopped"
+    for step in plan.get("steps") or []:
+        if step.get("status") in {"queued", "revised", "dispatched", "running", "needs_review"}:
+            step["status"] = "stopped"
+            step["updated_at"] = _now_iso()
+    append_decision_log(
+        plan,
+        action="mission_paused",
+        detail=note or "Operator paused the mission.",
+        step_id=plan.get("current_step_id"),
+    )
+    saved = _save_plan(root, plan)
+    return sanitize_plan_detail(saved)
+
+
+def request_plan_adjustment(
+    root: Path,
+    plan_id: str,
+    *,
+    note: str | None = None,
+    adjustments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    plan = get_plan_record(root, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Captain plan not found: {plan_id}")
+    detail = note or "Plan adjustment requested. Human review required before changes are applied."
+    if adjustments:
+        detail = f"{detail} Requested changes recorded for operator review."
+    append_decision_log(
+        plan,
+        action="plan_adjustment_requested",
+        detail=detail,
+        step_id=plan.get("current_step_id"),
+    )
+    saved = _save_plan(root, plan)
+    return sanitize_plan_detail(saved)
+
+
 def sanitize_plan_summary(plan: dict[str, Any]) -> dict[str, Any]:
     steps = _sorted_steps(plan.get("steps") or [])
     return {
