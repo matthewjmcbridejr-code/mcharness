@@ -88,6 +88,83 @@ function normalizeMockCaptainPlan(plan) {
   };
 }
 
+function idleMissionSnapshot(overrides = {}) {
+  return {
+    service: "mcharness-control-plane",
+    service_mode: "public",
+    generated_at: new Date().toISOString(),
+    mission: { status: "idle", mission_id: null, title: null, progress_pct: 0 },
+    plan: { plan_id: null, steps: [] },
+    timeline: { items: [] },
+    worklog: { items: [] },
+    proof_gates: { summary: { passed: 0, pending: 0, blocked: 0, needs_more_evidence: 0, total: 0 }, items: [] },
+    agents: {
+      summary: {},
+      items: [
+        { id: "codex_cli", name: "Codex CLI", status: "disabled", mode: "disabled", runnable: false },
+        { id: "captain", name: "Captain", status: "not_configured", mode: "orchestrator", runnable: false },
+      ],
+    },
+    safety: {
+      secure: true,
+      public_runner_enabled: false,
+      private_runner_enabled: false,
+      arbitrary_shell_input: false,
+      jules_runnable: false,
+      secrets_exposed: false,
+      items: [
+        { key: "public_runner", label: "Public runner", status: "disabled", severity: "good", summary: "Public runner is disabled." },
+        { key: "private_runner", label: "Private runner", status: "disabled", severity: "good", summary: "Private runner is disabled on public service." },
+      ],
+    },
+    runner_sessions: { max_active_runner_sessions: 4, total_runner_sessions: 0, active_runner_sessions: 0, stale_runner_sessions: 0 },
+    next_move: { label: "Develop a plan", description: "Create or load a Captain plan to begin supervised work.", action: "develop_plan" },
+    ...overrides,
+  };
+}
+
+function idleRunnerSessions() {
+  return {
+    service: "mcharness-control-plane",
+    service_mode: "public",
+    max_active_runner_sessions: 4,
+    total_runner_sessions: 0,
+    active_runner_sessions: 0,
+    stale_runner_sessions: 0,
+    items: [],
+  };
+}
+
+async function fulfillControlRoomRoutes(route, { snapshot = idleMissionSnapshot(), runner = idleRunnerSessions() } = {}) {
+  const url = new URL(route.request().url());
+  const { pathname } = url;
+  if (pathname.endsWith("/mission-control/snapshot")) {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(snapshot) });
+    return true;
+  }
+  if (pathname.endsWith("/runner/sessions")) {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(runner) });
+    return true;
+  }
+  if (pathname.endsWith("/runner/sessions/cleanup") && route.request().method() === "POST") {
+    const body = route.request().postDataJSON() || {};
+    await route.fulfill({
+      status: body.confirm ? 200 : 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        dry_run: !body.confirm,
+        candidates: body.confirm ? [] : ["mch_run_run_stale01"],
+        killed: body.confirm ? ["mch_run_run_stale01"] : [],
+        skipped: [],
+        errors: [],
+        inventory: { total_runner_sessions: 0, active_runner_sessions: 0, stale_runner_sessions: 0 },
+      }),
+    });
+    return true;
+  }
+  return false;
+}
+
 function nextQueuedMockStepId(plan, afterStepId) {
   const steps = plan.steps || [];
   const index = steps.findIndex((step) => (step.id || step.step_id) === afterStepId);
@@ -248,42 +325,49 @@ test.afterEach(() => {
 });
 
 test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ page }, testInfo) => {
-  await page.route("**/api/mcharness/captain/status", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        ok: true,
-        configured: false,
-        provider: "openrouter",
-        model: "openrouter/auto",
-        planning_enabled: false,
-        key_source: "missing",
-        private_key_setup_enabled: false,
-        notes: ["Captain is not configured. Set OPENROUTER_API_KEY on the private service."],
-      }),
-    });
+  await page.route("**/api/mcharness/**", async (route) => {
+    if (await fulfillControlRoomRoutes(route)) return;
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/captain/status")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          configured: false,
+          provider: "openrouter",
+          model: "openrouter/auto",
+          planning_enabled: false,
+          key_source: "missing",
+          private_key_setup_enabled: false,
+          notes: ["Captain is not configured. Set OPENROUTER_API_KEY on the private service."],
+        }),
+      });
+      return;
+    }
+    await route.continue();
   });
   await page.goto("/web/warden/index.html");
+  await page.waitForSelector("[data-control-room-ready='1']");
 
-  // Simple default UI
   await expect(page.locator("h1")).toContainText("Warden");
   await expect(page.locator("[data-testid='warden-byline']")).toContainText("by Marius Systems");
   await expect(page.locator("[data-testid='warden-sidebar']")).toBeVisible();
   await expect(page.locator("[data-testid='warden-powered']")).toContainText("Powered by McHarness");
   await expect(page.locator("[data-testid='nav-mission']")).toHaveClass(/active/);
   await expect(page.locator("[data-testid='warden-section-mission']")).toHaveClass(/active/);
-  await expect(page.locator("[data-testid='mission-command']")).toContainText("What do you want Warden to build?");
-  await expect(page.locator("[data-testid='mission-command']")).toContainText("Captain breaks goals into bounded agent steps");
-  await expect(page.locator("[data-testid='current-mission-card']")).toContainText("No active mission yet");
-  await expect(page.locator("[data-testid='mission-timeline-empty']")).toContainText("No mission activity yet");
-  await expect(page.locator("[data-testid='mission-timeline-filter']")).toBeVisible();
-  await expect(page.locator("[data-testid='mission-timeline-filter'] button", { hasText: "All" })).toHaveClass(/active/);
+  await expect(page.locator("[data-testid='cr-hero-title']")).toContainText("Supervised control room for AI coding agents");
+  await expect(page.locator("[data-testid='cr-product-headline']")).toContainText("engineering control room");
+  await expect(page.locator("[data-testid='current-mission-card']")).toContainText("No active mission");
+  await expect(page.locator("[data-testid='cr-tab-timeline']")).toBeVisible();
   await expect(page.locator("[data-testid='operator-inspector']")).toBeVisible();
   await expect(page.locator("[data-testid='inspector-next-move']")).toContainText("Next Move");
-  await expect(page.locator("[data-testid='control-room-status']")).toContainText("Control Room Status");
-  await expect(page.locator("[data-testid='cr-public-runner']")).toContainText("Public runner: Disabled");
-  await expect(page.locator("[data-testid='inspector-connected-agents']")).toBeVisible();
+  await expect(page.locator("[data-testid='rail-safety-status']")).toBeVisible();
+  await expect(page.locator("[data-testid='rail-connected-agents']")).toBeVisible();
+  await expect(page.locator("[data-testid='rail-proof-gates']")).toBeVisible();
+  await expect(page.locator("[data-testid='rail-runner-sessions']")).toBeVisible();
+  await expect(page.locator("[data-testid='cr-pause-mission']")).toBeDisabled();
+  await expect(page.locator("[data-testid='cr-adjust-plan']")).toBeDisabled();
   await expect(page.locator("[data-testid='develop-plan-primary']")).toBeVisible();
   await expect(page.locator("#warden-section-agents.active")).toHaveCount(0);
   await expect(page.locator("#warden-section-mission.active")).toBeVisible();
@@ -1374,6 +1458,17 @@ test("Captain supervised step loop advances manually in Mission", async ({ page 
       return;
     }
 
+    if (await fulfillControlRoomRoutes(route, {
+      snapshot: idleMissionSnapshot({
+        service_mode: "private",
+        mission: { status: "planned", mission_id: "plan_loop_ui", title: "Captain Loop UI Plan", progress_pct: 10 },
+        plan: { plan_id: "plan_loop_ui", steps: captainPlanResponse.steps },
+      }),
+      runner: idleRunnerSessions({ service_mode: "private" }),
+    })) {
+      return;
+    }
+
     if (await fulfillCaptainLoopRoute(route, captainLoopCtx)) {
       return;
     }
@@ -1484,7 +1579,7 @@ test("Captain supervised step loop advances manually in Mission", async ({ page 
 
   await page.locator("[data-testid='captain-stop-plan']").click();
   await expect.poll(() => captainLoopCtx.stopCalls.length).toBe(1);
-  await expect(page.locator("[data-testid='current-mission-empty']")).toBeVisible();
+  await expect(page.locator("[data-testid='cr-mission-empty']")).toBeVisible();
 });
 
 test("Agent Registry configure flow and Captain dropdown use registered agents", async ({ page }) => {
@@ -2008,7 +2103,7 @@ test("run history and evidence appear after private Codex dispatch", async ({ pa
 });
 
 test("Mission timeline filters gate events and shows honest empty states", async ({ page }) => {
-  const worklogItems = [
+  const timelineItems = [
     {
       id: "wl_plan_1",
       kind: "plan_created",
@@ -2041,26 +2136,24 @@ test("Mission timeline filters gate events and shows honest empty states", async
     },
   ];
 
-  await page.route("**/api/mcharness/worklog/recent", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ items: worklogItems }),
-    });
+  await page.route("**/api/mcharness/**", async (route) => {
+    if (await fulfillControlRoomRoutes(route, {
+      snapshot: idleMissionSnapshot({ timeline: { items: timelineItems }, worklog: { items: timelineItems } }),
+    })) return;
+    await route.continue();
   });
 
   await page.goto("/web/warden/index.html");
-  await expect(page.locator("[data-testid='mission-timeline-list']")).toBeVisible();
-  await expect(page.locator("[data-testid='worklog-event-plan_created']")).toBeVisible();
-  await expect(page.locator("[data-testid='worklog-event-gate_created']")).toBeVisible();
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("[data-testid='cr-panel-timeline']")).toBeVisible();
+  await expect(page.locator("[data-testid='cr-timeline-item']")).toHaveCount(3);
 
-  await page.locator("[data-timeline-filter='gates']").click();
-  await expect(page.locator("[data-testid='worklog-event-gate_created']")).toBeVisible();
-  await expect(page.locator("[data-testid='worklog-event-gate_approved']")).toBeVisible();
-  await expect(page.locator("[data-testid='worklog-event-plan_created']")).toHaveCount(0);
+  await page.locator("[data-cr-timeline-filter='gates']").click();
+  await expect(page.locator("[data-testid='cr-timeline-item']")).toHaveCount(2);
 
-  await page.locator("[data-timeline-filter='evidence']").click();
-  await expect(page.locator("[data-testid='mission-timeline-empty']")).toContainText("No evidence events yet");
+  await page.locator("[data-cr-timeline-filter='evidence']").click();
+  await expect(page.locator("[data-testid='cr-timeline-item']")).toHaveCount(0);
+  await expect(page.getByText("No timeline events match this filter.")).toBeVisible();
   await expect(page.locator("text=Advanced / Legacy Cockpit")).toHaveCount(0);
   await expect(page.locator("text=SERVER CONTROL PLANE")).toHaveCount(0);
 });
@@ -2142,4 +2235,149 @@ test("Run detail review flow exposes sections and manual actions by gate state",
   await expect(runModal.locator("[data-testid='run-detail-next-actions-section']")).toBeVisible();
   await expect(runModal.locator("[data-testid='run-detail-approve-gate']")).toBeVisible();
   await expect(runModal.locator("[data-testid='run-detail-export']")).toBeVisible();
+});
+
+test("Control Room loads by default with bold product headline", async ({ page }) => {
+  await page.route("**/api/mcharness/**", async (route) => {
+    if (await fulfillControlRoomRoutes(route)) return;
+    await route.continue();
+  });
+  await page.goto("/web/warden/index.html");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("[data-testid='nav-mission']")).toHaveClass(/active/);
+  await expect(page.locator("[data-testid='cr-hero-title']")).toContainText("Supervised control room for AI coding agents");
+  await expect(page.locator("[data-testid='warden-topbar']")).toBeVisible();
+});
+
+test("demo mode is visibly labeled simulated", async ({ page }) => {
+  await page.goto("/web/warden/index.html?demo=1");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("[data-testid='demo-mode-banner']")).toBeVisible();
+  await expect(page.locator("[data-testid='demo-mode-banner']")).toContainText("Demo data — simulated for product preview");
+  await expect(page.locator("[data-testid='demo-mode-banner']")).toContainText("No backend state is modified in demo mode.");
+  await expect(page.locator("[data-testid='cr-mission-active']")).toBeVisible();
+});
+
+test("demo mode renders simulated mission title", async ({ page }) => {
+  await page.goto("/web/warden/index.html?demo=1");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("#cr-mission-title")).toContainText("Warden auth hardening sprint");
+  await expect(page.locator("#cr-mission-id")).toContainText("plan_demo01");
+  await expect(page.locator("[data-testid='cr-mission-status-pill']")).toContainText("in progress");
+});
+
+test("demo mode renders populated proof gates", async ({ page }) => {
+  await page.goto("/web/warden/index.html?demo=1");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("[data-testid='rail-proof-gates']")).toContainText("1 passed");
+  await expect(page.locator("[data-testid='rail-proof-gates']")).toContainText("1 pending");
+  await page.locator("[data-testid='cr-tab-gates']").click();
+  await expect(page.locator("[data-testid='cr-gate-row']")).toHaveCount(2);
+});
+
+test("demo mode renders connected agents", async ({ page }) => {
+  await page.goto("/web/warden/index.html?demo=1");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("[data-testid='rail-connected-agents'] [data-testid='rail-agent-row']")).toHaveCount(3);
+  await expect(page.locator("[data-testid='rail-connected-agents']")).toContainText("Codex CLI");
+  await expect(page.locator("[data-testid='rail-connected-agents']")).toContainText("Captain");
+});
+
+test("demo mode renders runner sessions", async ({ page }) => {
+  await page.goto("/web/warden/index.html?demo=1");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("[data-testid='rail-runner-sessions']")).toContainText("2 active");
+  await expect(page.locator("[data-testid='rail-runner-session-row']")).toHaveCount(2);
+  await page.locator("[data-testid='nav-runner-sessions']").click();
+  await expect(page.locator("[data-testid='runner-session-row']")).toHaveCount(2);
+});
+
+test("real mode does not show demo banner", async ({ page }) => {
+  await page.route("**/api/mcharness/**", async (route) => {
+    if (await fulfillControlRoomRoutes(route)) return;
+    await route.continue();
+  });
+  await page.goto("/web/warden/index.html");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("[data-testid='demo-mode-banner']")).toBeHidden();
+});
+
+test("real idle state stays honest", async ({ page }) => {
+  await page.route("**/api/mcharness/**", async (route) => {
+    if (await fulfillControlRoomRoutes(route)) return;
+    await route.continue();
+  });
+  await page.goto("/web/warden/index.html");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("[data-testid='cr-mission-empty']")).toBeVisible();
+  await expect(page.locator("[data-testid='current-mission-status']")).toContainText("No active mission. Create or load a Captain plan to begin supervised work.");
+  await expect(page.locator("[data-testid='cr-idle-cards']")).toBeVisible();
+  await expect(page.locator("[data-testid='idle-card-captain']")).toContainText("Start with Captain");
+  await expect(page.locator("[data-testid='idle-card-agents']")).toContainText("Configure agents");
+  await expect(page.locator("[data-testid='idle-card-runners']")).toContainText("Review runner sessions");
+  await expect(page.locator("[data-testid='idle-card-safety']")).toContainText("Safety status");
+  await expect(page.locator("[data-testid='cr-mission-active']")).toBeHidden();
+  await expect(page.locator("text=Warden auth hardening sprint")).toHaveCount(0);
+});
+
+test("command center tabs switch and right rail renders", async ({ page }) => {
+  await page.route("**/api/mcharness/**", async (route) => {
+    if (await fulfillControlRoomRoutes(route)) return;
+    await route.continue();
+  });
+  await page.goto("/web/warden/index.html");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await page.locator("[data-testid='cr-tab-plan']").click();
+  await expect(page.locator("[data-testid='cr-panel-plan']")).toHaveClass(/active/);
+  await page.locator("[data-testid='cr-tab-worklog']").click();
+  await expect(page.locator("[data-testid='cr-panel-worklog']")).toHaveClass(/active/);
+  await expect(page.locator("[data-testid='rail-proof-gates-card']")).toBeVisible();
+  await expect(page.locator("[data-testid='rail-connected-agents-card']")).toBeVisible();
+  await expect(page.locator("[data-testid='rail-runner-sessions-card']")).toBeVisible();
+  await expect(page.locator("[data-testid='rail-safety-card']")).toBeVisible();
+});
+
+test("command palette opens and runner sessions view renders", async ({ page }) => {
+  await page.route("**/api/mcharness/**", async (route) => {
+    if (await fulfillControlRoomRoutes(route)) return;
+    await route.continue();
+  });
+  await page.goto("/web/warden/index.html");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await page.locator("[data-testid='topbar-command']").click();
+  await expect(page.locator("[data-testid='command-palette']")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.locator("[data-testid='nav-runner-sessions']").click();
+  await expect(page.locator("[data-testid='warden-section-runner-sessions']")).toHaveClass(/active/);
+  await expect(page.locator("[data-testid='runner-sessions-summary']")).toBeVisible();
+});
+
+test("runner cleanup dry-run uses confirm false on private mock", async ({ page }) => {
+  let cleanupBody = null;
+  await page.route("**/api/mcharness/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith("/runner/sessions/cleanup") && route.request().method() === "POST") {
+      cleanupBody = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ dry_run: true, candidates: ["mch_run_run_stale01"], killed: [], skipped: [], errors: [], inventory: {} }),
+      });
+      return;
+    }
+    if (await fulfillControlRoomRoutes(route, {
+      snapshot: idleMissionSnapshot({ service_mode: "private" }),
+      runner: idleRunnerSessions({ service_mode: "private" }),
+    })) return;
+    await route.continue();
+  });
+  await page.goto("/web/warden/index.html");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("[data-testid='rail-runner-dry-run']")).toBeEnabled();
+  await page.locator("[data-testid='rail-runner-dry-run']").click();
+  await expect(page.locator("[data-testid='cleanup-dryrun-modal']")).toBeVisible();
+  expect(cleanupBody.confirm).toBe(false);
+  await page.locator("#cleanup-dryrun-close").click();
+  await page.locator("[data-testid='rail-runner-confirm']").click();
+  await expect(page.locator("[data-testid='cleanup-confirm-modal']")).toBeVisible();
 });

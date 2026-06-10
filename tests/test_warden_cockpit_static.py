@@ -27,12 +27,17 @@ def test_warden_app_has_control_room_sections():
     required_snippets = [
         "Warden",
         "by Marius Systems",
-        "Mission Command",
+        "Supervised control room for AI coding agents",
+        "Control Room",
         "Agent Library",
         "Captain Deck",
         "Develop Plan",
         "Deploy Current Step",
         "current-mission-plan",
+        "cr-command-center",
+        "rail-proof-gates",
+        "runner-sessions-table",
+        "control-room.js",
         "runs-list",
         "evidence-list",
     ]
