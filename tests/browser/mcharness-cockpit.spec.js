@@ -17,6 +17,60 @@ function resetRuntimeState() {
   }
 }
 
+function builtinCodexAgent() {
+  return {
+    id: "codex_cli",
+    name: "Codex CLI",
+    kind: "cli",
+    adapter: "codex_cli",
+    enabled: true,
+    private_only: true,
+    builtin: true,
+    user_created: false,
+    status: "ready",
+    runnable: true,
+    lane_id: "codex_cli",
+    capabilities: ["live_terminal", "code_editing", "tests", "read_only_inspection"],
+  };
+}
+
+function agentRegistryTemplatesPayload() {
+  return {
+    service: "mcharness-control-plane",
+    templates: [
+      { id: "codex_cli", label: "Codex CLI", kind: "cli", adapter: "codex_cli", registerable: false, runnable: true, builtin: true },
+      { id: "jules_remote", label: "Jules Remote", kind: "remote", adapter: "jules_remote", registerable: true, runnable: false, builtin: false },
+      { id: "agy_cli", label: "AGY CLI Coming Later", kind: "cli", adapter: "agy_cli", registerable: false, runnable: false, builtin: false },
+      { id: "custom_cli", label: "Custom CLI Coming Later", kind: "cli", adapter: "custom_cli", registerable: false, runnable: false, builtin: false },
+      { id: "custom_remote", label: "Custom Remote Coming Later", kind: "remote", adapter: "custom_remote", registerable: false, runnable: false, builtin: false },
+    ],
+  };
+}
+
+async function fulfillAgentRegistryRoute(route, { method, pathname, registryWriteEnabled = true, registeredAgents = [] }) {
+  if (pathname.endsWith("/agents/templates")) {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(agentRegistryTemplatesPayload()),
+    });
+    return true;
+  }
+  if (pathname.endsWith("/agents") && method === "GET") {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        service: "mcharness-control-plane",
+        registry_write_enabled: registryWriteEnabled,
+        agents: [builtinCodexAgent(), ...registeredAgents],
+      }),
+    });
+    return true;
+  }
+  return false;
+}
+
 test.beforeEach(() => {
   resetRuntimeState();
 });
@@ -50,7 +104,7 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await expect(page.getByRole("button", { name: "Develop Plan" })).toBeVisible();
   await expect(page.locator("#codex-card")).toBeVisible();
   await expect(page.locator('#codex-card')).toContainText('Codex CLI');
-  await expect(page.locator("text=Add Agent — Coming Soon")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add Agent" })).toBeVisible();
 
   await page.getByRole("button", { name: "Develop Plan" }).click();
   const captainModal = page.locator("#captain-deck-modal");
@@ -84,8 +138,10 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await expect(useModal.locator("#deploy-disabled-note")).toContainText("Codex runner is disabled");
 
   // Close use modal if still open
-  const cancel = useModal.locator("#cancel-use-agent");
-  if (await cancel.isVisible()) await cancel.click();
+  if (await useModal.isVisible()) {
+    await useModal.locator("#cancel-use-agent").click();
+    await expect(useModal).not.toBeVisible();
+  }
 
   // Live monitor should have been opened by the deploy flow; verify it shows disabled/read-only
   const mon = page.locator("#live-cli-modal").or(page.getByTestId("live-cli-modal"));
@@ -183,6 +239,10 @@ test("Captain Settings saves a private OpenRouter key and enables Captain planni
           ],
         }),
       });
+      return;
+    }
+
+    if (await fulfillAgentRegistryRoute(route, { method, pathname, registryWriteEnabled: true })) {
       return;
     }
 
@@ -493,6 +553,10 @@ test("private runner quick replies send allowed keys and refresh transcript", as
           ],
         }),
       });
+      return;
+    }
+
+    if (await fulfillAgentRegistryRoute(route, { method, pathname, registryWriteEnabled: true })) {
       return;
     }
 
@@ -815,6 +879,10 @@ test("Captain Deck creates a plan and deploys the first prompt", async ({ page }
       return;
     }
 
+    if (await fulfillAgentRegistryRoute(route, { method, pathname, registryWriteEnabled: true })) {
+      return;
+    }
+
     if (pathname.endsWith("/repos")) {
       await route.fulfill({
         status: 200,
@@ -994,4 +1062,173 @@ test("Captain Deck creates a plan and deploys the first prompt", async ({ page }
   await expect(mon.locator("[data-testid='modal-transcript']")).toContainText("Captain response pending.");
   await mon.locator("#modal-stop").click();
   await expect.poll(() => runnerStatus.status).toBe("stopped");
+});
+
+test("Agent Registry add flow and Captain dropdown use registered agents", async ({ page }) => {
+  let registeredAgents = [];
+  const agentPostCalls = [];
+
+  await page.route("**/api/mcharness/**", async (route) => {
+    const url = new URL(route.request().url());
+    const { pathname } = url;
+    const method = route.request().method();
+    const body = route.request().postDataJSON ? route.request().postDataJSON() : null;
+
+    if (pathname.endsWith("/health")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          service: "mcharness-control-plane",
+          commit: "test-commit",
+          tmux_runner_enabled: true,
+          codex_runner_enabled: true,
+          public_write_enabled: true,
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/agent-lanes")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          service: "mcharness-control-plane",
+          manual_mode: true,
+          lanes: [{ lane_id: "codex_cli", title: "Codex CLI", installed: true }],
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/agents/templates")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(agentRegistryTemplatesPayload()),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/agents") && method === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          service: "mcharness-control-plane",
+          registry_write_enabled: true,
+          agents: [builtinCodexAgent(), ...registeredAgents],
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/agents") && method === "POST") {
+      agentPostCalls.push(body);
+      const created = {
+        id: "jules_remote_test01",
+        name: body.name,
+        kind: body.kind,
+        adapter: body.adapter,
+        enabled: body.enabled,
+        builtin: false,
+        user_created: true,
+        status: "not_configured",
+        runnable: false,
+        description: "Jules profile only.",
+        capabilities: ["remote_planning", "status_tracking"],
+      };
+      registeredAgents = [created];
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, agent: created }),
+      });
+      return;
+    }
+
+    if (pathname.match(/\/agents\/[^/]+$/) && method === "DELETE") {
+      registeredAgents = [];
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, deleted_id: pathname.split("/").pop() }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/repos")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          service: "mcharness-control-plane",
+          repos: [{ repo_id: "mcharness-public-export", label: "mcharness-public-export", path: "/root/mcharness-public-export" }],
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/captain/status")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          configured: true,
+          provider: "openrouter",
+          model: "openrouter/auto",
+          planning_enabled: true,
+          key_source: "env",
+          private_key_setup_enabled: true,
+          notes: [],
+        }),
+      });
+      return;
+    }
+
+    await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: `Unhandled route: ${pathname}` }) });
+  });
+
+  await page.goto("/web/mctable-studio/cockpit-app.html");
+  await expect(page.locator("text=Agent Library")).toBeVisible();
+  await expect(page.locator("#codex-card")).toContainText("Codex CLI");
+  await expect(page.getByRole("button", { name: "Add Agent" })).toBeVisible();
+  await expect(page.locator("input[type='text'][placeholder*='shell'], textarea[placeholder*='shell']")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Add Agent" }).click();
+  const addModal = page.locator("#add-agent-modal");
+  await expect(addModal).toBeVisible();
+  await expect(addModal.locator("[data-testid='add-agent-kind-cli']")).toBeVisible();
+  await expect(addModal.locator("[data-testid='add-agent-kind-remote']")).toBeVisible();
+
+  await addModal.locator("[data-testid='add-agent-kind-remote']").click();
+  await expect(addModal.locator("[data-testid='add-agent-jules-note']")).toContainText("Jules Remote registration is for planning/status only");
+  await addModal.locator("[data-testid='add-agent-name']").fill("Jules Remote Worker");
+  await addModal.locator("[data-testid='add-agent-save']").click();
+  await expect.poll(() => agentPostCalls.length).toBe(1);
+  await expect(agentPostCalls[0].adapter).toBe("jules_remote");
+  await expect(page.locator(".registered-agent-card")).toContainText("Jules Remote Worker");
+  await expect(page.locator(".registered-agent-card")).toContainText("not_configured");
+
+  await page.getByRole("button", { name: "Add Agent" }).click();
+  await addModal.locator("[data-testid='add-agent-kind-cli']").click();
+  await addModal.locator("[data-testid='add-agent-template']").selectOption("custom_cli");
+  await expect(addModal.locator("[data-testid='add-agent-save']")).toBeDisabled();
+  await addModal.locator("[data-testid='add-agent-close']").click();
+  await expect(addModal).not.toBeVisible();
+
+  await page.getByRole("button", { name: "Develop Plan" }).click();
+  const captainModal = page.locator("#captain-deck-modal");
+  await expect(captainModal).toBeVisible();
+  await expect(captainModal.locator("[data-testid='captain-agent-select']")).toContainText("Codex CLI");
+  await expect(captainModal.locator("[data-testid='captain-agent-select']")).toContainText("Jules Remote Worker (not runnable)");
+  await captainModal.locator("[data-testid='captain-agent-select']").selectOption("jules_remote_test01");
+  await expect(captainModal.locator("[data-testid='captain-agent-note']")).toContainText("This agent is registered but not runnable yet.");
+  await expect(captainModal.locator("[data-testid='captain-create-plan']")).toBeDisabled();
+  await expect(captainModal.locator("[data-testid='captain-deploy-first']")).toBeDisabled();
+  await captainModal.locator("[data-testid='captain-agent-select']").selectOption("codex_cli");
+  await expect(captainModal.locator("[data-testid='captain-agent-note']")).toBeHidden();
 });

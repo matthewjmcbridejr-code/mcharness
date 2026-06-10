@@ -1175,3 +1175,185 @@ def test_runner_send_key_rejects_invalid_state_and_arbitrary_tmux(monkeypatch):
     bad_state["tmux_session_name"] = api_mod._tmux_session_name(session_id, runner_id)
     missing_runner = client.post("/api/mcharness/sessions/other-session/runner/send-key", json={"key": "1"})
     assert missing_runner.status_code == 400
+
+
+def test_mcharness_agents_returns_builtin_codex(monkeypatch):
+    monkeypatch.delenv("MCHARNESS_TMUX_RUNNER_ENABLED", raising=False)
+    monkeypatch.delenv("MCHARNESS_CODEX_RUNNER_ENABLED", raising=False)
+    client = TestClient(app)
+    response = client.get("/api/mcharness/agents")
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["registry_write_enabled"] is False
+    agents = data["agents"]
+    assert any(item["id"] == "codex_cli" for item in agents)
+    codex = next(item for item in agents if item["id"] == "codex_cli")
+    assert codex["adapter"] == "codex_cli"
+    assert codex["builtin"] is True
+    assert codex["status"] == "disabled"
+    assert codex["runnable"] is False
+    assert "api_key" not in response.text
+    assert "secret" not in response.text.lower()
+
+
+def test_mcharness_agents_templates_lists_safe_templates():
+    client = TestClient(app)
+    response = client.get("/api/mcharness/agents/templates")
+    assert response.status_code == 200, response.text
+    templates = response.json()["templates"]
+    labels = {item["label"] for item in templates}
+    assert "Codex CLI" in labels
+    assert "Jules Remote" in labels
+    assert "AGY CLI Coming Later" in labels
+    assert "Custom CLI Coming Later" in labels
+    assert "Custom Remote Coming Later" in labels
+
+
+def test_mcharness_agents_post_rejected_on_public_service(monkeypatch):
+    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "false")
+    monkeypatch.delenv("MCHARNESS_ADMIN_TOKEN", raising=False)
+    client = TestClient(app)
+    response = client.post(
+        "/api/mcharness/agents",
+        json={
+            "name": "Jules Remote",
+            "kind": "remote",
+            "adapter": "jules_remote",
+        },
+    )
+    assert response.status_code == 403
+    assert "disabled" in response.json()["detail"].lower()
+
+
+def test_mcharness_agents_private_can_register_jules_remote(monkeypatch, tmp_path):
+    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
+
+    import src.marius_desktop.api as api_mod
+
+    monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/mcharness/agents",
+        json={
+            "name": "Jules Remote Worker",
+            "kind": "remote",
+            "adapter": "jules_remote",
+            "default_repo_id": "mcharness-public-export",
+            "enabled": True,
+        },
+    )
+    assert created.status_code == 200, created.text
+    agent = created.json()["agent"]
+    assert agent["adapter"] == "jules_remote"
+    assert agent["status"] == "not_configured"
+    assert agent["runnable"] is False
+    assert agent["user_created"] is True
+    assert "api_key" not in created.text
+
+    listed = client.get("/api/mcharness/agents")
+    assert listed.status_code == 200
+    ids = [item["id"] for item in listed.json()["agents"]]
+    assert agent["id"] in ids
+
+    status = client.get(f"/api/mcharness/agents/{agent['id']}/status")
+    assert status.status_code == 200
+    status_data = status.json()
+    assert status_data["status"] == "not_configured"
+    assert status_data["runnable"] is False
+    assert "api_key" not in status.text
+
+
+def test_mcharness_agents_rejects_custom_cli_and_duplicate_codex(monkeypatch, tmp_path):
+    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
+
+    import src.marius_desktop.api as api_mod
+
+    monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
+    client = TestClient(app)
+
+    custom = client.post(
+        "/api/mcharness/agents",
+        json={
+            "name": "Unsafe Custom",
+            "kind": "cli",
+            "adapter": "custom_cli",
+        },
+    )
+    assert custom.status_code == 400
+    assert "not available" in custom.json()["detail"].lower()
+
+    codex = client.post(
+        "/api/mcharness/agents",
+        json={
+            "name": "Extra Codex",
+            "kind": "cli",
+            "adapter": "codex_cli",
+        },
+    )
+    assert codex.status_code == 400
+    assert "built-in" in codex.json()["detail"].lower()
+
+
+def test_mcharness_agents_delete_rules(monkeypatch, tmp_path):
+    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
+
+    import src.marius_desktop.api as api_mod
+
+    monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
+    client = TestClient(app)
+
+    builtin_delete = client.delete("/api/mcharness/agents/codex_cli")
+    assert builtin_delete.status_code == 400
+    assert "built-in" in builtin_delete.json()["detail"].lower()
+
+    created = client.post(
+        "/api/mcharness/agents",
+        json={
+            "name": "Jules Remote",
+            "kind": "remote",
+            "adapter": "jules_remote",
+        },
+    )
+    agent_id = created.json()["agent"]["id"]
+    deleted = client.delete(f"/api/mcharness/agents/{agent_id}")
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["deleted_id"] == agent_id
+
+    listed = client.get("/api/mcharness/agents")
+    assert all(item["id"] != agent_id for item in listed.json()["agents"])
+
+
+def test_mcharness_agents_probe_codex_and_jules(monkeypatch, tmp_path):
+    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
+
+    import src.marius_desktop.api as api_mod
+
+    monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
+    client = TestClient(app)
+
+    codex_probe = client.post("/api/mcharness/agents/codex_cli/probe")
+    assert codex_probe.status_code == 200, codex_probe.text
+    assert "probe" in codex_probe.json()
+    assert "api_key" not in codex_probe.text
+
+    created = client.post(
+        "/api/mcharness/agents",
+        json={
+            "name": "Jules Remote",
+            "kind": "remote",
+            "adapter": "jules_remote",
+        },
+    )
+    agent_id = created.json()["agent"]["id"]
+    jules_probe = client.post(f"/api/mcharness/agents/{agent_id}/probe")
+    assert jules_probe.status_code == 200, jules_probe.text
+    assert jules_probe.json()["status"] == "not_configured"

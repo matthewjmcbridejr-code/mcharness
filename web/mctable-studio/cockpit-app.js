@@ -4,6 +4,15 @@
   const state = {
     repos: [],
     lanes: [],
+    agents: [],
+    agentTemplates: [],
+    registryWriteEnabled: false,
+    addAgent: {
+      kind: "cli",
+      templateAdapter: "codex_cli",
+      saving: false,
+      error: "",
+    },
     health: {},
     selectedThreadId: "",
     selectedQueueItemId: "",
@@ -256,11 +265,26 @@
     }
 
     if (createBtn) {
-      createBtn.disabled = !!deck.loading || !deck.configured;
+      const selectedAgent = (state.agents || []).find((agent) => agent.id === deck.laneId) || {};
+      const agentRunnable = selectedAgent.runnable !== false && selectedAgent.adapter === "codex_cli";
+      createBtn.disabled = !!deck.loading || !deck.configured || !agentRunnable;
       createBtn.textContent = deck.loading ? "Captain is building the plan..." : "Create Plan";
     }
     if (deployBtn) {
-      deployBtn.disabled = !deck.plan;
+      const selectedAgent = (state.agents || []).find((agent) => agent.id === deck.laneId) || {};
+      const agentRunnable = selectedAgent.runnable !== false && selectedAgent.adapter === "codex_cli";
+      deployBtn.disabled = !deck.plan || !agentRunnable;
+    }
+    const captainAgentNote = document.getElementById("captain-agent-note");
+    if (captainAgentNote) {
+      const selectedAgent = (state.agents || []).find((agent) => agent.id === deck.laneId) || {};
+      if (selectedAgent.id && !selectedAgent.runnable) {
+        captainAgentNote.textContent = "This agent is registered but not runnable yet.";
+        captainAgentNote.style.display = "block";
+      } else {
+        captainAgentNote.textContent = "";
+        captainAgentNote.style.display = "none";
+      }
     }
     if (copyBtn) {
       copyBtn.disabled = !deck.plan;
@@ -311,7 +335,8 @@
     state.captainDeck.keyError = "";
     state.captainDeck.keyFormVisible = false;
     renderCaptainDeck();
-    await Promise.all([populateCaptainDeckRepos(), loadCaptainDeckStatus()]);
+    await Promise.all([populateCaptainDeckRepos(), loadCaptainDeckStatus(), loadAgents()]);
+    populateCaptainAgents();
     renderCaptainDeck();
   }
 
@@ -473,7 +498,256 @@
     closeCaptainDeckModal();
   }
 
-  // Load for library card status (from lanes + health)
+  async function loadAgents() {
+    try {
+      const data = await requestJson(`${MCH}/agents`);
+      state.agents = data.agents || [];
+      state.registryWriteEnabled = !!data.registry_write_enabled;
+      renderRegisteredAgentCards();
+      populateCaptainAgents();
+      return data;
+    } catch (e) {
+      state.agents = [];
+      state.registryWriteEnabled = false;
+      renderRegisteredAgentCards();
+      return null;
+    }
+  }
+
+  async function loadAgentTemplates() {
+    try {
+      const data = await requestJson(`${MCH}/agents/templates`);
+      state.agentTemplates = data.templates || [];
+      return data;
+    } catch (e) {
+      state.agentTemplates = [];
+      return null;
+    }
+  }
+
+  function agentTypeLabel(agent) {
+    if (!agent) return "Unknown";
+    return agent.kind === "remote" ? "Remote" : "CLI";
+  }
+
+  function renderRegisteredAgentCards() {
+    const container = document.getElementById("registered-agent-cards");
+    if (!container) return;
+    const registered = (state.agents || []).filter((agent) => agent.user_created);
+    if (!registered.length) {
+      container.innerHTML = "";
+      return;
+    }
+    container.innerHTML = registered.map((agent) => {
+      const caps = (agent.capabilities || []).join(", ") || "—";
+      const status = agent.status || "unknown";
+      const runnable = !!agent.runnable;
+      return `
+        <div class="agent-card registered-agent-card" data-agent-id="${escapeHtml(agent.id)}" style="border:1px solid var(--line); padding:14px; border-radius:6px; background:var(--bg-2);">
+          <h3 style="margin:0 0 4px; font-size:1.1rem;">${escapeHtml(agent.name || agent.id)}</h3>
+          <div style="font-size:0.85em; margin-bottom:6px; color:var(--muted);">${escapeHtml(agentTypeLabel(agent))} • ${escapeHtml(agent.adapter || "")} • ${escapeHtml(status)}</div>
+          <p style="margin:4px 0 8px; font-size:0.9em; color:var(--muted);">${escapeHtml(agent.description || "")}</p>
+          <div class="muted" style="font-size:0.78em; margin-bottom:8px;">Capabilities: ${escapeHtml(caps)}</div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            ${runnable ? `<button class="btn" type="button" data-use-agent-id="${escapeHtml(agent.id)}">Use Agent</button>` : ""}
+            <button class="btn bad" type="button" data-remove-agent-id="${escapeHtml(agent.id)}">Remove</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+    container.querySelectorAll("[data-remove-agent-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const agentId = button.getAttribute("data-remove-agent-id");
+        if (agentId) removeRegisteredAgent(agentId).catch((e) => console.error(e));
+      });
+    });
+    container.querySelectorAll("[data-use-agent-id]").forEach((button) => {
+      button.addEventListener("click", () => openUseAgentModal());
+    });
+  }
+
+  function populateCaptainAgents() {
+    const sel = document.getElementById("captain-agent-select");
+    if (!sel) return;
+    const agents = state.agents || [];
+    sel.innerHTML = "";
+    agents.forEach((agent) => {
+      const opt = document.createElement("option");
+      opt.value = agent.id;
+      const suffix = agent.runnable ? "" : " (not runnable)";
+      opt.textContent = `${agent.name || agent.id}${suffix}`;
+      opt.dataset.runnable = agent.runnable ? "1" : "0";
+      sel.appendChild(opt);
+    });
+    if (agents.length) {
+      const preferred = agents.find((agent) => agent.id === state.captainDeck.laneId) || agents.find((agent) => agent.runnable) || agents[0];
+      sel.value = preferred.id;
+      state.captainDeck.laneId = preferred.id;
+    }
+  }
+
+  function populateAddAgentTemplates() {
+    const sel = document.getElementById("add-agent-template");
+    if (!sel) return;
+    const kind = state.addAgent.kind;
+    const templates = (state.agentTemplates || []).filter((template) => template.kind === kind);
+    sel.innerHTML = "";
+    templates.forEach((template) => {
+      const opt = document.createElement("option");
+      opt.value = template.adapter;
+      opt.textContent = template.label;
+      opt.dataset.registerable = template.registerable ? "1" : "0";
+      sel.appendChild(opt);
+    });
+    if (templates.length) {
+      const current = templates.find((template) => template.adapter === state.addAgent.templateAdapter) || templates[0];
+      sel.value = current.adapter;
+      state.addAgent.templateAdapter = current.adapter;
+    }
+    updateAddAgentKindUI();
+  }
+
+  function updateAddAgentKindUI() {
+    const cliBtn = document.getElementById("add-agent-kind-cli");
+    const remoteBtn = document.getElementById("add-agent-kind-remote");
+    const julesNote = document.getElementById("add-agent-jules-note");
+    const saveBtn = document.getElementById("add-agent-save");
+    const templateSel = document.getElementById("add-agent-template");
+    const selectedTemplate = (templateSel && templateSel.selectedOptions[0]) || null;
+    const registerable = selectedTemplate ? selectedTemplate.dataset.registerable === "1" : false;
+    if (cliBtn) cliBtn.classList.toggle("primary", state.addAgent.kind === "cli");
+    if (remoteBtn) remoteBtn.classList.toggle("primary", state.addAgent.kind === "remote");
+    if (julesNote) {
+      julesNote.style.display = state.addAgent.templateAdapter === "jules_remote" ? "block" : "none";
+    }
+    if (saveBtn) saveBtn.disabled = !registerable || !!state.addAgent.saving || !state.registryWriteEnabled;
+  }
+
+  async function populateAddAgentRepos() {
+    const sel = document.getElementById("add-agent-repo");
+    if (!sel) return;
+    sel.innerHTML = '<option value="">No default repo</option>';
+    const repos = state.repos.length ? state.repos : [];
+    if (!repos.length) {
+      try {
+        const data = await requestJson(`${MCH}/repos`);
+        state.repos = data.repos || [];
+      } catch (e) {
+        state.repos = [];
+      }
+    }
+    (state.repos || []).forEach((repo) => {
+      const opt = document.createElement("option");
+      opt.value = repo.repo_id || repo.path;
+      opt.textContent = repo.label || repo.repo_id || repo.path;
+      sel.appendChild(opt);
+    });
+  }
+
+  async function openAddAgentModal() {
+    const modal = document.getElementById("add-agent-modal");
+    if (!modal) return;
+    state.addAgent.error = "";
+    state.addAgent.saving = false;
+    state.addAgent.kind = "cli";
+    state.addAgent.templateAdapter = "codex_cli";
+    modal.style.display = "flex";
+    await Promise.all([loadAgentTemplates(), loadAgents(), populateAddAgentRepos()]);
+    populateAddAgentTemplates();
+    const err = document.getElementById("add-agent-error");
+    if (err) {
+      err.style.display = "none";
+      err.textContent = "";
+    }
+    if (!state.registryWriteEnabled) {
+      if (err) {
+        err.textContent = "Agent registration is available only on the private runner service.";
+        err.style.display = "block";
+      }
+    }
+    updateAddAgentKindUI();
+  }
+
+  function closeAddAgentModal() {
+    const modal = document.getElementById("add-agent-modal");
+    if (modal) modal.style.display = "none";
+  }
+
+  async function saveAddAgent() {
+    const nameEl = document.getElementById("add-agent-name");
+    const repoEl = document.getElementById("add-agent-repo");
+    const enabledEl = document.getElementById("add-agent-enabled");
+    const templateEl = document.getElementById("add-agent-template");
+    const err = document.getElementById("add-agent-error");
+    const templateOpt = templateEl && templateEl.selectedOptions[0];
+    const adapter = (templateEl && templateEl.value) || state.addAgent.templateAdapter;
+    const registerable = templateOpt ? templateOpt.dataset.registerable === "1" : false;
+    const name = (nameEl && nameEl.value ? nameEl.value : "").trim();
+    if (!registerable) {
+      if (err) {
+        err.textContent = "This template cannot be saved as a runnable agent in this version.";
+        err.style.display = "block";
+      }
+      return;
+    }
+    if (!name) {
+      if (err) {
+        err.textContent = "Display name is required.";
+        err.style.display = "block";
+      }
+      return;
+    }
+    if (!state.registryWriteEnabled) {
+      if (err) {
+        err.textContent = "Agent registration is available only on the private runner service.";
+        err.style.display = "block";
+      }
+      return;
+    }
+    const template = (state.agentTemplates || []).find((item) => item.adapter === adapter);
+    state.addAgent.saving = true;
+    updateAddAgentKindUI();
+    try {
+      await requestJson(`${MCH}/agents`, {
+        method: "POST",
+        body: {
+          name,
+          kind: template ? template.kind : state.addAgent.kind,
+          adapter,
+          default_repo_id: repoEl && repoEl.value ? repoEl.value : null,
+          enabled: !!(enabledEl && enabledEl.checked),
+          description: template ? template.description : "",
+        },
+      });
+      if (nameEl) nameEl.value = "";
+      if (err) err.style.display = "none";
+      await loadAgents();
+      closeAddAgentModal();
+    } catch (e) {
+      if (err) {
+        err.textContent = e.message || String(e);
+        err.style.display = "block";
+      }
+    } finally {
+      state.addAgent.saving = false;
+      updateAddAgentKindUI();
+    }
+  }
+
+  async function removeRegisteredAgent(agentId) {
+    if (!state.registryWriteEnabled) {
+      alert("Agent registration is available only on the private runner service.");
+      return;
+    }
+    try {
+      await requestJson(`${MCH}/agents/${encodeURIComponent(agentId)}`, { method: "DELETE" });
+      await loadAgents();
+    } catch (e) {
+      alert("Remove failed: " + (e.message || e));
+    }
+  }
+
+  // Load for library card status (from lanes + health + registry)
   async function loadLibraryStatus() {
     try {
       const [lanesData, health] = await Promise.all([
@@ -482,19 +756,30 @@
       ]);
       state.lanes = lanesData.lanes || [];
       state.health = health || {};
-      const codex = state.lanes.find((l) => l.lane_id === "codex_cli") || {};
-      const installed = !!codex.installed;
+      await loadAgents();
+      const codex = (state.agents || []).find((agent) => agent.id === "codex_cli")
+        || state.lanes.find((l) => l.lane_id === "codex_cli")
+        || {};
+      const installed = !!codex.installed || codex.status === "ready" || codex.status === "disabled";
       const tmuxF = !!state.health.tmux_runner_enabled;
       const codexF = !!state.health.codex_runner_enabled;
       const line = document.getElementById("codex-status-line");
+      const capsEl = document.getElementById("codex-capabilities");
       if (line) {
-        if (installed) {
+        if (codex.status === "ready") {
+          line.textContent = "Ready on private runner service";
+          line.style.color = "var(--good, #63db9d)";
+        } else if (installed) {
           line.textContent = `Installed • ${tmuxF && codexF ? "Ready (gated)" : "Disabled in public (enable private 8125 + both MCHARNESS_*_RUNNER_ENABLED)"}`;
           line.style.color = (tmuxF && codexF) ? "var(--good, #63db9d)" : "var(--warn, #f0c66a)";
         } else {
           line.textContent = "Not detected on host";
           line.style.color = "var(--bad, #ff7e91)";
         }
+      }
+      if (capsEl) {
+        const caps = (codex.capabilities || []).join(", ");
+        capsEl.textContent = caps ? `Capabilities: ${caps}` : "";
       }
     } catch (e) {
       const line = document.getElementById("codex-status-line");
@@ -607,6 +892,7 @@
 
       return sid;
     } catch (err) {
+      if (typeof closeCurrentModal === "function") closeCurrentModal();
       alert("Deploy failed: " + (err.message || err));
       if (state.selectedThreadId) openLiveCLIMonitor();
       throw err;
@@ -868,6 +1154,39 @@
     const captainLane = document.getElementById("captain-agent-select");
     if (captainLane) captainLane.addEventListener("change", () => {
       state.captainDeck.laneId = captainLane.value || "codex_cli";
+      renderCaptainDeck();
+    });
+
+    const addAgentBtn = document.getElementById("add-agent-btn");
+    if (addAgentBtn) addAgentBtn.addEventListener("click", () => {
+      openAddAgentModal().catch((e) => console.error(e));
+    });
+    const addAgentClose = document.getElementById("add-agent-close");
+    if (addAgentClose) addAgentClose.addEventListener("click", closeAddAgentModal);
+    const addAgentSave = document.getElementById("add-agent-save");
+    if (addAgentSave) addAgentSave.addEventListener("click", () => {
+      saveAddAgent().catch((e) => console.error(e));
+    });
+    const addAgentKindCli = document.getElementById("add-agent-kind-cli");
+    if (addAgentKindCli) addAgentKindCli.addEventListener("click", () => {
+      state.addAgent.kind = "cli";
+      state.addAgent.templateAdapter = "codex_cli";
+      populateAddAgentTemplates();
+    });
+    const addAgentKindRemote = document.getElementById("add-agent-kind-remote");
+    if (addAgentKindRemote) addAgentKindRemote.addEventListener("click", () => {
+      state.addAgent.kind = "remote";
+      state.addAgent.templateAdapter = "jules_remote";
+      populateAddAgentTemplates();
+    });
+    const addAgentTemplate = document.getElementById("add-agent-template");
+    if (addAgentTemplate) addAgentTemplate.addEventListener("change", () => {
+      state.addAgent.templateAdapter = addAgentTemplate.value;
+      updateAddAgentKindUI();
+    });
+    const addAgentModal = document.getElementById("add-agent-modal");
+    if (addAgentModal) addAgentModal.addEventListener("click", (e) => {
+      if (e.target === addAgentModal) closeAddAgentModal();
     });
 
     // Legacy toggle (show old if present)

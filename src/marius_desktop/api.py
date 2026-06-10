@@ -48,6 +48,20 @@ from .workbench import (
     WorkbenchThreadUpdateRequest,
 )
 from .worker import WorkerStub, ALLOWED_COMMANDS
+from .agent_registry import (
+    BUILTIN_CODEX_ID,
+    McHarnessAgentCreateRequest,
+    McHarnessAgentPatchRequest,
+    agent_status_payload,
+    agent_templates,
+    create_registered_agent,
+    delete_registered_agent,
+    get_agent_by_id,
+    list_all_agents,
+    probe_agent,
+    sanitize_agent_profile,
+    update_registered_agent,
+)
 
 router = APIRouter(prefix="/api/marius", tags=["marius-desktop"])
 router.include_router(captain_router)
@@ -444,6 +458,41 @@ def _captain_effective_model_name() -> str:
 
 def _captain_private_key_setup_enabled() -> bool:
     return _public_write_enabled() and _tmux_runner_enabled() and _codex_runner_enabled()
+
+
+def _codex_runner_ready() -> bool:
+    return _tmux_runner_enabled() and _codex_runner_enabled()
+
+
+def _agent_registry_write_enabled() -> bool:
+    return _captain_private_key_setup_enabled()
+
+
+def _agent_registry_private_only() -> bool:
+    return not _codex_runner_ready() or _agent_registry_write_enabled()
+
+
+def _codex_probe_payload() -> dict[str, Any]:
+    det = _detect_executable("codex")
+    return {
+        "installed": bool(det.get("installed")),
+        "executable_path": det.get("executable_path"),
+        "version": det.get("version"),
+    }
+
+
+def _resolve_captain_plan_agent(agent_id: str) -> dict[str, Any]:
+    agent = get_agent_by_id(
+        MCTABLE_ROOT,
+        agent_id,
+        codex_runner_ready=_codex_runner_ready(),
+        private_only=_agent_registry_private_only(),
+    )
+    if agent is None:
+        raise HTTPException(status_code=400, detail=f"Unknown agent lane: {agent_id}")
+    if agent.get("adapter") != "codex_cli":
+        raise HTTPException(status_code=400, detail="Captain Deck currently deploys to the Codex CLI lane only.")
+    return agent
 
 
 def _captain_status_payload() -> dict[str, Any]:
@@ -1278,19 +1327,19 @@ def delete_mcharness_captain_key():
 
 @mcharness_router.post("/captain/plan", response_model=McHarnessCaptainPlanResponse)
 def create_mcharness_captain_plan(payload: McHarnessCaptainPlanRequest):
-    repo_path, repo = _resolve_allowlisted_repo(payload.repo_id)
-    lane = _validate_agent_lane(payload.lane_id)
     if not _captain_api_key():
         raise HTTPException(
             status_code=503,
             detail="Captain is not configured. Set OPENROUTER_API_KEY on the private service.",
         )
+    repo_path, repo = _resolve_allowlisted_repo(payload.repo_id)
+    agent = _resolve_captain_plan_agent(payload.lane_id)
 
-    if lane["lane_id"] != "codex_cli":
-        raise HTTPException(status_code=400, detail="Captain Deck currently deploys to the Codex CLI lane only.")
+    lane_id = str(agent.get("lane_id") or BUILTIN_CODEX_ID)
+    _validate_agent_lane(lane_id)
 
-    plan, notes = _build_captain_plan(goal=payload.goal, repo=repo, lane_id=lane["lane_id"])
-    artifact_path = _save_captain_plan_artifact(plan, goal=payload.goal, repo=repo, lane_id=lane["lane_id"])
+    plan, notes = _build_captain_plan(goal=payload.goal, repo=repo, lane_id=lane_id)
+    artifact_path = _save_captain_plan_artifact(plan, goal=payload.goal, repo=repo, lane_id=lane_id)
     if artifact_path is not None:
         notes = list(notes) + [f"Plan saved to {artifact_path}"]
         plan["notes"] = notes
@@ -1409,6 +1458,116 @@ def get_mcharness_agent_lanes():
         "manual_mode": True,
         "lanes": _lane_entries(),
     }
+
+
+@mcharness_router.get("/agents")
+def get_mcharness_agents():
+    agents = list_all_agents(
+        MCTABLE_ROOT,
+        codex_runner_ready=_codex_runner_ready(),
+        private_only=_agent_registry_private_only(),
+    )
+    return {
+        "service": "mcharness-control-plane",
+        "registry_write_enabled": _agent_registry_write_enabled(),
+        "agents": [sanitize_agent_profile(agent) for agent in agents],
+    }
+
+
+@mcharness_router.get("/agents/templates")
+def get_mcharness_agent_templates():
+    return {
+        "service": "mcharness-control-plane",
+        "templates": agent_templates(),
+    }
+
+
+@mcharness_router.post("/agents", dependencies=[Depends(_require_public_write_access)])
+def create_mcharness_agent(payload: McHarnessAgentCreateRequest):
+    if not _agent_registry_write_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Agent registration is available only on the private runner service.",
+        )
+    agent = create_registered_agent(MCTABLE_ROOT, payload)
+    return {
+        "ok": True,
+        "agent": sanitize_agent_profile(
+            get_agent_by_id(
+                MCTABLE_ROOT,
+                agent["id"],
+                codex_runner_ready=_codex_runner_ready(),
+                private_only=_agent_registry_private_only(),
+            )
+            or agent
+        ),
+    }
+
+
+@mcharness_router.patch("/agents/{agent_id}", dependencies=[Depends(_require_public_write_access)])
+def patch_mcharness_agent(agent_id: str, payload: McHarnessAgentPatchRequest):
+    if not _agent_registry_write_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Agent registration is available only on the private runner service.",
+        )
+    agent = update_registered_agent(MCTABLE_ROOT, agent_id, payload)
+    return {
+        "ok": True,
+        "agent": sanitize_agent_profile(
+            get_agent_by_id(
+                MCTABLE_ROOT,
+                agent_id,
+                codex_runner_ready=_codex_runner_ready(),
+                private_only=_agent_registry_private_only(),
+            )
+            or agent
+        ),
+    }
+
+
+@mcharness_router.delete("/agents/{agent_id}", dependencies=[Depends(_require_public_write_access)])
+def delete_mcharness_agent(agent_id: str):
+    if not _agent_registry_write_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Agent registration is available only on the private runner service.",
+        )
+    return delete_registered_agent(MCTABLE_ROOT, agent_id)
+
+
+@mcharness_router.get("/agents/{agent_id}/status")
+def get_mcharness_agent_status(agent_id: str):
+    agent = get_agent_by_id(
+        MCTABLE_ROOT,
+        agent_id,
+        codex_runner_ready=_codex_runner_ready(),
+        private_only=_agent_registry_private_only(),
+    )
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
+    return agent_status_payload(
+        agent,
+        codex_runner_ready=_codex_runner_ready(),
+        probe_codex=_codex_probe_payload if agent.get("adapter") == "codex_cli" else None,
+    )
+
+
+@mcharness_router.post("/agents/{agent_id}/probe")
+def probe_mcharness_agent(agent_id: str):
+    agent = get_agent_by_id(
+        MCTABLE_ROOT,
+        agent_id,
+        codex_runner_ready=_codex_runner_ready(),
+        private_only=_agent_registry_private_only(),
+    )
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
+    return probe_agent(
+        agent,
+        codex_runner_ready=_codex_runner_ready(),
+        probe_codex=_codex_probe_payload if agent.get("adapter") == "codex_cli" else None,
+    )
 
 
 @mcharness_router.post("/sessions")
