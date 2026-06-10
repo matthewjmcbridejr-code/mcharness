@@ -101,14 +101,25 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   // Simple default UI
   await expect(page.locator("h1")).toContainText("Warden");
   await expect(page.locator("[data-testid='warden-byline']")).toContainText("by Marius Systems");
-  await expect(page.locator("[data-testid='warden-powered']")).toContainText("Powered by McHarness.");
+  await expect(page.locator("[data-testid='warden-sidebar']")).toBeVisible();
+  await expect(page.locator("[data-testid='warden-powered']")).toContainText("Powered by McHarness");
   await expect(page.locator("text=Agent Library")).toBeVisible();
   await expect(page.locator("[data-testid='develop-plan-primary']")).toBeVisible();
   await expect(page.locator("[data-testid='agent-group-ready']")).toBeVisible();
   await expect(page.locator("[data-testid='agent-group-ready']")).toContainText("Ready to Run");
   await expect(page.locator("#codex-card")).toBeVisible();
   await expect(page.locator("#codex-card")).toContainText("Codex CLI");
-  await expect(page.locator("#codex-card")).toContainText("Use for live coding tasks through the controlled terminal monitor.");
+  await expect(page.locator("#codex-card")).toContainText("Live coding tasks through the private controlled terminal monitor.");
+
+  await page.locator("[data-testid='nav-tasks']").click();
+  await expect(page.locator("[data-testid='tasks-empty-state']")).toContainText("No active task plan yet");
+  await page.locator("[data-testid='nav-runs']").click();
+  await expect(page.locator("[data-testid='runs-empty-state']")).toContainText("Runs will show live and completed agent sessions");
+  await page.locator("[data-testid='nav-evidence']").click();
+  await expect(page.locator("[data-testid='evidence-empty-state']")).toContainText("Saved transcripts");
+  await page.locator("[data-testid='nav-settings']").click();
+  await expect(page.locator("[data-testid='settings-captain-status']")).toContainText("Captain:");
+  await page.locator("[data-testid='nav-agents']").click();
   await expect(page.locator("#codex-card").getByRole("button", { name: "Use Agent" })).toBeVisible();
   await expect(page.locator("#codex-card").getByRole("button", { name: "View Agent" })).toBeVisible();
   await expect(page.locator("[data-testid='agent-library-cards']")).not.toContainText("Open Live Monitor");
@@ -1268,8 +1279,7 @@ test("Agent Registry configure flow and Captain dropdown use registered agents",
   await expect(page.locator("[data-testid='agent-group-connected']")).toBeVisible();
   await expect(page.locator("[data-testid='agent-group-connected']")).toContainText("Connected / Setup Complete");
   await expect(page.locator(".registered-agent-card")).toContainText("Jules Remote Worker");
-  await expect(page.locator(".registered-agent-card")).toContainText("Connected for planning/status.");
-  await expect(page.locator(".registered-agent-card")).toContainText("Remote execution is not enabled yet.");
+  await expect(page.locator(".registered-agent-card")).toContainText("Connected for planning/status. Remote execution is not enabled yet.");
   await expect(page.locator(".registered-agent-card button", { hasText: "Use Agent" })).toHaveCount(0);
   await expect(page.locator(".registered-agent-card button", { hasText: "Edit Config" })).toBeVisible();
   const julesView = page.locator(".registered-agent-card [data-testid='view-agent-jules']");

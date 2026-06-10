@@ -25,6 +25,7 @@
     liveMonitorExpanded: false,
     liveAutoScroll: true,
     lastMonitorTranscriptText: "",
+    activeSection: "agents",
     captainDeck: {
       configured: false,
       planningEnabled: false,
@@ -130,6 +131,7 @@
       }
       deck.notes = Array.isArray(status.notes) ? status.notes : [];
       renderCaptainDeck();
+      renderSettingsPanel();
       return status;
     } catch (e) {
       const deck = state.captainDeck;
@@ -139,6 +141,7 @@
       deck.keySource = "missing";
       deck.notes = ["Captain status unavailable."];
       renderCaptainDeck();
+      renderSettingsPanel();
       return null;
     }
   }
@@ -545,17 +548,73 @@
     return agent.status || agent.connection_status || "unknown";
   }
 
+  function setCodexStatusPill({ ready, disabled, label }) {
+    const pill = document.getElementById("codex-status-pill");
+    if (!pill) return;
+    pill.textContent = label || (ready ? "Ready" : disabled ? "Disabled" : "Coming next");
+    pill.className = `status-pill ${ready ? "status-ready" : disabled ? "status-disabled" : "status-coming"}`;
+  }
+
+  function updateRunsEvidenceActions() {
+    const hasSession = !!state.selectedThreadId;
+    ["runs-open-monitor", "evidence-open-output"].forEach((id) => {
+      const btn = document.getElementById(id);
+      if (btn) btn.style.display = hasSession ? "" : "none";
+    });
+  }
+
+  function renderSettingsPanel() {
+    const deck = state.captainDeck;
+    const health = state.health || {};
+    const captainStatus = document.getElementById("settings-captain-status");
+    const captainModel = document.getElementById("settings-captain-model");
+    const agentNote = document.getElementById("settings-agent-note");
+    const modeNote = document.getElementById("settings-mode-note");
+    if (captainStatus) {
+      captainStatus.textContent = deck.configured
+        ? `Captain: Configured${deck.keySource && deck.keySource !== "missing" ? ` (${deck.keySource})` : ""}`
+        : "Captain: Not configured";
+    }
+    if (captainModel) {
+      captainModel.textContent = `Model: ${deck.model || "openrouter/auto"}`;
+    }
+    if (agentNote) {
+      agentNote.textContent = state.registryWriteEnabled
+        ? "Add and configure CLI or remote agents from the Agents section after connection checks."
+        : "Agent registration is available on the private runner service (8125).";
+    }
+    if (modeNote) {
+      const runnerActive = !!health.tmux_runner_enabled && !!health.codex_runner_enabled;
+      modeNote.textContent = runnerActive
+        ? "Private runner mode is active on this service. Codex runs through controlled tmux sessions."
+        : "Public real agent launch is disabled on this service.";
+    }
+    updateRunsEvidenceActions();
+  }
+
+  function setActiveSection(sectionId) {
+    state.activeSection = sectionId || "agents";
+    document.querySelectorAll(".workspace-section").forEach((section) => {
+      section.classList.toggle("active", section.dataset.section === state.activeSection);
+    });
+    document.querySelectorAll(".nav-item").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.section === state.activeSection);
+    });
+  }
+
   function registeredAgentCardCopy(agent) {
     if (agent.adapter === "jules_remote") {
       const connected = agent.connection_status === "connected" && agent.status === "ready";
       return {
-        statusLine: connected ? "Connected for planning/status." : "Configured — finish connection checks.",
-        body: "Remote execution is not enabled yet.",
+        pillLabel: connected ? "Connected" : "Coming next",
+        pillClass: connected ? "status-connected" : "status-coming",
+        body: "Connected for planning/status. Remote execution is not enabled yet.",
       };
     }
     const status = agentStatusLabel(agent);
     return {
-      statusLine: `${agentTypeLabel(agent)} • ${agent.adapter || "agent"} • ${status}`,
+      pillLabel: status === "connected" ? "Connected" : "Coming next",
+      pillClass: status === "connected" ? "status-connected" : "status-coming",
       body: agent.description || "",
     };
   }
@@ -589,13 +648,15 @@
       const showEdit = agent.adapter === "jules_remote";
       return `
         <div class="agent-card registered-agent-card" data-agent-id="${escapeHtml(agent.id)}">
-          <h3 class="agent-card-title">${escapeHtml(agent.name || agent.id)}</h3>
-          <div class="agent-card-status">${escapeHtml(copy.statusLine)}</div>
+          <div class="agent-card-top">
+            <h3 class="agent-card-title">${escapeHtml(agent.name || agent.id)}</h3>
+            <span class="status-pill ${copy.pillClass}">${escapeHtml(copy.pillLabel)}</span>
+          </div>
           <p class="agent-card-copy">${escapeHtml(copy.body)}</p>
           <div class="agent-card-actions">
+            ${agent.adapter === "jules_remote" ? `<a class="btn view-agent-link" href="${JULES_VIEW_URL}" target="_blank" rel="noopener noreferrer" title="Open Jules remote agent workspace" aria-label="View Agent — open Jules remote agent workspace" data-testid="view-agent-jules">View Agent</a>` : ""}
             ${runnable ? `<button class="btn" type="button" data-use-agent-id="${escapeHtml(agent.id)}">Use Agent</button>` : ""}
             ${showEdit ? `<button class="btn" type="button" data-edit-agent-id="${escapeHtml(agent.id)}">Edit Config</button>` : ""}
-            ${agent.adapter === "jules_remote" ? `<a class="btn view-agent-link" href="${JULES_VIEW_URL}" target="_blank" rel="noopener noreferrer" title="Open Jules remote agent workspace" aria-label="View Agent — open Jules remote agent workspace" data-testid="view-agent-jules">View Agent</a>` : ""}
             <button class="btn bad" type="button" data-remove-agent-id="${escapeHtml(agent.id)}">Remove</button>
           </div>
         </div>
@@ -1049,27 +1110,22 @@
       const installed = !!codex.installed || codex.status === "ready" || codex.status === "disabled";
       const tmuxF = !!state.health.tmux_runner_enabled;
       const codexF = !!state.health.codex_runner_enabled;
-      const line = document.getElementById("codex-status-line");
       const capsEl = document.getElementById("codex-capabilities");
-      if (line) {
-        if (codex.status === "ready" || (installed && tmuxF && codexF)) {
-          line.textContent = "Ready to run on private runner.";
-          line.style.color = "var(--good, #63db9d)";
-        } else if (installed) {
-          line.textContent = "Installed • runs on private runner only (8125 + runner flags)";
-          line.style.color = "var(--warn, #f0c66a)";
-        } else {
-          line.textContent = "Not detected on host";
-          line.style.color = "var(--bad, #ff7e91)";
-        }
+      if (codex.status === "ready" || (installed && tmuxF && codexF)) {
+        setCodexStatusPill({ ready: true, label: "Ready" });
+      } else if (installed) {
+        setCodexStatusPill({ disabled: true, label: "Disabled" });
+      } else {
+        setCodexStatusPill({ disabled: true, label: "Disabled" });
       }
       if (capsEl) {
         capsEl.style.display = "none";
         capsEl.textContent = "";
       }
+      renderSettingsPanel();
     } catch (e) {
-      const line = document.getElementById("codex-status-line");
-      if (line) line.textContent = "Status unavailable (public safe)";
+      setCodexStatusPill({ disabled: true, label: "Disabled" });
+      renderSettingsPanel();
     }
   }
 
@@ -1143,6 +1199,7 @@
       });
       const sid = sess.session_id || sess.id;
       state.selectedThreadId = sid;
+      updateRunsEvidenceActions();
 
       const qres = await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/queue`, {
         method: "POST",
@@ -1380,15 +1437,34 @@
 
   function wireDevelopPlanButtons() {
     const openCaptain = () => openCaptainDeckModal().catch((e) => console.error(e));
-    ["develop-plan-primary", "develop-plan-btn"].forEach((id) => {
+    document.querySelectorAll("[data-action='develop-plan']").forEach((btn) => {
+      btn.addEventListener("click", openCaptain);
+    });
+  }
+
+  function wireWorkspaceNav() {
+    document.querySelectorAll(".nav-item").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const section = btn.dataset.section;
+        if (section) setActiveSection(section);
+      });
+    });
+    const configureCaptain = document.getElementById("configure-captain-btn");
+    if (configureCaptain) {
+      configureCaptain.addEventListener("click", () => {
+        openCaptainDeckModal().catch((e) => console.error(e));
+      });
+    }
+    ["runs-open-monitor", "evidence-open-output"].forEach((id) => {
       const btn = document.getElementById(id);
-      if (btn) btn.addEventListener("click", openCaptain);
+      if (btn) btn.addEventListener("click", openLiveCLIMonitor);
     });
   }
 
   // Wire simple UI events
   function wireSimpleUI() {
     wireDevelopPlanButtons();
+    wireWorkspaceNav();
 
     // Use Agent
     const useBtn = document.getElementById("use-codex-btn");
@@ -1576,14 +1652,13 @@
         el.style.display = "none";
       });
     });
-    // Also hide any direct body children that are old sections after our main
-    document.querySelectorAll("body > section, body > div:not([id*='modal']):not([id='legacy-cockpit'])").forEach((el) => {
-      if (el.tagName === "HEADER" || el.tagName === "MAIN" || (el.id && el.id.includes("modal"))) return;
+    document.querySelectorAll("body > section.layout-stack, body > div.layout-stack").forEach((el) => {
       el.style.display = "none";
     });
 
     wireSimpleUI();
-    await loadLibraryStatus();
+    setActiveSection("agents");
+    await Promise.all([loadLibraryStatus(), loadCaptainDeckStatus()]);
 
     // initial status check for disabled note etc is handled in deploy
     // If user has runner flags in this process (e.g. private), card will reflect Ready

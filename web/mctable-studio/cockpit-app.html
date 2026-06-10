@@ -20,63 +20,140 @@
     <span class="banner bad">PUBLIC REAL AGENT LAUNCH DISABLED</span>
     <span class="banner warn">FAKE/MANUAL MODE (Codex gated)</span>
   </section>
-  <header class="warden-header">
-    <div class="warden-brand">
-      <h1 class="warden-title">Warden</h1>
-      <span class="warden-byline" data-testid="warden-byline">by Marius Systems</span>
-    </div>
-    <p class="warden-subhead">Supervised control room for AI coding agents.</p>
-    <p class="warden-powered" data-testid="warden-powered">Powered by McHarness.</p>
-    <div class="warden-header-meta">
-      <a href="#" id="legacy-link" class="warden-legacy-link">Advanced / Legacy Cockpit</a>
-      <span class="warden-safety-note">Public real agent launch disabled</span>
-    </div>
-  </header>
+  <div class="warden-shell" data-testid="warden-shell">
+    <aside class="warden-sidebar" data-testid="warden-sidebar">
+      <div class="sidebar-brand">
+        <div class="warden-brand">
+          <h1 class="warden-title">Warden</h1>
+          <span class="warden-byline" data-testid="warden-byline">by Marius Systems</span>
+        </div>
+        <p class="sidebar-tagline">Supervised agent ops</p>
+      </div>
 
-  <main class="warden-main">
-    <div class="warden-primary-cta">
-      <button id="develop-plan-primary" data-testid="develop-plan-primary" class="btn primary btn-hero" type="button">Develop Plan</button>
-    </div>
+      <button id="develop-plan-primary" data-testid="develop-plan-primary" data-action="develop-plan" class="btn primary sidebar-primary" type="button">Develop Plan</button>
 
-    <h2 class="warden-section-title">Agent Library</h2>
+      <nav class="sidebar-nav" data-testid="warden-nav" aria-label="Warden sections">
+        <button type="button" class="nav-item active" data-section="agents" data-testid="nav-agents">Agents</button>
+        <button type="button" class="nav-item" data-section="tasks" data-testid="nav-tasks">Tasks</button>
+        <button type="button" class="nav-item" data-section="runs" data-testid="nav-runs">Runs</button>
+        <button type="button" class="nav-item" data-section="evidence" data-testid="nav-evidence">Evidence</button>
+        <button type="button" class="nav-item" data-section="settings" data-testid="nav-settings">Settings</button>
+      </nav>
 
-    <div id="agent-library-cards" data-testid="agent-library-cards" class="agent-library-groups">
-      <section class="agent-group" data-testid="agent-group-ready">
-        <h3 class="agent-group-title">Ready to Run</h3>
-        <div class="agent-group-cards">
-          <div id="codex-card" data-testid="codex-card" class="agent-card">
-            <h3 class="agent-card-title">Codex CLI</h3>
-            <div id="codex-status-line" class="agent-card-status">Detecting status...</div>
-            <p class="agent-card-copy">Use for live coding tasks through the controlled terminal monitor.</p>
-            <div id="codex-capabilities" class="agent-card-meta muted" style="display:none;"></div>
-            <div class="agent-card-actions">
-              <button id="develop-plan-btn" class="btn primary" type="button">Develop Plan</button>
-              <button id="use-codex-btn" class="btn" type="button">Use Agent</button>
-              <button id="view-agent-codex-btn" data-testid="view-agent-codex" class="btn" type="button" title="Open Codex live monitor" aria-label="View Agent — open Codex live monitor">View Agent</button>
+      <footer class="sidebar-footer">
+        <a href="#" id="legacy-link" class="warden-legacy-link">Advanced / Legacy Cockpit</a>
+        <span class="warden-powered" data-testid="warden-powered">Powered by McHarness</span>
+      </footer>
+    </aside>
+
+    <main class="warden-workspace" data-testid="warden-workspace">
+      <section id="warden-section-agents" class="workspace-section active" data-section="agents" data-testid="warden-section-agents">
+        <header class="workspace-header">
+          <h2 class="workspace-title">Agent Library</h2>
+          <p class="workspace-subhead">Connect local CLI agents and remote workers, then dispatch bounded work through Captain.</p>
+        </header>
+
+        <div id="agent-library-cards" data-testid="agent-library-cards" class="agent-library-groups">
+          <section class="agent-group" data-testid="agent-group-ready">
+            <h3 class="agent-group-title">Ready to Run</h3>
+            <div class="agent-group-cards">
+              <div id="codex-card" data-testid="codex-card" class="agent-card">
+                <div class="agent-card-top">
+                  <h3 class="agent-card-title">Codex CLI</h3>
+                  <span id="codex-status-pill" data-testid="codex-status-pill" class="status-pill status-ready">Ready</span>
+                </div>
+                <div id="codex-status-line" class="agent-card-status" style="display:none;"></div>
+                <p class="agent-card-copy">Live coding tasks through the private controlled terminal monitor.</p>
+                <div id="codex-capabilities" class="agent-card-meta muted" style="display:none;"></div>
+                <div class="agent-card-actions">
+                  <button id="develop-plan-btn" data-action="develop-plan" class="btn primary" type="button">Develop Plan</button>
+                  <button id="use-codex-btn" class="btn" type="button">Use Agent</button>
+                  <button id="view-agent-codex-btn" data-testid="view-agent-codex" class="btn" type="button" title="Open Codex live monitor" aria-label="View Agent — open Codex live monitor">View Agent</button>
+                </div>
+              </div>
             </div>
+          </section>
+
+          <section id="agent-group-connected" class="agent-group" data-testid="agent-group-connected" style="display:none;">
+            <h3 class="agent-group-title">Connected / Setup Complete</h3>
+            <div id="connected-agent-cards" class="agent-group-cards"></div>
+          </section>
+        </div>
+
+        <div class="add-agent-section">
+          <button id="add-agent-btn" data-testid="add-agent-btn" class="btn" type="button">Add Agent</button>
+          <p class="add-agent-help" data-testid="add-agent-help">Add CLI or remote agents after configuration and connection checks.</p>
+        </div>
+
+        <details id="legacy-cockpit" class="legacy-cockpit-details">
+          <summary>Advanced / Legacy Cockpit (full old UI, hidden in simple mode)</summary>
+          <div class="legacy-cockpit-note">
+            Legacy Captain lists, gates, artifacts, full runner debug etc. Use private runner mode (8125 + flags) for real Codex.
           </div>
+        </details>
+      </section>
+
+      <section id="warden-section-tasks" class="workspace-section" data-section="tasks" data-testid="warden-section-tasks">
+        <header class="workspace-header">
+          <h2 class="workspace-title">Tasks</h2>
+          <p class="workspace-subhead">Captain plan steps and supervised work items.</p>
+        </header>
+        <div class="empty-state-card" data-testid="tasks-empty-state">
+          <h3>No active task plan yet.</h3>
+          <p>Use Develop Plan to create a supervised plan. Tasks will appear here as Captain steps.</p>
+          <button type="button" class="btn primary" data-action="develop-plan" data-testid="develop-plan-tasks">Develop Plan</button>
         </div>
       </section>
 
-      <section id="agent-group-connected" class="agent-group" data-testid="agent-group-connected" style="display:none;">
-        <h3 class="agent-group-title">Connected / Setup Complete</h3>
-        <div id="connected-agent-cards" class="agent-group-cards"></div>
+      <section id="warden-section-runs" class="workspace-section" data-section="runs" data-testid="warden-section-runs">
+        <header class="workspace-header">
+          <h2 class="workspace-title">Runs</h2>
+          <p class="workspace-subhead">Live and completed agent sessions.</p>
+        </header>
+        <div class="empty-state-card" data-testid="runs-empty-state">
+          <h3>Runs will show live and completed agent sessions.</h3>
+          <p>Codex Live Monitor sessions and saved outputs will appear here in the next evidence pass.</p>
+          <button type="button" id="runs-open-monitor" class="btn" data-testid="runs-open-monitor" style="display:none;">Open Live Monitor</button>
+        </div>
       </section>
-    </div>
 
-    <div class="add-agent-section">
-      <button id="add-agent-btn" data-testid="add-agent-btn" class="btn" type="button">Add Agent</button>
-      <p class="add-agent-help" data-testid="add-agent-help">Add CLI or remote agents after configuration and connection checks.</p>
-    </div>
+      <section id="warden-section-evidence" class="workspace-section" data-section="evidence" data-testid="warden-section-evidence">
+        <header class="workspace-header">
+          <h2 class="workspace-title">Evidence</h2>
+          <p class="workspace-subhead">Proof artifacts from supervised agent work.</p>
+        </header>
+        <div class="empty-state-card" data-testid="evidence-empty-state">
+          <h3>Saved transcripts, proof reports, test output, diffs, and PR links will appear here.</h3>
+          <p>When a Codex session is active, open the live monitor to review output or save evidence.</p>
+          <button type="button" id="evidence-open-output" class="btn" data-testid="evidence-open-output" style="display:none;">Open Current Output</button>
+        </div>
+      </section>
 
-    <!-- Legacy full cockpit (hidden by default; toggle via link) -->
-    <details id="legacy-cockpit" style="margin-top:20px;">
-      <summary style="cursor:pointer; color:var(--accent); font-size:0.85em;">Advanced / Legacy Cockpit (full old UI, hidden in simple mode)</summary>
-      <div style="margin-top:8px; padding:8px; border:1px solid var(--line); font-size:0.8em; color:var(--muted);">
-        Legacy Captain lists, gates, artifacts, full runner debug etc. Use private runner mode (8125 + flags) for real Codex.
-      </div>
-    </details>
-  </main>
+      <section id="warden-section-settings" class="workspace-section" data-section="settings" data-testid="warden-section-settings">
+        <header class="workspace-header">
+          <h2 class="workspace-title">Settings</h2>
+          <p class="workspace-subhead">Captain planning and service configuration.</p>
+        </header>
+        <div class="settings-grid">
+          <div class="settings-card">
+            <h3>Captain / OpenRouter</h3>
+            <div id="settings-captain-status" data-testid="settings-captain-status" class="settings-value">Loading Captain status...</div>
+            <div id="settings-captain-model" data-testid="settings-captain-model" class="settings-meta"></div>
+            <button type="button" id="configure-captain-btn" data-testid="configure-captain" class="btn primary">Configure Captain</button>
+          </div>
+          <div class="settings-card">
+            <h3>Agent Registry</h3>
+            <p id="settings-agent-note" data-testid="settings-agent-note" class="settings-meta">Loading agent setup note...</p>
+          </div>
+          <div class="settings-card">
+            <h3>Service Mode</h3>
+            <p id="settings-mode-note" data-testid="settings-mode-note" class="settings-meta">Loading service mode...</p>
+            <p class="settings-meta settings-muted">Private runner controls are available only on the private service.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
 
   <!-- Add Agent Modal -->
   <div id="add-agent-modal" data-testid="add-agent-modal" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:none; align-items:center; justify-content:center; z-index:10000;">
