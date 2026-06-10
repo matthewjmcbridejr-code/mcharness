@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from .api import legacy_router, mcharness_router, router as marius_router
-from .branding import CATEGORY, LEGACY_CODENAME, PRODUCT_NAME, PUBLIC_URL, REPO_NAME, TAGLINE
+from .branding import CATEGORY, PRODUCT_NAME, PUBLIC_URL, REPO_NAME, TAGLINE
 
 _ROOT = Path(__file__).resolve().parents[2]
 _WEB_DIR = _ROOT / "web"
@@ -24,7 +24,6 @@ def create_app() -> FastAPI:
         "public_url": PUBLIC_URL,
         "tagline": TAGLINE,
         "category": CATEGORY,
-        "legacy_codename": LEGACY_CODENAME,
     }
     app.include_router(marius_router)
     app.include_router(mcharness_router)

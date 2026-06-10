@@ -11,7 +11,6 @@ _DEFAULTS = {
     "public_url": "https://mctable.team",
     "tagline": "Supervised agent ops control room by Marius Systems.",
     "category": "AI agent control room",
-    "legacy_codename": "Marius Desktop",
 }
 
 
@@ -33,4 +32,3 @@ REPO_NAME = _BRANDING["repo_name"]
 PUBLIC_URL = _BRANDING["public_url"]
 TAGLINE = _BRANDING["tagline"]
 CATEGORY = _BRANDING["category"]
-LEGACY_CODENAME = _BRANDING["legacy_codename"]

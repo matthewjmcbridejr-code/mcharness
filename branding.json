@@ -4,6 +4,5 @@
   "public_url": "https://mctable.team",
   "tagline": "Supervised agent ops control room by Marius Systems.",
   "category": "AI agent control room",
-  "internal_module": "src.warden",
-  "legacy_codename": "Marius Desktop"
+  "internal_module": "src.warden"
 }
