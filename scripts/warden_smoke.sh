@@ -91,6 +91,8 @@ if [[ "${SERVICE_CHECKS}" -eq 1 ]]; then
   wait_for_service "8125 agents" "http://127.0.0.1:8125/api/mcharness/agents"
   wait_for_service "8125 captain" "http://127.0.0.1:8125/api/mcharness/captain/status"
   wait_for_service "8125 warden ui" "http://127.0.0.1:8125/web/warden/index.html"
+  wait_for_service "8125 runner sessions" "http://127.0.0.1:8125/api/mcharness/runner/sessions"
+  wait_for_service "8125 safety" "http://127.0.0.1:8125/api/mcharness/safety/status"
   echo "service readiness: ok"
 else
   echo
@@ -99,6 +101,8 @@ else
   probe_service "8125 agents" "http://127.0.0.1:8125/api/mcharness/agents" || true
   probe_service "8125 captain" "http://127.0.0.1:8125/api/mcharness/captain/status" || true
   probe_service "8125 warden ui" "http://127.0.0.1:8125/web/warden/index.html" || true
+  probe_service "8125 runner sessions" "http://127.0.0.1:8125/api/mcharness/runner/sessions" || true
+  probe_service "8125 safety" "http://127.0.0.1:8125/api/mcharness/safety/status" || true
 fi
 
 echo
