@@ -71,6 +71,13 @@ from .run_history import (
     update_run_record,
 )
 from .worklog import EVENT_LABELS, list_recent_worklog
+from .mission_control import (
+    adjust_mission_plan,
+    build_agents_health_items,
+    build_mission_control_snapshot,
+    build_safety_payload,
+    pause_mission,
+)
 from .proof_gates import (
     assert_step_completion_allowed,
     create_proof_gate,
@@ -446,6 +453,15 @@ class McHarnessCaptainStepReviseRequest(BaseModel):
 
 class McHarnessCaptainPlanStopRequest(BaseModel):
     note: Optional[str] = None
+
+
+class McHarnessMissionPauseRequest(BaseModel):
+    note: Optional[str] = None
+
+
+class McHarnessMissionAdjustPlanRequest(BaseModel):
+    note: Optional[str] = None
+    adjustments: dict[str, Any] = Field(default_factory=dict)
 
 
 class McHarnessCaptainStatusResponse(BaseModel):
@@ -2753,6 +2769,95 @@ def post_mcharness_gate_decision(gate_id: str, payload: McHarnessProofGateDecisi
         "ok": True,
         "service": "mcharness-control-plane",
         "gate": updated,
+    }
+
+
+def _mission_control_context() -> dict[str, Any]:
+    captain_status = _captain_status_payload()
+    return {
+        "history_enabled": _run_history_read_enabled(),
+        "codex_runner_ready": _codex_runner_ready(),
+        "private_only": _agent_registry_private_only(),
+        "captain_configured": bool(captain_status.get("configured")),
+        "tmux_runner_enabled": _tmux_runner_enabled(),
+        "codex_runner_enabled": _codex_runner_enabled(),
+    }
+
+
+@mcharness_router.get("/mission-control/snapshot")
+def get_mcharness_mission_control_snapshot():
+    ctx = _mission_control_context()
+    snapshot = build_mission_control_snapshot(MCTABLE_ROOT, **ctx)
+    snapshot["service_mode"] = _service_mode_label()
+    return snapshot
+
+
+@mcharness_router.get("/agents/health")
+def get_mcharness_agents_health():
+    ctx = _mission_control_context()
+    from .mission_control import select_active_plan
+
+    plan = select_active_plan(MCTABLE_ROOT, history_enabled=ctx["history_enabled"])
+    items = build_agents_health_items(
+        MCTABLE_ROOT,
+        codex_runner_ready=ctx["codex_runner_ready"],
+        private_only=ctx["private_only"],
+        plan=plan,
+        captain_configured=ctx["captain_configured"],
+    )
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "items": items,
+    }
+
+
+@mcharness_router.get("/safety/status")
+def get_mcharness_safety_status():
+    ctx = _mission_control_context()
+    payload = build_safety_payload(
+        codex_runner_ready=ctx["codex_runner_ready"],
+        tmux_runner_enabled=ctx["tmux_runner_enabled"],
+        codex_runner_enabled=ctx["codex_runner_enabled"],
+        jules_runnable=False,
+    )
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        **payload,
+    }
+
+
+@mcharness_router.post("/missions/{mission_id}/pause", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_mission_pause(mission_id: str, payload: McHarnessMissionPauseRequest):
+    updated = pause_mission(MCTABLE_ROOT, mission_id, note=payload.note)
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "mission_id": mission_id,
+        "status": "stopped",
+        "plan": _captain_plan_response(updated),
+        "notes": ["Mission paused. No automatic runner cancellation was performed."],
+    }
+
+
+@mcharness_router.post("/missions/{mission_id}/adjust-plan", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_mission_adjust_plan(mission_id: str, payload: McHarnessMissionAdjustPlanRequest):
+    updated = adjust_mission_plan(
+        MCTABLE_ROOT,
+        mission_id,
+        note=payload.note,
+        adjustments=payload.adjustments or None,
+    )
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "mission_id": mission_id,
+        "human_review_required": True,
+        "plan": _captain_plan_response(updated),
+        "notes": ["Plan adjustment recorded. Human review is required before changes are applied."],
     }
 
 
