@@ -1742,6 +1742,29 @@ def test_captain_step_complete_allowed_after_gate_approved_without_auto_dispatch
     assert not step2.get("run_id")
 
 
+def test_worklog_includes_gate_created_and_decision_events(monkeypatch, tmp_path):
+    _enable_private_captain_loop(monkeypatch, tmp_path)
+    client = TestClient(app)
+    _sample_persisted_plan(client)
+    dispatch = client.post("/api/mcharness/captain/plans/plan_loop01/steps/step_1/dispatch")
+    run_id = dispatch.json()["dispatch"]["runner_id"]
+    gate = client.post(
+        f"/api/mcharness/runs/{run_id}/gates",
+        json={"title": "Worklog gate", "summary": "Track in worklog."},
+    )
+    gate_id = gate.json()["gate"]["gate_id"]
+    client.post(
+        f"/api/mcharness/gates/{gate_id}/decision",
+        json={"decision": "request_more_evidence", "decided_by": "operator", "decision_reason": "Need transcript."},
+    )
+    worklog = client.get("/api/mcharness/worklog/recent")
+    assert worklog.status_code == 200
+    kinds = {item["kind"] for item in worklog.json()["items"]}
+    assert "gate_created" in kinds
+    assert "gate_needs_more_evidence" in kinds
+    assert "sample" not in worklog.text.lower()
+
+
 def test_run_report_includes_evidence_gates_and_redacts_secrets(monkeypatch, tmp_path):
     _enable_private_run_history(monkeypatch, tmp_path)
     client = TestClient(app)
