@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .captain_plans import plans_index_path
+from .runner_sessions import runner_events_path
 from .proof_gates import gates_index_path
 from .run_history import (
     _prompt_excerpt,
@@ -29,6 +30,7 @@ EVENT_LABELS: dict[str, str] = {
     "gate_approved": "Proof gate approved",
     "gate_blocked": "Proof gate blocked",
     "gate_needs_more_evidence": "More evidence requested",
+    "runner_sessions_cleaned": "Runner sessions cleaned",
 }
 
 GATE_DECISION_KINDS: dict[str, tuple[str, str]] = {
@@ -196,6 +198,22 @@ def list_recent_worklog(root: Path, *, limit: int = 50) -> list[dict[str, Any]]:
                 "status": "saved",
                 "created_at": evidence.get("created_at"),
                 "links": links,
+            }
+        )
+
+    for event in _read_json_list(runner_events_path(root)):
+        event_id = str(event.get("id") or "")
+        if not event_id:
+            continue
+        items.append(
+            {
+                "id": event_id,
+                "kind": str(event.get("kind") or "runner_sessions_cleaned"),
+                "title": str(event.get("title") or "Runner sessions cleaned"),
+                "summary": str(event.get("summary") or ""),
+                "status": str(event.get("status") or "stopped"),
+                "created_at": event.get("created_at"),
+                "links": dict(event.get("links") or {}),
             }
         )
 
