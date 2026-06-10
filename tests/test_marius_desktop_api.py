@@ -1639,3 +1639,120 @@ def test_run_history_missing_records_return_404(monkeypatch, tmp_path):
     missing_evidence = client.get("/api/mcharness/evidence/ev_missing123")
     assert missing_run.status_code == 404
     assert missing_evidence.status_code == 404
+
+
+def _enable_private_captain_loop(monkeypatch, tmp_path):
+    _enable_private_run_history(monkeypatch, tmp_path)
+    import src.marius_desktop.api as api_mod
+
+    monkeypatch.setattr(api_mod, "CAPTAIN_PLAN_ROOT", tmp_path / "captain" / "plans")
+
+
+def _sample_persisted_plan(client):
+    response = client.post(
+        "/api/mcharness/captain/plans",
+        json={
+            "goal": "Build the Captain loop",
+            "repo_id": "mcharness-public-export",
+            "plan_id": "plan_loop01",
+            "title": "Captain loop plan",
+            "summary": "Supervised step progression.",
+            "steps": [
+                {"id": "step_1", "title": "Inspect", "prompt": "Inspect the repo.", "agent": "codex_cli", "status": "queued"},
+                {"id": "step_2", "title": "Implement", "prompt": "Implement the change.", "agent": "codex_cli", "status": "queued"},
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["plan"]
+
+
+def test_captain_plan_persistence_and_recent_list(monkeypatch, tmp_path):
+    _enable_private_captain_loop(monkeypatch, tmp_path)
+    client = TestClient(app)
+    plan = _sample_persisted_plan(client)
+    assert plan["plan_id"] == "plan_loop01"
+    assert plan["current_step_id"] == "step_1"
+    recent = client.get("/api/mcharness/captain/plans/recent")
+    assert recent.status_code == 200
+    assert len(recent.json()["plans"]) == 1
+    detail = client.get("/api/mcharness/captain/plans/plan_loop01")
+    assert detail.status_code == 200
+    assert detail.json()["plan"]["steps"][0]["prompt"] == "Inspect the repo."
+
+
+def test_captain_plan_dispatch_links_run(monkeypatch, tmp_path):
+    _enable_private_captain_loop(monkeypatch, tmp_path)
+    client = TestClient(app)
+    _sample_persisted_plan(client)
+    dispatch = client.post("/api/mcharness/captain/plans/plan_loop01/steps/step_1/dispatch")
+    assert dispatch.status_code == 200, dispatch.text
+    payload = dispatch.json()
+    assert payload["dispatch"]["runner_id"]
+    assert payload["plan"]["steps"][0]["status"] == "dispatched"
+    assert payload["plan"]["steps"][0]["run_id"] == payload["dispatch"]["runner_id"]
+    recent_runs = client.get("/api/mcharness/runs/recent")
+    assert len(recent_runs.json()["runs"]) == 1
+
+
+def test_captain_plan_complete_advances_without_auto_dispatch(monkeypatch, tmp_path):
+    _enable_private_captain_loop(monkeypatch, tmp_path)
+    client = TestClient(app)
+    _sample_persisted_plan(client)
+    client.post("/api/mcharness/captain/plans/plan_loop01/steps/step_1/dispatch")
+    completed = client.post(
+        "/api/mcharness/captain/plans/plan_loop01/steps/step_1/complete",
+        json={"evidence_ids": ["ev_test01"]},
+    )
+    assert completed.status_code == 200, completed.text
+    plan = completed.json()["plan"]
+    assert plan["steps"][0]["status"] == "passed"
+    assert plan["current_step_id"] == "step_2"
+    assert plan["steps"][1]["status"] == "queued"
+    assert len(client.get("/api/mcharness/runs/recent").json()["runs"]) == 1
+
+
+def test_captain_plan_revise_updates_prompt_and_logs(monkeypatch, tmp_path):
+    _enable_private_captain_loop(monkeypatch, tmp_path)
+    client = TestClient(app)
+    _sample_persisted_plan(client)
+    revised = client.post(
+        "/api/mcharness/captain/plans/plan_loop01/steps/step_1/revise",
+        json={"prompt": "Inspect only the frontend files.", "note": "Tightened scope."},
+    )
+    assert revised.status_code == 200, revised.text
+    plan = revised.json()["plan"]
+    assert plan["steps"][0]["status"] == "revised"
+    assert "frontend files" in plan["steps"][0]["prompt"]
+    assert plan["decision_log"][0]["action"] == "step_revised"
+
+
+def test_captain_plan_stop_updates_status(monkeypatch, tmp_path):
+    _enable_private_captain_loop(monkeypatch, tmp_path)
+    client = TestClient(app)
+    _sample_persisted_plan(client)
+    stopped = client.post("/api/mcharness/captain/plans/plan_loop01/stop", json={"note": "Paused by operator."})
+    assert stopped.status_code == 200, stopped.text
+    plan = stopped.json()["plan"]
+    assert plan["status"] == "stopped"
+    assert plan["steps"][0]["status"] == "stopped"
+
+
+def test_captain_plan_public_writes_rejected(monkeypatch):
+    client = TestClient(app)
+    blocked = client.post("/api/mcharness/captain/plans/plan_x/steps/step_1/dispatch")
+    assert blocked.status_code == 403
+    blocked_complete = client.post("/api/mcharness/captain/plans/plan_x/steps/step_1/complete", json={})
+    assert blocked_complete.status_code == 403
+    blocked_revise = client.post("/api/mcharness/captain/plans/plan_x/steps/step_1/revise", json={"prompt": "nope"})
+    assert blocked_revise.status_code == 403
+    blocked_stop = client.post("/api/mcharness/captain/plans/plan_x/stop", json={})
+    assert blocked_stop.status_code == 403
+
+
+def test_captain_plan_invalid_step_returns_404(monkeypatch, tmp_path):
+    _enable_private_captain_loop(monkeypatch, tmp_path)
+    client = TestClient(app)
+    _sample_persisted_plan(client)
+    missing = client.post("/api/mcharness/captain/plans/plan_loop01/steps/step_missing/complete", json={})
+    assert missing.status_code == 404

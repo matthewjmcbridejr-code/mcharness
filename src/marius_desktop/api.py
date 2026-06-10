@@ -48,6 +48,17 @@ from .workbench import (
     WorkbenchThreadUpdateRequest,
 )
 from .worker import WorkerStub, ALLOWED_COMMANDS
+from .captain_plans import (
+    complete_step as complete_captain_plan_step,
+    get_plan_detail,
+    get_plan_record,
+    list_recent_plans,
+    mark_step_dispatched,
+    persist_plan,
+    revise_step as revise_captain_plan_step,
+    sanitize_plan_public,
+    stop_plan as stop_captain_plan,
+)
 from .run_history import (
     create_evidence_record,
     create_run_record,
@@ -379,6 +390,34 @@ class McHarnessCaptainPlanResponse(BaseModel):
     summary: str
     steps: list[McHarnessCaptainPlanStep]
     notes: list[str] = Field(default_factory=list)
+    goal: Optional[str] = None
+    repo_id: Optional[str] = None
+    status: Optional[str] = None
+    current_step_id: Optional[str] = None
+    decision_log: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class McHarnessCaptainPlanPersistRequest(BaseModel):
+    goal: str = Field(min_length=1)
+    repo_id: Optional[str] = None
+    plan_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class McHarnessCaptainStepCompleteRequest(BaseModel):
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class McHarnessCaptainStepReviseRequest(BaseModel):
+    title: Optional[str] = None
+    prompt: Optional[str] = None
+    note: Optional[str] = None
+
+
+class McHarnessCaptainPlanStopRequest(BaseModel):
+    note: Optional[str] = None
 
 
 class McHarnessCaptainStatusResponse(BaseModel):
@@ -811,6 +850,83 @@ def _save_captain_plan_artifact(plan: dict[str, Any], *, goal: str, repo: dict[s
         return plan_path
     except Exception:
         return None
+
+
+def _captain_plan_response(plan: dict[str, Any], *, notes: list[str] | None = None) -> dict[str, Any]:
+    steps: list[dict[str, Any]] = []
+    for step in plan.get("steps") or []:
+        steps.append(
+            {
+                "id": step.get("step_id") or step.get("id"),
+                "title": step.get("title"),
+                "agent": step.get("agent_id") or step.get("agent") or "codex_cli",
+                "prompt": step.get("prompt") or step.get("prompt_preview") or "",
+                "status": step.get("status"),
+                "run_id": step.get("run_id"),
+                "evidence_ids": list(step.get("evidence_ids") or []),
+            }
+        )
+    return {
+        "ok": True,
+        "plan_id": plan.get("plan_id"),
+        "title": plan.get("title"),
+        "summary": plan.get("summary"),
+        "goal": plan.get("goal"),
+        "repo_id": plan.get("repo_id"),
+        "status": plan.get("status"),
+        "current_step_id": plan.get("current_step_id"),
+        "steps": steps,
+        "decision_log": list(plan.get("decision_log") or []),
+        "notes": list(notes or []),
+    }
+
+
+def _execute_codex_dispatch_for_step(
+    *,
+    title: str,
+    prompt: str,
+    repo_id: str,
+    plan_id: str | None = None,
+    step_id: str | None = None,
+) -> dict[str, Any]:
+    if not _codex_runner_ready():
+        raise HTTPException(status_code=403, detail="Codex dispatch requires the private runner service.")
+    repo_path, _repo = _resolve_allowlisted_repo(repo_id)
+    session = create_mcharness_session(
+        McHarnessSessionCreateRequest(
+            title=title,
+            objective=title,
+            plan_instruction=prompt,
+            repo_path=str(repo_path),
+            agent_lane="codex_cli",
+        )
+    )
+    session_id = session["session_id"]
+    queue_result = queue_mcharness_prompt(
+        session_id,
+        McHarnessQueueRequest(title=title, prompt=prompt),
+    )
+    queue_item_id = queue_result.get("queue_item_id")
+    runner_state = post_mcharness_runner_start(
+        session_id,
+        McHarnessRunnerStartRequest(
+            lane_id="codex_cli",
+            repo_id=repo_id,
+            queue_item_id=queue_item_id,
+            title=title,
+            prompt=prompt,
+            plan_id=plan_id,
+            agent_id="codex_cli",
+            created_by="captain_loop",
+        ),
+    )
+    return {
+        "session_id": session_id,
+        "runner_id": runner_state.get("runner_id"),
+        "queue_item_id": queue_item_id,
+        "prompt": prompt,
+        "runner_state": runner_state,
+    }
 
 
 def _lane_entries() -> list[dict[str, Any]]:
@@ -1453,10 +1569,143 @@ def create_mcharness_captain_plan(payload: McHarnessCaptainPlanRequest):
 
     plan, notes = _build_captain_plan(goal=payload.goal, repo=repo, lane_id=lane_id)
     artifact_path = _save_captain_plan_artifact(plan, goal=payload.goal, repo=repo, lane_id=lane_id)
+    persisted = persist_plan(MCTABLE_ROOT, goal=payload.goal, repo_id=repo["repo_id"], plan_data=plan)
+    response = _captain_plan_response(persisted, notes=notes)
     if artifact_path is not None:
-        notes = list(notes) + [f"Plan saved to {artifact_path}"]
-        plan["notes"] = notes
-    return plan
+        response["notes"] = list(response.get("notes") or []) + [f"Plan saved to {artifact_path}"]
+    return response
+
+
+@mcharness_router.get("/captain/plans/recent")
+def get_mcharness_captain_plans_recent():
+    if not _run_history_read_enabled():
+        return {
+            "service": "mcharness-control-plane",
+            "service_mode": _service_mode_label(),
+            "plans": [],
+            "notes": ["Captain plans are available on the private runner service."],
+        }
+    plans = list_recent_plans(MCTABLE_ROOT)
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "plans": [_captain_plan_response(plan) for plan in plans],
+    }
+
+
+@mcharness_router.get("/captain/plans/{plan_id}")
+def get_mcharness_captain_plan_detail(plan_id: str):
+    if not _run_history_read_enabled():
+        plan = get_plan_record(MCTABLE_ROOT, plan_id)
+        if plan is None:
+            raise HTTPException(status_code=404, detail=f"Captain plan not found: {plan_id}")
+        return {
+            "service": "mcharness-control-plane",
+            "service_mode": _service_mode_label(),
+            "plan": _captain_plan_response(sanitize_plan_public(plan)),
+        }
+    plan = get_plan_detail(MCTABLE_ROOT, plan_id, include_prompts=True)
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Captain plan not found: {plan_id}")
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "plan": _captain_plan_response(plan),
+    }
+
+
+@mcharness_router.post("/captain/plans")
+def post_mcharness_captain_plan_persist(payload: McHarnessCaptainPlanPersistRequest):
+    if not _run_history_write_enabled():
+        raise HTTPException(status_code=403, detail="Captain plan writes require the private runner service.")
+    plan_data = {
+        "plan_id": payload.plan_id,
+        "title": payload.title,
+        "summary": payload.summary,
+        "steps": payload.steps,
+    }
+    persisted = persist_plan(MCTABLE_ROOT, goal=payload.goal, repo_id=payload.repo_id, plan_data=plan_data)
+    return {
+        "ok": True,
+        "plan": _captain_plan_response(persisted),
+    }
+
+
+@mcharness_router.post("/captain/plans/{plan_id}/steps/{step_id}/dispatch", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_captain_plan_step_dispatch(plan_id: str, step_id: str):
+    plan = get_plan_record(MCTABLE_ROOT, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Captain plan not found: {plan_id}")
+    if plan.get("current_step_id") != step_id:
+        raise HTTPException(status_code=409, detail="Only the current Captain step can be dispatched.")
+    step = next((item for item in plan.get("steps") or [] if item.get("step_id") == step_id), None)
+    if step is None:
+        raise HTTPException(status_code=404, detail=f"Captain plan step not found: {step_id}")
+    repo_id = plan.get("repo_id")
+    if not repo_id:
+        raise HTTPException(status_code=400, detail="Captain plan is missing repo_id.")
+    dispatch = _execute_codex_dispatch_for_step(
+        title=step.get("title") or plan.get("title") or "Captain step",
+        prompt=str(step.get("prompt") or ""),
+        repo_id=str(repo_id),
+        plan_id=plan_id,
+        step_id=step_id,
+    )
+    updated = mark_step_dispatched(
+        MCTABLE_ROOT,
+        plan_id,
+        step_id,
+        run_id=str(dispatch.get("runner_id") or ""),
+        status="dispatched",
+    )
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "plan": _captain_plan_response(updated),
+        "dispatch": dispatch,
+    }
+
+
+@mcharness_router.post("/captain/plans/{plan_id}/steps/{step_id}/complete", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_captain_plan_step_complete(plan_id: str, step_id: str, payload: McHarnessCaptainStepCompleteRequest):
+    updated = complete_captain_plan_step(
+        MCTABLE_ROOT,
+        plan_id,
+        step_id,
+        evidence_ids=list(payload.evidence_ids or []),
+    )
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "plan": _captain_plan_response(updated),
+    }
+
+
+@mcharness_router.post("/captain/plans/{plan_id}/steps/{step_id}/revise", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_captain_plan_step_revise(plan_id: str, step_id: str, payload: McHarnessCaptainStepReviseRequest):
+    updated = revise_captain_plan_step(
+        MCTABLE_ROOT,
+        plan_id,
+        step_id,
+        title=payload.title,
+        prompt=payload.prompt,
+        note=payload.note,
+    )
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "plan": _captain_plan_response(updated),
+    }
+
+
+@mcharness_router.post("/captain/plans/{plan_id}/stop", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_captain_plan_stop(plan_id: str, payload: McHarnessCaptainPlanStopRequest):
+    updated = stop_captain_plan(MCTABLE_ROOT, plan_id, note=payload.note)
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "plan": _captain_plan_response(updated),
+    }
 
 @router.get("/tasks", response_model=List[TaskState])
 def get_tasks():

@@ -919,6 +919,74 @@ textarea {
   line-height: 1.45;
 }
 
+.mission-card-wide {
+  grid-column: 1 / -1;
+}
+
+.captain-plan-steps-list {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.captain-plan-step-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: rgba(15, 26, 45, 0.55);
+}
+
+.captain-plan-step-card.current {
+  border-color: rgba(125, 176, 255, 0.42);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.captain-plan-step-card.passed {
+  opacity: 0.82;
+}
+
+.captain-plan-step-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.captain-plan-step-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.captain-plan-step-meta {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.captain-plan-step-prompt-preview {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.captain-plan-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.captain-plan-step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .history-card-list {
   display: grid;
   gap: 12px;

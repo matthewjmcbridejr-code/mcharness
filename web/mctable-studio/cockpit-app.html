@@ -61,11 +61,19 @@
         </div>
 
         <div class="mission-cards-grid">
-          <div class="mission-card" data-testid="current-mission-card">
-            <h3 class="mission-card-title">Current Mission</h3>
-            <p id="current-mission-status" data-testid="current-mission-status" class="mission-card-lead">No active mission yet.</p>
-            <p class="mission-card-copy">Create a plan to start a supervised Warden run.</p>
-            <button type="button" class="btn primary" data-action="develop-plan" data-testid="develop-plan-mission">Develop Plan</button>
+          <div class="mission-card mission-card-wide" data-testid="current-mission-card">
+            <div id="current-mission-empty" data-testid="current-mission-empty">
+              <h3 class="mission-card-title">Current Mission</h3>
+              <p id="current-mission-status" data-testid="current-mission-status" class="mission-card-lead">No active mission yet.</p>
+              <p class="mission-card-copy">Create a plan to start a supervised Warden run.</p>
+              <button type="button" class="btn primary" data-action="develop-plan" data-testid="develop-plan-mission">Develop Plan</button>
+            </div>
+            <div id="current-mission-plan" data-testid="current-mission-plan" style="display:none;">
+              <h3 class="mission-card-title">Current Mission</h3>
+              <div id="current-plan-header" data-testid="current-plan-header" class="mission-card-meta"></div>
+              <div id="captain-plan-steps" data-testid="captain-plan-steps" class="captain-plan-steps-list"></div>
+              <div id="captain-plan-controls" data-testid="captain-plan-controls" class="captain-plan-controls"></div>
+            </div>
           </div>
           <div class="mission-card" data-testid="mission-worklog-card">
             <h3 class="mission-card-title">Mission Worklog</h3>
@@ -350,7 +358,7 @@
       </div>
       <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
         <button id="captain-create-plan" data-testid="captain-create-plan" class="btn primary" type="button">Create Plan</button>
-        <button id="captain-deploy-first" data-testid="captain-deploy-first" class="btn good" type="button">Deploy First Prompt</button>
+        <button id="captain-deploy-first" data-testid="captain-deploy-first" class="btn good" type="button">Deploy Current Step</button>
         <button id="captain-copy-plan" data-testid="captain-copy-plan" class="btn" type="button">Copy Plan</button>
         <button id="captain-close" data-testid="captain-close" class="btn" type="button">Close</button>
       </div>

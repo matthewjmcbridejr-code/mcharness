@@ -71,6 +71,174 @@ async function fulfillAgentRegistryRoute(route, { method, pathname, registryWrit
   return false;
 }
 
+function normalizeMockCaptainPlan(plan) {
+  const steps = (plan.steps || []).map((step, index) => ({
+    ...step,
+    id: step.id || step.step_id || `step_${index + 1}`,
+    step_id: step.step_id || step.id || `step_${index + 1}`,
+    status: step.status || "queued",
+    agent_id: step.agent_id || step.agent || "codex_cli",
+  }));
+  return {
+    ...plan,
+    status: plan.status || "active",
+    current_step_id: plan.current_step_id || (steps[0] && steps[0].id),
+    repo_id: plan.repo_id || "hybrid-agent-os",
+    steps,
+  };
+}
+
+function nextQueuedMockStepId(plan, afterStepId) {
+  const steps = plan.steps || [];
+  const index = steps.findIndex((step) => (step.id || step.step_id) === afterStepId);
+  for (let i = index + 1; i < steps.length; i += 1) {
+    const status = steps[i].status || "queued";
+    if (status === "queued" || status === "revised") return steps[i].id || steps[i].step_id;
+  }
+  return null;
+}
+
+async function fulfillCaptainLoopRoute(route, ctx) {
+  const url = new URL(route.request().url());
+  const { pathname } = url;
+  const method = route.request().method();
+  const body = route.request().postDataJSON ? route.request().postDataJSON() : null;
+
+  if (pathname.endsWith("/captain/plans/recent") && method === "GET") {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        service: "mcharness-control-plane",
+        plans: ctx.activePlan ? [ctx.activePlan] : [],
+      }),
+    });
+    return true;
+  }
+
+  let match = pathname.match(/\/captain\/plans\/([^/]+)$/);
+  if (match && method === "GET") {
+    const planId = decodeURIComponent(match[1]);
+    if (!ctx.activePlan || ctx.activePlan.plan_id !== planId) {
+      await route.fulfill({
+        status: 404,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: `Captain plan not found: ${planId}` }),
+      });
+      return true;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ plan: ctx.activePlan }),
+    });
+    return true;
+  }
+
+  match = pathname.match(/\/captain\/plans\/([^/]+)\/steps\/([^/]+)\/dispatch$/);
+  if (match && method === "POST") {
+    const stepId = decodeURIComponent(match[2]);
+    ctx.dispatchCalls = ctx.dispatchCalls || [];
+    ctx.dispatchCalls.push({ stepId, body });
+    if (ctx.runnerStartCalls) ctx.runnerStartCalls.push(body);
+    const step = (ctx.activePlan?.steps || []).find((item) => (item.id || item.step_id) === stepId);
+    const prompt = step?.prompt || "";
+    ctx.runnerStatus = { ...ctx.runnerStatus, status: "running" };
+    ctx.activePlan = normalizeMockCaptainPlan({
+      ...ctx.activePlan,
+      steps: (ctx.activePlan.steps || []).map((item) => {
+        const id = item.id || item.step_id;
+        return id === stepId
+          ? { ...item, status: "dispatched", run_id: ctx.runnerStatus.runner_id }
+          : item;
+      }),
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        plan: ctx.activePlan,
+        dispatch: {
+          session_id: ctx.runnerStatus.session_id,
+          runner_id: ctx.runnerStatus.runner_id,
+          prompt,
+        },
+      }),
+    });
+    return true;
+  }
+
+  match = pathname.match(/\/captain\/plans\/([^/]+)\/steps\/([^/]+)\/complete$/);
+  if (match && method === "POST") {
+    const stepId = decodeURIComponent(match[2]);
+    ctx.completeCalls = ctx.completeCalls || [];
+    ctx.completeCalls.push({ stepId, body });
+    const nextStepId = nextQueuedMockStepId(ctx.activePlan, stepId);
+    ctx.activePlan = normalizeMockCaptainPlan({
+      ...ctx.activePlan,
+      status: nextStepId ? "active" : "completed",
+      current_step_id: nextStepId || stepId,
+      steps: (ctx.activePlan.steps || []).map((item) => {
+        const id = item.id || item.step_id;
+        return id === stepId ? { ...item, status: "passed", evidence_ids: body?.evidence_ids || [] } : item;
+      }),
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, plan: ctx.activePlan }),
+    });
+    return true;
+  }
+
+  match = pathname.match(/\/captain\/plans\/([^/]+)\/steps\/([^/]+)\/revise$/);
+  if (match && method === "POST") {
+    const stepId = decodeURIComponent(match[2]);
+    ctx.reviseCalls = ctx.reviseCalls || [];
+    ctx.reviseCalls.push({ stepId, body });
+    ctx.activePlan = normalizeMockCaptainPlan({
+      ...ctx.activePlan,
+      steps: (ctx.activePlan.steps || []).map((item) => {
+        const id = item.id || item.step_id;
+        return id === stepId
+          ? { ...item, status: "revised", prompt: body?.prompt || item.prompt, title: body?.title || item.title }
+          : item;
+      }),
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, plan: ctx.activePlan }),
+    });
+    return true;
+  }
+
+  match = pathname.match(/\/captain\/plans\/([^/]+)\/stop$/);
+  if (match && method === "POST") {
+    ctx.stopCalls = ctx.stopCalls || [];
+    ctx.stopCalls.push(body);
+    ctx.activePlan = normalizeMockCaptainPlan({
+      ...ctx.activePlan,
+      status: "stopped",
+      steps: (ctx.activePlan.steps || []).map((item) => {
+        const status = item.status || "queued";
+        return ["queued", "revised", "dispatched", "running", "needs_review"].includes(status)
+          ? { ...item, status: "stopped" }
+          : item;
+      }),
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, plan: ctx.activePlan }),
+    });
+    return true;
+  }
+
+  return false;
+}
+
 test.beforeEach(() => {
   resetRuntimeState();
 });
@@ -221,6 +389,12 @@ test("Captain Settings saves a private OpenRouter key and enables Captain planni
   };
   const runnerStartCalls = [];
   const sendPromptCalls = [];
+  const captainLoopCtx = {
+    activePlan: null,
+    runnerStatus: null,
+    runnerStartCalls,
+    dispatchCalls: [],
+  };
   await page.addInitScript(() => {
     window.__storageWrites = [];
     const originalSetItem = Storage.prototype.setItem;
@@ -235,6 +409,7 @@ test("Captain Settings saves a private OpenRouter key and enables Captain planni
     const { pathname } = url;
     const method = route.request().method();
     const body = route.request().postDataJSON ? route.request().postDataJSON() : null;
+    captainLoopCtx.runnerStatus = runnerStatus;
 
     if (pathname.endsWith("/health")) {
       await route.fulfill({
@@ -255,6 +430,10 @@ test("Captain Settings saves a private OpenRouter key and enables Captain planni
           manual_mode: true,
         }),
       });
+      return;
+    }
+
+    if (await fulfillCaptainLoopRoute(route, captainLoopCtx)) {
       return;
     }
 
@@ -345,39 +524,42 @@ test("Captain Settings saves a private OpenRouter key and enables Captain planni
     }
 
     if (pathname.endsWith("/captain/plan") && method === "POST") {
+      const planBody = normalizeMockCaptainPlan({
+        ok: true,
+        plan_id: "plan_saved_key",
+        title: "Captain Saved Key Plan",
+        summary: "Plan after saved key setup.",
+        repo_id: "hybrid-agent-os",
+        steps: [
+          {
+            id: "step_1",
+            title: "Inspect frontend structure",
+            agent: "codex_cli",
+            prompt: "Exact goal: Create a read-only plan to inspect the McHarness frontend. Do not edit files.\nForbidden actions: no push, merge, reset, rebase, no secrets, no deploy commands.\nAcceptance checks: identify the frontend entrypoints.\nFinal proof format: branch, commit hash if any, files changed, tests run/output, and remaining unproven items.",
+            status: "queued",
+          },
+          {
+            id: "step_2",
+            title: "Verify and report",
+            agent: "codex_cli",
+            prompt: "Exact goal: Create a read-only plan to inspect the McHarness frontend. Do not edit files.\nForbidden actions: no push, merge, reset, rebase, no secrets, no deploy commands.\nAcceptance checks: return a concise proof report.\nFinal proof format: branch, commit hash if any, files changed, tests run/output, and remaining unproven items.",
+            status: "queued",
+          },
+          {
+            id: "step_3",
+            title: "Final proof",
+            agent: "codex_cli",
+            prompt: "Exact goal: Create a read-only plan to inspect the McHarness frontend. Do not edit files.\nForbidden actions: no push, merge, reset, rebase, no secrets, no deploy commands.\nAcceptance checks: finish with proof only.\nFinal proof format: branch, commit hash if any, files changed, tests run/output, and remaining unproven items.",
+            status: "queued",
+          },
+        ],
+        notes: ["OpenRouter model: openrouter/custom"],
+      });
+      captainLoopCtx.activePlan = planBody;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          ok: true,
-          plan_id: "plan_saved_key",
-          title: "Captain Saved Key Plan",
-          summary: "Plan after saved key setup.",
-          steps: [
-            {
-              id: "step_1",
-              title: "Inspect frontend structure",
-              agent: "codex_cli",
-              prompt: "Exact goal: Create a read-only plan to inspect the McHarness frontend. Do not edit files.\nForbidden actions: no push, merge, reset, rebase, no secrets, no deploy commands.\nAcceptance checks: identify the frontend entrypoints.\nFinal proof format: branch, commit hash if any, files changed, tests run/output, and remaining unproven items.",
-              status: "queued",
-            },
-            {
-              id: "step_2",
-              title: "Verify and report",
-              agent: "codex_cli",
-              prompt: "Exact goal: Create a read-only plan to inspect the McHarness frontend. Do not edit files.\nForbidden actions: no push, merge, reset, rebase, no secrets, no deploy commands.\nAcceptance checks: return a concise proof report.\nFinal proof format: branch, commit hash if any, files changed, tests run/output, and remaining unproven items.",
-              status: "queued",
-            },
-            {
-              id: "step_3",
-              title: "Final proof",
-              agent: "codex_cli",
-              prompt: "Exact goal: Create a read-only plan to inspect the McHarness frontend. Do not edit files.\nForbidden actions: no push, merge, reset, rebase, no secrets, no deploy commands.\nAcceptance checks: finish with proof only.\nFinal proof format: branch, commit hash if any, files changed, tests run/output, and remaining unproven items.",
-              status: "queued",
-            },
-          ],
-          notes: ["OpenRouter model: openrouter/custom"],
-        }),
+        body: JSON.stringify(planBody),
       });
       return;
     }
@@ -412,6 +594,7 @@ test("Captain Settings saves a private OpenRouter key and enables Captain planni
     if (pathname.endsWith("/runner/start") && method === "POST") {
       runnerStartCalls.push(body);
       runnerStatus = { ...runnerStatus, status: "running" };
+      captainLoopCtx.runnerStatus = runnerStatus;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -837,11 +1020,18 @@ test("Captain Deck creates a plan and deploys the first prompt", async ({ page }
   };
   const runnerStartCalls = [];
   const sendPromptCalls = [];
-  const captainPlanResponse = {
+  const captainLoopCtx = {
+    activePlan: null,
+    runnerStatus: null,
+    runnerStartCalls,
+    dispatchCalls: [],
+  };
+  const captainPlanResponse = normalizeMockCaptainPlan({
     ok: true,
     plan_id: "plan_1234",
     title: "Build AOL-inspired webpage",
     summary: "Create an AOL-inspired homepage layout in the existing frontend.",
+    repo_id: "hybrid-agent-os",
     steps: [
       {
         id: "step_1",
@@ -866,13 +1056,14 @@ test("Captain Deck creates a plan and deploys the first prompt", async ({ page }
       },
     ],
     notes: ["OpenRouter model: openrouter/auto"],
-  };
+  });
 
   await page.route("**/api/mcharness/**", async (route) => {
     const url = new URL(route.request().url());
     const { pathname } = url;
     const method = route.request().method();
     const body = route.request().postDataJSON ? route.request().postDataJSON() : null;
+    captainLoopCtx.runnerStatus = runnerStatus;
 
     if (pathname.endsWith("/health")) {
       await route.fulfill({
@@ -893,6 +1084,10 @@ test("Captain Deck creates a plan and deploys the first prompt", async ({ page }
           manual_mode: true,
         }),
       });
+      return;
+    }
+
+    if (await fulfillCaptainLoopRoute(route, captainLoopCtx)) {
       return;
     }
 
@@ -965,6 +1160,7 @@ test("Captain Deck creates a plan and deploys the first prompt", async ({ page }
     }
 
     if (pathname.endsWith("/captain/plan") && method === "POST") {
+      captainLoopCtx.activePlan = captainPlanResponse;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -1003,6 +1199,7 @@ test("Captain Deck creates a plan and deploys the first prompt", async ({ page }
     if (pathname.endsWith("/runner/start") && method === "POST") {
       runnerStartCalls.push(body);
       runnerStatus = { ...runnerStatus, status: "running" };
+      captainLoopCtx.runnerStatus = runnerStatus;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -1103,6 +1300,189 @@ test("Captain Deck creates a plan and deploys the first prompt", async ({ page }
   await expect(mon.locator("[data-testid='modal-transcript']")).toContainText("Captain response pending.");
   await mon.locator("#modal-stop").click();
   await expect.poll(() => runnerStatus.status).toBe("stopped");
+});
+
+test("Captain supervised step loop advances manually in Mission", async ({ page }) => {
+  let runnerStatus = {
+    session_id: "captain-loop-session",
+    runner_id: "run_captain_loop",
+    lane_id: "codex_cli",
+    repo_id: "hybrid-agent-os",
+    status: "waiting_for_codex",
+    tmux_session_name: "mch_captain_loop",
+    attach_command: "tmux attach -t mch_captain_loop",
+  };
+  const sendPromptCalls = [];
+  const captainLoopCtx = {
+    activePlan: null,
+    runnerStatus: null,
+    dispatchCalls: [],
+    completeCalls: [],
+    reviseCalls: [],
+    stopCalls: [],
+  };
+  const captainPlanResponse = normalizeMockCaptainPlan({
+    ok: true,
+    plan_id: "plan_loop_ui",
+    title: "Captain Loop UI Plan",
+    summary: "Supervised manual progression.",
+    repo_id: "hybrid-agent-os",
+    steps: [
+      {
+        id: "step_1",
+        title: "Inspect frontend structure",
+        agent: "codex_cli",
+        prompt: "Inspect the frontend entrypoints only.",
+        status: "queued",
+      },
+      {
+        id: "step_2",
+        title: "Implement layout",
+        agent: "codex_cli",
+        prompt: "Implement the requested layout change.",
+        status: "queued",
+      },
+    ],
+  });
+
+  page.on("dialog", async (dialog) => {
+    await dialog.accept("Inspect the frontend entrypoints and report only.");
+  });
+
+  await page.route("**/api/mcharness/**", async (route) => {
+    const url = new URL(route.request().url());
+    const { pathname } = url;
+    const method = route.request().method();
+    const body = route.request().postDataJSON ? route.request().postDataJSON() : null;
+    captainLoopCtx.runnerStatus = runnerStatus;
+
+    if (pathname.endsWith("/health")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          service: "mcharness-control-plane",
+          commit: "test-commit",
+          tmux_runner_enabled: true,
+          codex_runner_enabled: true,
+          public_write_enabled: true,
+        }),
+      });
+      return;
+    }
+
+    if (await fulfillCaptainLoopRoute(route, captainLoopCtx)) {
+      return;
+    }
+
+    if (await fulfillAgentRegistryRoute(route, { method, pathname, registryWriteEnabled: true })) {
+      return;
+    }
+
+    if (pathname.endsWith("/repos")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          repos: [
+            { repo_id: "hybrid-agent-os", label: "hybrid-agent-os", path: "/root/hybrid-agent-os" },
+          ],
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/captain/status")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, configured: true, planning_enabled: true, provider: "openrouter", model: "openrouter/auto" }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/captain/plan") && method === "POST") {
+      captainLoopCtx.activePlan = captainPlanResponse;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(captainPlanResponse),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/send-prompt") && method === "POST") {
+      sendPromptCalls.push(body.prompt);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, injected: true, session_id: runnerStatus.session_id, status: "awaiting_response" }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/status")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(runnerStatus),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/transcript")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ session_id: runnerStatus.session_id, transcript: "Captain loop transcript." }),
+      });
+      return;
+    }
+
+    await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: `Unhandled route: ${pathname}` }) });
+  });
+
+  await page.goto("http://127.0.0.1:8125/web/mctable-studio/cockpit-app.html");
+  await page.locator("[data-testid='develop-plan-primary']").click();
+  const captainModal = page.locator("#captain-deck-modal");
+  await captainModal.locator("#captain-goal").fill("Prove supervised Captain loop in Mission.");
+  await captainModal.locator("#captain-create-plan").click();
+  await expect(captainModal.locator("[data-testid='captain-plan-status']")).toContainText("Plan ready: Captain Loop UI Plan");
+  await captainModal.locator("[data-testid='captain-close']").click();
+  await expect(captainModal).not.toBeVisible();
+  await expect(page.locator("[data-testid='current-mission-plan']")).toBeVisible();
+  await expect(page.locator("[data-testid='captain-plan-steps']")).toContainText("Inspect frontend structure");
+  await expect(page.locator("[data-testid='captain-step-actions-step_1']")).toContainText("Deploy Current Step");
+
+  await page.evaluate(() => {
+    const original = window.setTimeout;
+    window.setTimeout = (fn, ms, ...args) => (ms === 10000 ? original(fn, 0, ...args) : original(fn, ms, ...args));
+  });
+
+  await page.locator("[data-testid='captain-step-actions-step_1'] button:has-text('Mark Step Done')").click();
+  await expect.poll(() => captainLoopCtx.completeCalls.length).toBe(1);
+  expect(captainLoopCtx.dispatchCalls.length).toBe(0);
+  await expect(page.locator("[data-testid='captain-step-actions-step_2']")).toContainText("Deploy Next Step");
+
+  await page.locator("[data-testid='captain-step-actions-step_2'] button:has-text('Deploy Next Step')").click();
+  await expect.poll(() => captainLoopCtx.dispatchCalls.length).toBe(1);
+  await expect(page.locator("#live-cli-modal")).toBeVisible();
+  await expect.poll(() => sendPromptCalls.length).toBe(1);
+
+  await page.locator("#live-cli-modal #modal-close, #live-cli-modal .modal-close").first().click({ force: true }).catch(() => {});
+  await page.evaluate(() => {
+    const modal = document.getElementById("live-cli-modal");
+    if (modal) modal.style.display = "none";
+  });
+
+  await page.locator("[data-testid='captain-step-actions-step_2'] button:has-text('Revise Step')").click();
+  await expect.poll(() => captainLoopCtx.reviseCalls.length).toBe(1);
+  await expect(page.locator("[data-testid='captain-plan-steps']")).toContainText("REVISED");
+
+  await page.locator("[data-testid='captain-stop-plan']").click();
+  await expect.poll(() => captainLoopCtx.stopCalls.length).toBe(1);
+  await expect(page.locator("[data-testid='current-mission-empty']")).toBeVisible();
 });
 
 test("Agent Registry configure flow and Captain dropdown use registered agents", async ({ page }) => {

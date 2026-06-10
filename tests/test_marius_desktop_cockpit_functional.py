@@ -64,6 +64,10 @@ def test_functional_cockpit_page_is_served_with_control_plane_labels():
         "evidence-list",
         "run-detail-modal",
         "evidence-detail-modal",
+        "current-mission-plan",
+        "captain-plan-steps",
+        "captain-plan-controls",
+        "Deploy Current Step",
     ]:
         assert snippet in response.text
     for removed_snippet in [

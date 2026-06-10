@@ -29,6 +29,7 @@
     recentRuns: [],
     recentEvidence: [],
     activeWardenRunId: "",
+    activeCaptainPlan: null,
     captainDeck: {
       configured: false,
       planningEnabled: false,
@@ -475,6 +476,7 @@
         },
       });
       deck.plan = plan;
+      setActiveCaptainPlan(plan);
       deck.error = "";
       deck.loading = false;
       renderCaptainDeck();
@@ -499,18 +501,11 @@
   }
 
   async function deployCaptainFirstPrompt() {
-    const deck = state.captainDeck;
-    if (!deck.plan || !deck.plan.steps || !deck.plan.steps.length) return;
-    const firstStep = deck.plan.steps[0];
-    await deployRunnerPrompt({
-      repoPath: deck.repoPath || "/root/mcharness-public-export",
-      repoId: deck.repoId || "mcharness-public-export",
-      title: deck.plan.title || deck.goal || "Captain plan",
-      prompt: firstStep.prompt || deck.goal || "Implement the first Captain step.",
-      planId: deck.plan.plan_id || deck.plan.id || null,
-      noteId: "captain-deploy-note",
-      closeCurrentModal: closeCaptainDeckModal,
-    });
+    const plan = state.activeCaptainPlan || state.captainDeck.plan;
+    if (!plan || !plan.steps || !plan.steps.length) return;
+    const current = currentCaptainStep(normalizeCaptainPlan(plan));
+    if (!current) return;
+    await dispatchCaptainStep(current.id || current.step_id);
   }
 
   async function loadAgents() {
@@ -762,6 +757,235 @@
     if (modal) modal.style.display = "none";
   }
 
+  function normalizeCaptainPlan(plan) {
+    if (!plan) return null;
+    const steps = (plan.steps || []).map((step, index) => ({
+      id: step.id || step.step_id || `step_${index + 1}`,
+      step_id: step.step_id || step.id || `step_${index + 1}`,
+      title: step.title,
+      agent: step.agent || step.agent_id || "codex_cli",
+      agent_id: step.agent_id || step.agent || "codex_cli",
+      prompt: step.prompt || step.prompt_preview || "",
+      status: step.status || "queued",
+      run_id: step.run_id || null,
+      evidence_ids: step.evidence_ids || [],
+      order: step.order || index + 1,
+    }));
+    return {
+      ...plan,
+      plan_id: plan.plan_id || plan.id,
+      current_step_id: plan.current_step_id || (steps[0] && steps[0].id),
+      steps,
+    };
+  }
+
+  function setActiveCaptainPlan(plan) {
+    state.activeCaptainPlan = normalizeCaptainPlan(plan);
+    if (state.captainDeck && state.activeCaptainPlan) {
+      state.captainDeck.plan = state.activeCaptainPlan;
+    }
+    renderMissionPlanPanel();
+    renderCaptainDeck();
+  }
+
+  function currentCaptainStep(plan) {
+    if (!plan || !plan.steps || !plan.steps.length) return null;
+    const currentId = plan.current_step_id;
+    return plan.steps.find((step) => step.id === currentId || step.step_id === currentId) || plan.steps[0];
+  }
+
+  function renderMissionPlanPanel() {
+    const empty = document.getElementById("current-mission-empty");
+    const panel = document.getElementById("current-mission-plan");
+    const header = document.getElementById("current-plan-header");
+    const stepsEl = document.getElementById("captain-plan-steps");
+    const controls = document.getElementById("captain-plan-controls");
+    const worklog = document.querySelector("[data-testid='mission-worklog-card'] .mission-card-copy");
+    const plan = state.activeCaptainPlan;
+    if (!empty || !panel || !header || !stepsEl || !controls) return;
+
+    if (!plan || plan.status === "stopped") {
+      empty.style.display = "";
+      panel.style.display = "none";
+      if (worklog) worklog.textContent = "Captain plans, dispatched steps, run updates, and evidence links will appear here.";
+      return;
+    }
+
+    empty.style.display = "none";
+    panel.style.display = "";
+    const current = currentCaptainStep(plan);
+    header.innerHTML = `
+      <strong>${escapeHtml(plan.title || "Captain plan")}</strong>
+      <div>${escapeHtml(plan.summary || "")}</div>
+      <div>Status: ${escapeHtml(plan.status || "active")} · Repo: ${escapeHtml(plan.repo_id || "n/a")}</div>
+    `;
+
+    stepsEl.innerHTML = (plan.steps || []).map((step) => {
+      const isCurrent = current && (step.id === current.id || step.step_id === current.step_id);
+      const status = step.status || "queued";
+      const classes = ["captain-plan-step-card", isCurrent ? "current" : "", status === "passed" ? "passed" : ""].filter(Boolean).join(" ");
+      const links = [];
+      if (step.run_id) links.push(`<button type="button" class="btn" data-view-step-run="${escapeHtml(step.run_id)}">View Run</button>`);
+      if ((step.evidence_ids || []).length) {
+        links.push(`<button type="button" class="btn" data-view-step-evidence="${escapeHtml(step.evidence_ids[0])}">View Evidence</button>`);
+      }
+      const actionRow = isCurrent && plan.status === "active" ? `
+        <div class="captain-plan-step-actions" data-testid="captain-step-actions-${escapeHtml(step.id)}">
+          <button type="button" class="btn primary" data-deploy-step-id="${escapeHtml(step.id)}">${escapeHtml(deployStepButtonLabel(plan, step))}</button>
+          <button type="button" class="btn good" data-complete-step-id="${escapeHtml(step.id)}">Mark Step Done</button>
+          <button type="button" class="btn" data-revise-step-id="${escapeHtml(step.id)}">Revise Step</button>
+        </div>
+      ` : links.join("");
+      return `
+        <div class="${classes}" data-step-id="${escapeHtml(step.id)}">
+          <div class="captain-plan-step-top">
+            <h4 class="captain-plan-step-title">${escapeHtml(step.title || step.id)}</h4>
+            <span class="status-pill ${status === "passed" ? "status-ready" : isCurrent ? "status-connected" : "status-coming"}">${escapeHtml(status.toUpperCase())}</span>
+          </div>
+          <p class="captain-plan-step-meta">${escapeHtml(step.agent || "codex_cli")}${step.run_id ? ` · Run ${escapeHtml(step.run_id)}` : ""}</p>
+          <p class="captain-plan-step-prompt-preview">${escapeHtml((step.prompt || "").slice(0, 220))}${(step.prompt || "").length > 220 ? "..." : ""}</p>
+          ${actionRow}
+        </div>
+      `;
+    }).join("");
+
+    controls.innerHTML = plan.status === "active"
+      ? `<button type="button" class="btn bad" id="captain-stop-plan" data-testid="captain-stop-plan">Stop Plan</button>`
+      : "";
+
+    stepsEl.querySelectorAll("[data-deploy-step-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const stepId = button.getAttribute("data-deploy-step-id");
+        if (stepId) dispatchCaptainStep(stepId).catch((e) => console.error(e));
+      });
+    });
+    stepsEl.querySelectorAll("[data-complete-step-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const stepId = button.getAttribute("data-complete-step-id");
+        if (stepId) completeCaptainStep(stepId).catch((e) => console.error(e));
+      });
+    });
+    stepsEl.querySelectorAll("[data-revise-step-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const stepId = button.getAttribute("data-revise-step-id");
+        if (stepId) reviseCaptainStep(stepId).catch((e) => console.error(e));
+      });
+    });
+    stepsEl.querySelectorAll("[data-view-step-run]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const runId = button.getAttribute("data-view-step-run");
+        if (runId) openRunDetailModal(runId).catch((e) => console.error(e));
+      });
+    });
+    stepsEl.querySelectorAll("[data-view-step-evidence]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const evidenceId = button.getAttribute("data-view-step-evidence");
+        if (evidenceId) openEvidenceDetailModal(evidenceId).catch((e) => console.error(e));
+      });
+    });
+    const stopBtn = document.getElementById("captain-stop-plan");
+    if (stopBtn) {
+      stopBtn.addEventListener("click", () => stopCaptainPlan().catch((e) => console.error(e)));
+    }
+
+    if (worklog && current) {
+      worklog.textContent = `Current step: ${current.title || current.id} (${current.status || "queued"}). Dispatch, review output, save evidence, then mark the step done before advancing.`;
+    }
+  }
+
+  function deployStepButtonLabel(plan, step) {
+    const steps = plan.steps || [];
+    const index = steps.findIndex((item) => item.id === step.id);
+    const priorPassed = index > 0 && steps.slice(0, index).every((item) => item.status === "passed");
+    if (priorPassed && (step.status === "queued" || step.status === "revised")) return "Deploy Next Step";
+    return "Deploy Current Step";
+  }
+
+  async function loadActiveCaptainPlan() {
+    try {
+      const data = await requestJson(`${MCH}/captain/plans/recent`);
+      const plans = (data.plans || []).map(normalizeCaptainPlan);
+      const active = plans.find((plan) => plan.status === "active") || plans[0] || null;
+      if (active && active.plan_id) {
+        const detail = await requestJson(`${MCH}/captain/plans/${encodeURIComponent(active.plan_id)}`);
+        setActiveCaptainPlan(detail.plan || active);
+      } else {
+        setActiveCaptainPlan(null);
+      }
+      return active;
+    } catch (e) {
+      setActiveCaptainPlan(null);
+      return null;
+    }
+  }
+
+  async function dispatchCaptainStep(stepId) {
+    const plan = state.activeCaptainPlan;
+    if (!plan || !plan.plan_id) return;
+    const step = (plan.steps || []).find((item) => item.id === stepId || item.step_id === stepId);
+    if (!step) return;
+    const result = await requestJson(`${MCH}/captain/plans/${encodeURIComponent(plan.plan_id)}/steps/${encodeURIComponent(stepId)}/dispatch`, {
+      method: "POST",
+    });
+    if (result.plan) setActiveCaptainPlan(result.plan);
+    const dispatch = result.dispatch || {};
+    state.selectedThreadId = dispatch.session_id || state.selectedThreadId;
+    state.activeWardenRunId = dispatch.runner_id || state.activeWardenRunId;
+    await loadRecentRuns();
+    closeCaptainDeckModal();
+    openLiveCLIMonitor();
+    const prompt = dispatch.prompt || step.prompt;
+    if (dispatch.session_id && prompt) {
+      setTimeout(async () => {
+        try {
+          await requestJson(`${MCH}/sessions/${encodeURIComponent(dispatch.session_id)}/runner/send-prompt`, {
+            method: "POST",
+            body: { prompt },
+          });
+          setQuickReplyStatus("Prompt sent to Codex.");
+          await refreshLiveMonitor();
+        } catch (e) {
+          await refreshLiveMonitor();
+        }
+      }, 10000);
+    }
+  }
+
+  async function completeCaptainStep(stepId) {
+    const plan = state.activeCaptainPlan;
+    if (!plan || !plan.plan_id) return;
+    const evidenceIds = state.activeWardenRunId ? [] : [];
+    const result = await requestJson(`${MCH}/captain/plans/${encodeURIComponent(plan.plan_id)}/steps/${encodeURIComponent(stepId)}/complete`, {
+      method: "POST",
+      body: { evidence_ids: evidenceIds },
+    });
+    if (result.plan) setActiveCaptainPlan(result.plan);
+  }
+
+  async function reviseCaptainStep(stepId) {
+    const plan = state.activeCaptainPlan;
+    if (!plan || !plan.plan_id) return;
+    const step = (plan.steps || []).find((item) => item.id === stepId || item.step_id === stepId);
+    if (!step) return;
+    const revisedPrompt = window.prompt("Revise step prompt:", step.prompt || "");
+    if (revisedPrompt === null) return;
+    const result = await requestJson(`${MCH}/captain/plans/${encodeURIComponent(plan.plan_id)}/steps/${encodeURIComponent(stepId)}/revise`, {
+      method: "POST",
+      body: { prompt: revisedPrompt, note: "Operator revised the step prompt." },
+    });
+    if (result.plan) setActiveCaptainPlan(result.plan);
+  }
+
+  async function stopCaptainPlan() {
+    const plan = state.activeCaptainPlan;
+    if (!plan || !plan.plan_id) return;
+    const result = await requestJson(`${MCH}/captain/plans/${encodeURIComponent(plan.plan_id)}/stop`, {
+      method: "POST",
+      body: { note: "Operator stopped the Captain plan." },
+    });
+    if (result.plan) setActiveCaptainPlan(result.plan);
+  }
+
   function renderSettingsPanel() {
     const deck = state.captainDeck;
     const health = state.health || {};
@@ -880,7 +1104,9 @@
     if (inspector) inspector.style.display = showInspector ? "" : "none";
     const stage = document.querySelector(".warden-stage");
     if (stage) stage.classList.toggle("inspector-visible", showInspector);
-    if (state.activeSection === "runs") {
+    if (state.activeSection === "mission") {
+      loadActiveCaptainPlan().catch((e) => console.error(e));
+    } else if (state.activeSection === "runs") {
       loadRecentRuns().catch((e) => console.error(e));
     } else if (state.activeSection === "evidence") {
       loadRecentEvidence().catch((e) => console.error(e));
@@ -1959,7 +2185,7 @@
 
     wireSimpleUI();
     setActiveSection("mission");
-    await Promise.all([loadLibraryStatus(), loadCaptainDeckStatus(), loadRecentRuns(), loadRecentEvidence()]);
+    await Promise.all([loadLibraryStatus(), loadCaptainDeckStatus(), loadRecentRuns(), loadRecentEvidence(), loadActiveCaptainPlan()]);
 
     // initial status check for disabled note etc is handled in deploy
     // If user has runner flags in this process (e.g. private), card will reflect Ready
