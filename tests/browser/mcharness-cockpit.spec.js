@@ -99,14 +99,21 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await page.goto("/web/mctable-studio/cockpit-app.html");
 
   // Simple default UI
-  await expect(page.locator("h1")).toContainText("McHarness");
+  await expect(page.locator("h1")).toContainText("Warden");
+  await expect(page.locator("[data-testid='warden-byline']")).toContainText("by Marius Systems");
+  await expect(page.locator("[data-testid='warden-powered']")).toContainText("Powered by McHarness.");
   await expect(page.locator("text=Agent Library")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Develop Plan" })).toBeVisible();
+  await expect(page.locator("[data-testid='develop-plan-primary']")).toBeVisible();
+  await expect(page.locator("[data-testid='agent-group-ready']")).toBeVisible();
+  await expect(page.locator("[data-testid='agent-group-ready']")).toContainText("Ready to Run");
   await expect(page.locator("#codex-card")).toBeVisible();
-  await expect(page.locator('#codex-card')).toContainText('Codex CLI');
+  await expect(page.locator("#codex-card")).toContainText("Codex CLI");
+  await expect(page.locator("#codex-card")).toContainText("Use for live coding tasks through the controlled terminal monitor.");
+  await expect(page.locator("#codex-card").getByRole("button", { name: "Use Agent" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add Agent" })).toBeVisible();
+  await expect(page.locator("[data-testid='add-agent-help']")).toContainText("configuration and connection checks");
 
-  await page.getByRole("button", { name: "Develop Plan" }).click();
+  await page.locator("[data-testid='develop-plan-primary']").click();
   const captainModal = page.locator("#captain-deck-modal");
   await expect(captainModal).toBeVisible();
   await expect(captainModal.locator("#captain-config-note")).toContainText("Captain is not configured. Set OPENROUTER_API_KEY on the private service.");
@@ -431,9 +438,9 @@ test("Captain Settings saves a private OpenRouter key and enables Captain planni
   });
 
   await page.goto("http://127.0.0.1:8125/web/mctable-studio/cockpit-app.html");
-  await expect(page.getByRole("button", { name: "Develop Plan" })).toBeVisible();
+  await expect(page.locator("[data-testid='develop-plan-primary']")).toBeVisible();
 
-  await page.getByRole("button", { name: "Develop Plan" }).click();
+  await page.locator("[data-testid='develop-plan-primary']").click();
   const captainModal = page.locator("#captain-deck-modal");
   await expect(captainModal).toBeVisible();
   await expect(captainModal.locator("[data-testid='captain-set-key']")).toBeVisible();
@@ -1021,9 +1028,9 @@ test("Captain Deck creates a plan and deploys the first prompt", async ({ page }
   });
 
   await page.goto("http://127.0.0.1:8125/web/mctable-studio/cockpit-app.html");
-  await expect(page.getByRole("button", { name: "Develop Plan" })).toBeVisible();
+  await expect(page.locator("[data-testid='develop-plan-primary']")).toBeVisible();
 
-  await page.getByRole("button", { name: "Develop Plan" }).click();
+  await page.locator("[data-testid='develop-plan-primary']").click();
   const captainModal = page.locator("#captain-deck-modal");
   await expect(captainModal).toBeVisible();
   await captainModal.locator("#captain-goal").fill("Build a webpage just like aol.com");
@@ -1215,7 +1222,9 @@ test("Agent Registry configure flow and Captain dropdown use registered agents",
   });
 
   await page.goto("/web/mctable-studio/cockpit-app.html");
+  await expect(page.locator("h1")).toContainText("Warden");
   await expect(page.locator("text=Agent Library")).toBeVisible();
+  await expect(page.locator("[data-testid='agent-group-ready']")).toContainText("Ready to Run");
   await expect(page.locator("#codex-card")).toContainText("Codex CLI");
   await expect(page.getByRole("button", { name: "Add Agent" })).toBeVisible();
   await expect(page.locator("input[type='text'][placeholder*='shell'], textarea[placeholder*='shell']")).toHaveCount(0);
@@ -1247,17 +1256,20 @@ test("Agent Registry configure flow and Captain dropdown use registered agents",
   await expect(agentPostCalls[0].adapter).toBe("jules_remote");
   await expect(agentPostCalls[0].api_key).toBe("test-jules-key");
   await expect(addModal.locator("[data-testid='add-agent-api-key']")).toHaveValue("");
+  await expect(page.locator("[data-testid='agent-group-connected']")).toBeVisible();
+  await expect(page.locator("[data-testid='agent-group-connected']")).toContainText("Connected / Setup Complete");
   await expect(page.locator(".registered-agent-card")).toContainText("Jules Remote Worker");
-  await expect(page.locator(".registered-agent-card")).toContainText("connected");
+  await expect(page.locator(".registered-agent-card")).toContainText("Connected for planning/status.");
+  await expect(page.locator(".registered-agent-card")).toContainText("Remote execution is not enabled yet.");
   await expect(page.locator(".registered-agent-card button", { hasText: "Use Agent" })).toHaveCount(0);
   await expect(page.locator(".registered-agent-card button", { hasText: "Edit Config" })).toBeVisible();
   await expect(page.evaluate(() => window.__storageWrites || [])).resolves.toEqual([]);
 
-  await page.getByRole("button", { name: "Develop Plan" }).click();
+  await page.locator("[data-testid='develop-plan-primary']").click();
   const captainModal = page.locator("#captain-deck-modal");
   await expect(captainModal).toBeVisible();
-  await expect(captainModal.locator("[data-testid='captain-agent-select']")).toContainText("Codex CLI");
-  await expect(captainModal.locator("[data-testid='captain-agent-select']")).toContainText("Jules Remote Worker (connected, not runnable)");
+  await expect(captainModal.locator("[data-testid='captain-agent-select']")).toContainText("Codex CLI — Ready");
+  await expect(captainModal.locator("[data-testid='captain-agent-select']")).toContainText("Jules Remote Worker — Connected, execution coming next");
   await captainModal.locator("[data-testid='captain-agent-select']").selectOption("jules_remote_test01");
   await expect(captainModal.locator("[data-testid='captain-agent-note']")).toContainText("Jules Remote is configured for planning/status only. Execution comes next.");
   await expect(captainModal.locator("[data-testid='captain-create-plan']")).toBeDisabled();

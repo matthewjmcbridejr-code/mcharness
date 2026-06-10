@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>McHarness | Functional Captain Cockpit</title>
+  <title>Warden | Supervised AI Coding Control Room</title>
   <meta
     name="description"
-    content="Functional local Captain cockpit for supervised fake-worker-only McHarness sessions."
+    content="Warden by Marius Systems — supervised control room for AI coding agents. Powered by McHarness."
   />
   <link rel="icon" href="data:," />
   <link rel="stylesheet" href="./cockpit-app.css" />
@@ -20,33 +20,53 @@
     <span class="banner bad">PUBLIC REAL AGENT LAUNCH DISABLED</span>
     <span class="banner warn">FAKE/MANUAL MODE (Codex gated)</span>
   </section>
-  <header style="padding:16px 20px; border-bottom:1px solid var(--line, #333); background:var(--bg-2, #0c1727);">
-    <h1 style="margin:0; font-size:1.6rem;">McHarness</h1>
-    <p style="margin:2px 0 0; color:var(--muted, #9cacbf); font-size:0.95em;">Use your AI coding subscriptions like a real engineering control room.</p>
-    <div style="margin-top:6px; font-size:0.75em;">
-      <a href="#" id="legacy-link" style="color:var(--accent);">Advanced / Legacy Cockpit</a>
-      <span style="margin-left:10px; color:var(--bad);">Public real agent launch disabled</span>
+  <header class="warden-header">
+    <div class="warden-brand">
+      <h1 class="warden-title">Warden</h1>
+      <span class="warden-byline" data-testid="warden-byline">by Marius Systems</span>
+    </div>
+    <p class="warden-subhead">Supervised control room for AI coding agents.</p>
+    <p class="warden-powered" data-testid="warden-powered">Powered by McHarness.</p>
+    <div class="warden-header-meta">
+      <a href="#" id="legacy-link" class="warden-legacy-link">Advanced / Legacy Cockpit</a>
+      <span class="warden-safety-note">Public real agent launch disabled</span>
     </div>
   </header>
 
-  <main style="padding:20px; max-width:860px; margin:0 auto;">
-    <h2 style="margin-bottom:8px;">Agent Library</h2>
-
-    <div id="agent-library-cards" data-testid="agent-library-cards" style="display:flex; flex-direction:column; gap:12px; margin-bottom:12px;">
-      <div id="codex-card" data-testid="codex-card" class="agent-card" style="border:1px solid var(--line); padding:14px; border-radius:6px; background:var(--bg-2);">
-        <h3 style="margin:0 0 4px; font-size:1.1rem;">Codex CLI</h3>
-        <div id="codex-status-line" style="font-size:0.85em; margin-bottom:6px; color:var(--muted);">Detecting status...</div>
-        <p style="margin:4px 0 10px; font-size:0.9em; color:var(--muted);">Run Codex against an allowlisted repo in a controlled tmux session. Gated behind explicit runner flags for safety.</p>
-        <div id="codex-capabilities" class="muted" style="font-size:0.78em; margin-bottom:8px;"></div>
-        <button id="develop-plan-btn" class="btn primary" type="button" style="padding:6px 14px; margin-right:8px;">Develop Plan</button>
-        <button id="use-codex-btn" class="btn" type="button" style="padding:6px 14px;">Use Agent</button>
-        <button id="open-live-monitor-btn" class="btn" type="button" style="margin-left:8px; padding:6px 14px;">Open Live CLI Monitor</button>
-      </div>
-      <div id="registered-agent-cards"></div>
+  <main class="warden-main">
+    <div class="warden-primary-cta">
+      <button id="develop-plan-primary" data-testid="develop-plan-primary" class="btn primary btn-hero" type="button">Develop Plan</button>
     </div>
 
-    <div style="margin-bottom:16px;">
-      <button id="add-agent-btn" data-testid="add-agent-btn" class="btn primary" type="button" style="padding:6px 14px;">Add Agent</button>
+    <h2 class="warden-section-title">Agent Library</h2>
+
+    <div id="agent-library-cards" data-testid="agent-library-cards" class="agent-library-groups">
+      <section class="agent-group" data-testid="agent-group-ready">
+        <h3 class="agent-group-title">Ready to Run</h3>
+        <div class="agent-group-cards">
+          <div id="codex-card" data-testid="codex-card" class="agent-card">
+            <h3 class="agent-card-title">Codex CLI</h3>
+            <div id="codex-status-line" class="agent-card-status">Detecting status...</div>
+            <p class="agent-card-copy">Use for live coding tasks through the controlled terminal monitor.</p>
+            <div id="codex-capabilities" class="agent-card-meta muted" style="display:none;"></div>
+            <div class="agent-card-actions">
+              <button id="develop-plan-btn" class="btn primary" type="button">Develop Plan</button>
+              <button id="use-codex-btn" class="btn" type="button">Use Agent</button>
+              <button id="open-live-monitor-btn" class="btn" type="button">Open Live Monitor</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="agent-group-connected" class="agent-group" data-testid="agent-group-connected" style="display:none;">
+        <h3 class="agent-group-title">Connected / Setup Complete</h3>
+        <div id="connected-agent-cards" class="agent-group-cards"></div>
+      </section>
+    </div>
+
+    <div class="add-agent-section">
+      <button id="add-agent-btn" data-testid="add-agent-btn" class="btn" type="button">Add Agent</button>
+      <p class="add-agent-help" data-testid="add-agent-help">Add CLI or remote agents after configuration and connection checks.</p>
     </div>
 
     <!-- Legacy full cockpit (hidden by default; toggle via link) -->
@@ -63,12 +83,12 @@
     <div style="background:var(--bg-2); border:1px solid var(--line); padding:16px; width:90%; max-width:620px; border-radius:6px;">
       <h3 id="add-agent-title" style="margin-top:0;">Add Agent</h3>
       <div id="add-agent-step-choose" data-testid="add-agent-step-choose">
-        <div style="font-size:0.85em; color:var(--muted); margin-bottom:10px;">Choose an agent to configure.</div>
+        <div style="font-size:0.85em; color:var(--muted); margin-bottom:10px;">Choose an agent to configure and verify. Jules can be connected now; remote execution comes next.</div>
         <div id="add-agent-template-list" data-testid="add-agent-template-list" style="display:flex; flex-direction:column; gap:8px;"></div>
       </div>
       <div id="add-agent-step-config" data-testid="add-agent-step-config" style="display:none;">
         <div id="add-agent-jules-note" data-testid="add-agent-jules-note" style="font-size:0.82em; color:var(--warn, #f0c66a); margin-bottom:8px;">
-          Jules Remote is for planning/status only in this version. Execution comes next.
+          Jules Remote can be configured and tested now. Planning and status are available; remote execution comes next.
         </div>
         <div style="margin:8px 0;">
           <label for="add-agent-name" style="display:block; font-size:0.85em;">Display name</label>

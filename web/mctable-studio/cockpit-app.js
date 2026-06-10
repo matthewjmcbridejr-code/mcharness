@@ -544,26 +544,54 @@
     return agent.status || agent.connection_status || "unknown";
   }
 
+  function registeredAgentCardCopy(agent) {
+    if (agent.adapter === "jules_remote") {
+      const connected = agent.connection_status === "connected" && agent.status === "ready";
+      return {
+        statusLine: connected ? "Connected for planning/status." : "Configured — finish connection checks.",
+        body: "Remote execution is not enabled yet.",
+      };
+    }
+    const status = agentStatusLabel(agent);
+    return {
+      statusLine: `${agentTypeLabel(agent)} • ${agent.adapter || "agent"} • ${status}`,
+      body: agent.description || "",
+    };
+  }
+
+  function captainAgentOptionLabel(agent) {
+    if (!agent) return "Unknown";
+    if (agent.runnable || agent.id === "codex_cli") {
+      return `${agent.name || agent.id} — Ready`;
+    }
+    if (agent.adapter === "jules_remote") {
+      const connected = agent.connection_status === "connected";
+      return `${agent.name || agent.id} — ${connected ? "Connected, execution coming next" : "Setup incomplete"}`;
+    }
+    return `${agent.name || agent.id} — Not runnable`;
+  }
+
   function renderRegisteredAgentCards() {
-    const container = document.getElementById("registered-agent-cards");
+    const container = document.getElementById("connected-agent-cards");
+    const group = document.getElementById("agent-group-connected");
     if (!container) return;
     const registered = (state.agents || []).filter((agent) => agent.user_created);
     if (!registered.length) {
       container.innerHTML = "";
+      if (group) group.style.display = "none";
       return;
     }
+    if (group) group.style.display = "";
     container.innerHTML = registered.map((agent) => {
-      const caps = (agent.capabilities || []).join(", ") || "—";
-      const status = agentStatusLabel(agent);
+      const copy = registeredAgentCardCopy(agent);
       const runnable = !!agent.runnable;
       const showEdit = agent.adapter === "jules_remote";
       return `
-        <div class="agent-card registered-agent-card" data-agent-id="${escapeHtml(agent.id)}" style="border:1px solid var(--line); padding:14px; border-radius:6px; background:var(--bg-2);">
-          <h3 style="margin:0 0 4px; font-size:1.1rem;">${escapeHtml(agent.name || agent.id)}</h3>
-          <div style="font-size:0.85em; margin-bottom:6px; color:var(--muted);">${escapeHtml(agentTypeLabel(agent))} • ${escapeHtml(agent.adapter || "")} • ${escapeHtml(status)}</div>
-          <p style="margin:4px 0 8px; font-size:0.9em; color:var(--muted);">${escapeHtml(agent.description || "")}</p>
-          <div class="muted" style="font-size:0.78em; margin-bottom:8px;">Capabilities: ${escapeHtml(caps)}</div>
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <div class="agent-card registered-agent-card" data-agent-id="${escapeHtml(agent.id)}">
+          <h3 class="agent-card-title">${escapeHtml(agent.name || agent.id)}</h3>
+          <div class="agent-card-status">${escapeHtml(copy.statusLine)}</div>
+          <p class="agent-card-copy">${escapeHtml(copy.body)}</p>
+          <div class="agent-card-actions">
             ${runnable ? `<button class="btn" type="button" data-use-agent-id="${escapeHtml(agent.id)}">Use Agent</button>` : ""}
             ${showEdit ? `<button class="btn" type="button" data-edit-agent-id="${escapeHtml(agent.id)}">Edit Config</button>` : ""}
             <button class="btn bad" type="button" data-remove-agent-id="${escapeHtml(agent.id)}">Remove</button>
@@ -596,15 +624,7 @@
     agents.forEach((agent) => {
       const opt = document.createElement("option");
       opt.value = agent.id;
-      let suffix = "";
-      if (!agent.runnable) {
-        if (agent.adapter === "jules_remote") {
-          suffix = agent.connection_status === "connected" ? " (connected, not runnable)" : " (not runnable)";
-        } else {
-          suffix = " (not runnable)";
-        }
-      }
-      opt.textContent = `${agent.name || agent.id}${suffix}`;
+      opt.textContent = captainAgentOptionLabel(agent);
       opt.dataset.runnable = agent.runnable ? "1" : "0";
       sel.appendChild(opt);
     });
@@ -1030,20 +1050,20 @@
       const line = document.getElementById("codex-status-line");
       const capsEl = document.getElementById("codex-capabilities");
       if (line) {
-        if (codex.status === "ready") {
-          line.textContent = "Ready on private runner service";
+        if (codex.status === "ready" || (installed && tmuxF && codexF)) {
+          line.textContent = "Ready to run on private runner.";
           line.style.color = "var(--good, #63db9d)";
         } else if (installed) {
-          line.textContent = `Installed • ${tmuxF && codexF ? "Ready (gated)" : "Disabled in public (enable private 8125 + both MCHARNESS_*_RUNNER_ENABLED)"}`;
-          line.style.color = (tmuxF && codexF) ? "var(--good, #63db9d)" : "var(--warn, #f0c66a)";
+          line.textContent = "Installed • runs on private runner only (8125 + runner flags)";
+          line.style.color = "var(--warn, #f0c66a)";
         } else {
           line.textContent = "Not detected on host";
           line.style.color = "var(--bad, #ff7e91)";
         }
       }
       if (capsEl) {
-        const caps = (codex.capabilities || []).join(", ");
-        capsEl.textContent = caps ? `Capabilities: ${caps}` : "";
+        capsEl.style.display = "none";
+        capsEl.textContent = "";
       }
     } catch (e) {
       const line = document.getElementById("codex-status-line");
@@ -1356,12 +1376,17 @@
     }
   }
 
+  function wireDevelopPlanButtons() {
+    const openCaptain = () => openCaptainDeckModal().catch((e) => console.error(e));
+    ["develop-plan-primary", "develop-plan-btn"].forEach((id) => {
+      const btn = document.getElementById(id);
+      if (btn) btn.addEventListener("click", openCaptain);
+    });
+  }
+
   // Wire simple UI events
   function wireSimpleUI() {
-    const captainBtn = document.getElementById("develop-plan-btn");
-    if (captainBtn) captainBtn.addEventListener("click", () => {
-      openCaptainDeckModal().catch((e) => console.error(e));
-    });
+    wireDevelopPlanButtons();
 
     // Use Agent
     const useBtn = document.getElementById("use-codex-btn");

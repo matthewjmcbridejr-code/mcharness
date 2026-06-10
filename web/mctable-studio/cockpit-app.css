@@ -386,3 +386,152 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+/* Warden simple mode — product shell */
+.warden-header {
+  padding: 20px 24px 18px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(15, 26, 45, 0.98), rgba(12, 23, 39, 0.98));
+}
+
+.warden-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.warden-title {
+  margin: 0;
+  font-size: 2rem;
+  letter-spacing: -0.02em;
+}
+
+.warden-byline {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.warden-subhead {
+  margin: 6px 0 0;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.warden-powered {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.warden-header-meta {
+  margin-top: 10px;
+  font-size: 0.75rem;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.warden-legacy-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.warden-legacy-link:hover {
+  text-decoration: underline;
+}
+
+.warden-safety-note {
+  color: var(--bad);
+}
+
+.warden-main {
+  padding: 24px 20px 28px;
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.warden-primary-cta {
+  margin-bottom: 22px;
+}
+
+.btn-hero {
+  padding: 12px 22px;
+  font-size: 1rem;
+  font-weight: 600;
+  min-width: 180px;
+}
+
+.warden-section-title {
+  margin: 0 0 14px;
+  font-size: 1.2rem;
+}
+
+.agent-library-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.agent-group-title {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.agent-group-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agent-card {
+  border: 1px solid var(--line);
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--bg-2);
+}
+
+.agent-card-title {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+}
+
+.agent-card-status {
+  font-size: 0.85em;
+  margin-bottom: 6px;
+  color: var(--muted);
+}
+
+.agent-card-copy {
+  margin: 4px 0 12px;
+  font-size: 0.9em;
+  color: var(--muted);
+}
+
+.agent-card-meta {
+  font-size: 0.78em;
+  margin-bottom: 8px;
+}
+
+.agent-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.add-agent-section {
+  margin-bottom: 16px;
+}
+
+.add-agent-help {
+  margin: 8px 0 0;
+  font-size: 0.82em;
+  color: var(--muted);
+  max-width: 52ch;
+}
