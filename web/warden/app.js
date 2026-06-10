@@ -1237,14 +1237,20 @@
     const plan = state.activeCaptainPlan;
     if (!empty || !panel || !header || !stepsEl || !controls) return;
 
+    const crEmpty = document.getElementById("cr-mission-empty");
+    const crActive = document.getElementById("cr-mission-active");
     if (!plan || plan.status === "stopped") {
       empty.style.display = "";
       panel.style.display = "none";
+      if (crEmpty) crEmpty.style.display = "";
+      if (crActive) crActive.style.display = "none";
       return;
     }
 
     empty.style.display = "none";
     panel.style.display = "";
+    if (crEmpty) crEmpty.style.display = "none";
+    if (crActive) crActive.style.display = "none";
     const current = currentCaptainStep(plan);
     const currentGateBanner = gateBannerCopy(current, { isCurrent: true });
     header.innerHTML = `
@@ -1555,8 +1561,26 @@
     if (inspector) inspector.style.display = showInspector ? "" : "none";
     const stage = document.querySelector(".warden-stage");
     if (stage) stage.classList.toggle("inspector-visible", showInspector);
+    const titles = {
+      mission: "Control Room",
+      tasks: "Missions",
+      agents: "Agents",
+      runs: "Runs",
+      evidence: "Evidence",
+      "proof-gates": "Proof Gates",
+      "runner-sessions": "Runner Sessions",
+      settings: "Settings",
+    };
+    const topTitle = document.getElementById("topbar-page-title");
+    if (topTitle) topTitle.textContent = titles[state.activeSection] || "Warden";
+    if (window.WardenControlRoom && window.WardenControlRoom.onSectionChange) {
+      window.WardenControlRoom.onSectionChange(state.activeSection);
+    }
     if (state.activeSection === "mission") {
       Promise.all([loadActiveCaptainPlan(), loadMissionWorklog()]).catch((e) => console.error(e));
+      if (window.WardenControlRoom && window.WardenControlRoom.refresh) {
+        window.WardenControlRoom.refresh({ quiet: true }).catch((e) => console.error(e));
+      }
     } else if (state.activeSection === "runs") {
       loadRecentRuns().catch((e) => console.error(e));
     } else if (state.activeSection === "evidence") {
@@ -2450,6 +2474,12 @@
         renderMissionWorklog();
       });
     });
+    document.querySelectorAll("[data-section-jump]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const section = button.getAttribute("data-section-jump");
+        if (section) setActiveSection(section);
+      });
+    });
     const evidenceDetailClose = document.getElementById("evidence-detail-close");
     if (evidenceDetailClose) evidenceDetailClose.addEventListener("click", closeEvidenceDetailModal);
     const runDetailModal = document.getElementById("run-detail-modal");
@@ -2673,6 +2703,9 @@
     wireSimpleUI();
     setActiveSection("mission");
     await Promise.all([loadLibraryStatus(), loadCaptainDeckStatus(), loadRecentRuns(), loadRecentEvidence(), loadActiveCaptainPlan(), loadMissionWorklog(), loadRecentGates()]);
+    if (window.WardenControlRoom && window.WardenControlRoom.init) {
+      window.WardenControlRoom.init();
+    }
 
     // initial status check for disabled note etc is handled in deploy
     // If user has runner flags in this process (e.g. private), card will reflect Ready
@@ -2680,6 +2713,7 @@
 
   // expose a couple for console/manual if needed
   window.McHarnessSimple = { deployPrompt, openLiveCLIMonitor, refreshLiveMonitor };
+  window.WardenApp = { setActiveSection, openCaptainDeckModal, openLiveCLIMonitor };
 
   // boot
   init().catch((e) => console.error("init error", e));
