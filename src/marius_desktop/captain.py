@@ -36,7 +36,10 @@ def _ensure_dirs() -> None:
 
 
 def _run_path(run_id: str) -> Path:
-    return RUNS_DIR / f"{run_id}.json"
+    path = RUNS_DIR / f"{run_id}.json"
+    if not path.resolve().is_relative_to(RUNS_DIR.resolve()):
+        raise HTTPException(status_code=400, detail="Invalid run_id")
+    return path
 
 
 def _load_run(run_id: str) -> CaptainRun:
