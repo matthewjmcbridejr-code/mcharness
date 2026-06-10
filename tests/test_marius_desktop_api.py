@@ -223,3 +223,9 @@ def test_captain_manual_evidence_and_gate_decision_routes_exposed_via_api():
     )
     assert decision_response.status_code == 200
     assert decision_response.json()["hard_gates"][0]["decision"] == "reject"
+
+def test_legacy_launch_route_disabled():
+    client = TestClient(app)
+    response = client.post("/api/mctable/local/dispatch-launch")
+    assert response.status_code == 400
+    assert response.json()["detail"] == "deprecated/disabled legacy launch route"
