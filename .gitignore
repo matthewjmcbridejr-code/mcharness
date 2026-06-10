@@ -10,3 +10,4 @@ _mctable/checkpoints/*.sqlite
 src-tauri/target/
 src-tauri/gen/
 
+mcharness.egg-info/

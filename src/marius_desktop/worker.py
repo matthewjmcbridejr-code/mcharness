@@ -279,6 +279,8 @@ class WorkerStub:
     @staticmethod
     def stream_logs(run_id: str) -> Iterator[str]:
         run_dir = RUNS_DIR / run_id
+        if not run_dir.exists() or not (run_dir / "run.json").exists():
+            raise FileNotFoundError(f"Worker run {run_id} not found.")
         stdout_path = run_dir / "stdout.log"
         stderr_path = run_dir / "stderr.log"
 
