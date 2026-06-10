@@ -1,1 +1,1 @@
-from src.marius_desktop.app import app
+from src.warden.app import app

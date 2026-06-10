@@ -27,7 +27,7 @@
 
 - Backend health: `curl -s http://127.0.0.1:8124/api/mcharness/health`
 - Live cockpit: `curl -I https://mctable.team/`
-- Functional cockpit: `curl -I https://mctable.team/web/mctable-studio/cockpit-app.html`
+- Functional cockpit: `curl -I https://mctable.team/web/warden/index.html`
 
 ## Rollback
 

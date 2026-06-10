@@ -1,12 +1,18 @@
 .venv/
 __pycache__/
+**/__pycache__/
 .pytest_cache/
 *.pyc
 *.log
+playwright-report/
+
+.codegraph/
+_mctable/
+test-results/
 
 _mctable/worker_runs/
 _mctable/workbench/
 _mctable/checkpoints/*.sqlite
 
-src-tauri/target/
-src-tauri/gen/
+docs/archive/legacy/src-tauri/target/
+docs/archive/legacy/src-tauri/gen/
