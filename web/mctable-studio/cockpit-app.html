@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Warden | Supervised AI Coding Control Room</title>
+  <title>Warden | Supervised AI Coding Agents</title>
   <meta
     name="description"
     content="Warden by Marius Systems — supervised control room for AI coding agents. Powered by McHarness."
@@ -39,6 +39,28 @@
 
     <main class="warden-workspace" data-testid="warden-workspace">
       <section id="warden-section-agents" class="workspace-section active" data-section="agents" data-testid="warden-section-agents">
+        <div class="workspace-top-grid">
+          <div class="hero-panel" data-testid="warden-hero">
+            <h2 class="hero-title">What do you want Warden to build?</h2>
+            <p class="hero-subtitle">Captain turns your goal into bounded agent steps. You approve what runs.</p>
+            <button type="button" class="btn primary hero-cta" data-action="develop-plan" data-testid="develop-plan-hero">Develop Plan</button>
+            <div class="hero-status-row" data-testid="hero-status-row">
+              <span class="hero-status-chip" id="hero-captain-status" data-testid="hero-captain-status">Captain: Not configured</span>
+              <span class="hero-status-chip" id="hero-codex-status" data-testid="hero-codex-status">Codex: Disabled</span>
+              <span class="hero-status-chip" id="hero-jules-status" data-testid="hero-jules-status">Jules: Planning only</span>
+            </div>
+          </div>
+          <aside class="control-room-status" data-testid="control-room-status">
+            <h3 class="control-room-title">Control Room Status</h3>
+            <ul class="control-room-list">
+              <li id="cr-public-runner" data-testid="cr-public-runner">Public runner: Disabled</li>
+              <li id="cr-private-runner" data-testid="cr-private-runner">Private runner: Available on private service</li>
+              <li id="cr-shell-input" data-testid="cr-shell-input">Arbitrary shell input: Disabled</li>
+              <li id="cr-agent-registration" data-testid="cr-agent-registration">Agent registration: Private only</li>
+            </ul>
+          </aside>
+        </div>
+
         <header class="workspace-header">
           <h2 class="workspace-title">Agent Library</h2>
           <p class="workspace-subhead">Connect local CLI agents and remote workers, then dispatch bounded work through Captain.</p>
@@ -51,11 +73,11 @@
               <div id="codex-card" data-testid="codex-card" class="agent-card">
                 <div class="agent-card-top">
                   <h3 class="agent-card-title">Codex CLI</h3>
-                  <span id="codex-status-pill" data-testid="codex-status-pill" class="status-pill status-ready">Ready</span>
+                  <span id="codex-status-pill" data-testid="codex-status-pill" class="status-pill status-ready">READY</span>
                 </div>
                 <div id="codex-status-line" class="agent-card-status" style="display:none;"></div>
-                <p class="agent-card-copy">Live coding tasks through the private controlled terminal monitor.</p>
-                <div id="codex-capabilities" class="agent-card-meta muted" style="display:none;"></div>
+                <p class="agent-card-copy">Run live coding tasks through Warden’s controlled terminal monitor.</p>
+                <div id="codex-capabilities" class="agent-capability-chips" style="display:none;"></div>
                 <div class="agent-card-actions">
                   <button id="develop-plan-btn" data-action="develop-plan" class="btn primary" type="button">Develop Plan</button>
                   <button id="use-codex-btn" class="btn" type="button">Use Agent</button>
@@ -85,7 +107,7 @@
         </header>
         <div class="empty-state-card" data-testid="tasks-empty-state">
           <h3>No active task plan yet.</h3>
-          <p>Use Develop Plan to create a supervised plan. Tasks will appear here as Captain steps.</p>
+          <p>Use Develop Plan to create a supervised plan. Captain steps will appear here.</p>
           <button type="button" class="btn primary" data-action="develop-plan" data-testid="develop-plan-tasks">Develop Plan</button>
         </div>
       </section>
@@ -97,7 +119,7 @@
         </header>
         <div class="empty-state-card" data-testid="runs-empty-state">
           <h3>Runs will show live and completed agent sessions.</h3>
-          <p>Codex Live Monitor sessions and saved outputs will appear here in the next evidence pass.</p>
+          <p>Saved Codex sessions and future Jules sessions will appear here.</p>
           <button type="button" id="runs-open-monitor" class="btn" data-testid="runs-open-monitor" style="display:none;">Open Live Monitor</button>
         </div>
       </section>
@@ -108,8 +130,8 @@
           <p class="workspace-subhead">Proof artifacts from supervised agent work.</p>
         </header>
         <div class="empty-state-card" data-testid="evidence-empty-state">
-          <h3>Saved transcripts, proof reports, test output, diffs, and PR links will appear here.</h3>
-          <p>When a Codex session is active, open the live monitor to review output or save evidence.</p>
+          <h3>Saved outputs, transcripts, proof reports, diffs, and PR links will appear here.</h3>
+          <p>When a Codex session is active, use View Agent to review output or save evidence.</p>
           <button type="button" id="evidence-open-output" class="btn" data-testid="evidence-open-output" style="display:none;">Open Current Output</button>
         </div>
       </section>
@@ -124,6 +146,7 @@
             <h3>Captain / OpenRouter</h3>
             <div id="settings-captain-status" data-testid="settings-captain-status" class="settings-value">Loading Captain status...</div>
             <div id="settings-captain-model" data-testid="settings-captain-model" class="settings-meta"></div>
+            <div id="settings-captain-key-source" data-testid="settings-captain-key-source" class="settings-meta"></div>
             <button type="button" id="configure-captain-btn" data-testid="configure-captain" class="btn primary">Configure Captain</button>
           </div>
           <div class="settings-card">

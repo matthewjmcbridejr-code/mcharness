@@ -551,8 +551,29 @@
   function setCodexStatusPill({ ready, disabled, label }) {
     const pill = document.getElementById("codex-status-pill");
     if (!pill) return;
-    pill.textContent = label || (ready ? "Ready" : disabled ? "Disabled" : "Coming next");
+    const text = label || (ready ? "READY" : disabled ? "DISABLED" : "COMING NEXT");
+    pill.textContent = String(text).toUpperCase();
     pill.className = `status-pill ${ready ? "status-ready" : disabled ? "status-disabled" : "status-coming"}`;
+  }
+
+  function julesWorkspaceStatus() {
+    const jules = (state.agents || []).find((agent) => agent.adapter === "jules_remote" && agent.user_created);
+    if (!jules) return "Planning only";
+    if (jules.connection_status === "connected" && jules.status === "ready") return "Connected";
+    return "Setup needed";
+  }
+
+  function renderCodexCapabilityChips(codex) {
+    const capsEl = document.getElementById("codex-capabilities");
+    if (!capsEl) return;
+    const caps = (codex && codex.capabilities) || [];
+    if (!caps.length) {
+      capsEl.style.display = "none";
+      capsEl.innerHTML = "";
+      return;
+    }
+    capsEl.style.display = "flex";
+    capsEl.innerHTML = caps.slice(0, 4).map((cap) => `<span class="cap-chip">${escapeHtml(cap)}</span>`).join("");
   }
 
   function updateRunsEvidenceActions() {
@@ -568,12 +589,29 @@
     const health = state.health || {};
     const captainStatus = document.getElementById("settings-captain-status");
     const captainModel = document.getElementById("settings-captain-model");
+    const captainKeySource = document.getElementById("settings-captain-key-source");
     const agentNote = document.getElementById("settings-agent-note");
     const publicRunner = document.getElementById("settings-public-runner");
     const privateRunner = document.getElementById("settings-private-runner");
     const shellInput = document.getElementById("settings-shell-input");
     const agentRegistration = document.getElementById("settings-agent-registration");
+    const heroCaptain = document.getElementById("hero-captain-status");
+    const heroCodex = document.getElementById("hero-codex-status");
+    const heroJules = document.getElementById("hero-jules-status");
+    const crPublic = document.getElementById("cr-public-runner");
+    const crPrivate = document.getElementById("cr-private-runner");
+    const crShell = document.getElementById("cr-shell-input");
+    const crAgentReg = document.getElementById("cr-agent-registration");
     const runnerActive = !!health.tmux_runner_enabled && !!health.codex_runner_enabled;
+    const shellDisabled = !health.arbitrary_command_execution_enabled;
+    const publicRunnerText = "Public runner: Disabled on public service";
+    const privateRunnerText = runnerActive
+      ? "Private runner: Active on this service"
+      : "Private runner: Available only on private service";
+    const shellText = shellDisabled ? "Arbitrary shell input: Disabled" : "Arbitrary shell input: Enabled";
+    const agentRegText = state.registryWriteEnabled
+      ? "Agent registration: Enabled on this service"
+      : "Agent registration: Private only";
     if (captainStatus) {
       captainStatus.textContent = deck.configured
         ? `Captain: Configured${deck.keySource && deck.keySource !== "missing" ? ` (${deck.keySource})` : ""}`
@@ -582,26 +620,32 @@
     if (captainModel) {
       captainModel.textContent = `Model: ${deck.model || "openrouter/auto"}`;
     }
+    if (captainKeySource) {
+      captainKeySource.textContent = `Key source: ${deck.keySource || "missing"}`;
+    }
     if (agentNote) {
       agentNote.textContent = state.registryWriteEnabled
         ? "Add and configure CLI or remote agents from the Agents section after connection checks."
         : "Agent registration is available on the private runner service (8125).";
     }
-    if (publicRunner) {
-      publicRunner.textContent = "Public runner: Disabled on public service";
+    if (publicRunner) publicRunner.textContent = publicRunnerText;
+    if (privateRunner) privateRunner.textContent = privateRunnerText;
+    if (shellInput) shellInput.textContent = shellText;
+    if (agentRegistration) agentRegistration.textContent = agentRegText;
+    if (heroCaptain) {
+      heroCaptain.textContent = `Captain: ${deck.configured ? "Ready" : "Not configured"}`;
     }
-    if (privateRunner) {
-      privateRunner.textContent = runnerActive
+    if (heroCodex) heroCodex.textContent = `Codex: ${runnerActive ? "Ready" : "Disabled"}`;
+    if (heroJules) heroJules.textContent = `Jules: ${julesWorkspaceStatus()}`;
+    if (crPublic) crPublic.textContent = "Public runner: Disabled";
+    if (crPrivate) {
+      crPrivate.textContent = runnerActive
         ? "Private runner: Active on this service"
-        : "Private runner: Available only on private service";
+        : "Private runner: Available on private service";
     }
-    if (shellInput) {
-      shellInput.textContent = health.arbitrary_command_execution_enabled
-        ? "Arbitrary shell input: Enabled"
-        : "Arbitrary shell input: Disabled";
-    }
-    if (agentRegistration) {
-      agentRegistration.textContent = state.registryWriteEnabled
+    if (crShell) crShell.textContent = shellDisabled ? "Arbitrary shell input: Disabled" : "Arbitrary shell input: Enabled";
+    if (crAgentReg) {
+      crAgentReg.textContent = state.registryWriteEnabled
         ? "Agent registration: Enabled on this service"
         : "Agent registration: Private only";
     }
@@ -622,9 +666,9 @@
     if (agent.adapter === "jules_remote") {
       const connected = agent.connection_status === "connected" && agent.status === "ready";
       return {
-        pillLabel: connected ? "Connected" : "Coming next",
+        pillLabel: connected ? "CONNECTED" : "SETUP NEEDED",
         pillClass: connected ? "status-connected" : "status-coming",
-        body: "Connected for planning/status. Remote execution is not enabled yet.",
+        body: "Connected for planning and status. Remote execution comes next.",
       };
     }
     const status = agentStatusLabel(agent);
@@ -693,6 +737,7 @@
     container.querySelectorAll("[data-use-agent-id]").forEach((button) => {
       button.addEventListener("click", () => openUseAgentModal());
     });
+    renderSettingsPanel();
   }
 
   function populateCaptainAgents() {
@@ -1126,18 +1171,14 @@
       const installed = !!codex.installed || codex.status === "ready" || codex.status === "disabled";
       const tmuxF = !!state.health.tmux_runner_enabled;
       const codexF = !!state.health.codex_runner_enabled;
-      const capsEl = document.getElementById("codex-capabilities");
       if (codex.status === "ready" || (installed && tmuxF && codexF)) {
-        setCodexStatusPill({ ready: true, label: "Ready" });
+        setCodexStatusPill({ ready: true, label: "READY" });
       } else if (installed) {
-        setCodexStatusPill({ disabled: true, label: "Disabled" });
+        setCodexStatusPill({ disabled: true, label: "DISABLED" });
       } else {
-        setCodexStatusPill({ disabled: true, label: "Disabled" });
+        setCodexStatusPill({ disabled: true, label: "DISABLED" });
       }
-      if (capsEl) {
-        capsEl.style.display = "none";
-        capsEl.textContent = "";
-      }
+      renderCodexCapabilityChips(codex);
       renderSettingsPanel();
     } catch (e) {
       setCodexStatusPill({ disabled: true, label: "Disabled" });
