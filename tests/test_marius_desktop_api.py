@@ -146,6 +146,13 @@ def test_post_task_decision():
     assert task_data["proof_status"] == "approved"
     assert task_data["current_step"] == "complete"
 
+    # Test not found
+    response = client.post(
+        "/api/marius/tasks/non-existent-task-id/decision",
+        json={"decision": "approve", "actor": "operator"},
+    )
+    assert response.status_code == 404
+
 
 def test_worker_run_and_logs():
     client = TestClient(app)
