@@ -93,3 +93,15 @@ def test_cancel_updates_status():
 
     logs = "".join(list(WorkerStub.stream_logs(run_id)))
     assert isinstance(logs, str)
+
+def test_path_traversal_get_status():
+    with pytest.raises(ValueError, match="Invalid run_id format"):
+        WorkerStub.get_status("../../../etc/passwd")
+
+def test_path_traversal_stream_logs():
+    with pytest.raises(ValueError, match="Invalid run_id format"):
+        list(WorkerStub.stream_logs("../../../etc/passwd"))
+
+def test_path_traversal_cancel_run():
+    with pytest.raises(ValueError, match="Invalid run_id format"):
+        WorkerStub.cancel_run("../../../etc/passwd")

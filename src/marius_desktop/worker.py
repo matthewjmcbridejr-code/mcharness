@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import json
 import uuid
 import subprocess
@@ -32,6 +33,11 @@ ACTIVE_CANCEL_EVENTS: Dict[str, threading.Event] = {}
 FILE_LOCK = threading.Lock()
 
 class WorkerStub:
+    @staticmethod
+    def _validate_run_id(run_id: str) -> None:
+        if not re.match(r"^[a-zA-Z0-9_-]+$", run_id):
+            raise ValueError(f"Invalid run_id format: {run_id}")
+
     @staticmethod
     def start_run(agent_id: str, task_id: str, command: str, args: List[str]) -> str:
         if command not in ALLOWED_COMMANDS:
@@ -212,6 +218,7 @@ class WorkerStub:
 
     @staticmethod
     def get_status(run_id: str) -> WorkerRun:
+        WorkerStub._validate_run_id(run_id)
         run_dir = RUNS_DIR / run_id
         run_json = run_dir / "run.json"
 
@@ -278,6 +285,7 @@ class WorkerStub:
 
     @staticmethod
     def stream_logs(run_id: str) -> Iterator[str]:
+        WorkerStub._validate_run_id(run_id)
         run_dir = RUNS_DIR / run_id
         stdout_path = run_dir / "stdout.log"
         stderr_path = run_dir / "stderr.log"
@@ -293,6 +301,7 @@ class WorkerStub:
 
     @staticmethod
     def cancel_run(run_id: str) -> None:
+        WorkerStub._validate_run_id(run_id)
         run_dir = RUNS_DIR / run_id
         run_json = run_dir / "run.json"
         monitor_thread = None
