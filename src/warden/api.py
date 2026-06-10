@@ -70,6 +70,7 @@ from .run_history import (
     list_recent_runs,
     update_run_record,
 )
+from .worklog import EVENT_LABELS, list_recent_worklog
 from .agent_registry import (
     BUILTIN_CODEX_ID,
     McHarnessAgentConfigPatchRequest,
@@ -2588,6 +2589,29 @@ def get_mcharness_evidence_recent():
         "service": "mcharness-control-plane",
         "service_mode": _service_mode_label(),
         "evidence": list_recent_evidence(MCTABLE_ROOT),
+    }
+
+
+@mcharness_router.get("/worklog/recent")
+def get_mcharness_worklog_recent():
+    if not _run_history_read_enabled():
+        return {
+            "service": "mcharness-control-plane",
+            "service_mode": _service_mode_label(),
+            "items": [],
+            "notes": ["Mission worklog is available on the private runner service."],
+        }
+    items = list_recent_worklog(MCTABLE_ROOT)
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "items": [
+            {
+                **item,
+                "label": EVENT_LABELS.get(str(item.get("kind")), str(item.get("kind") or "event")),
+            }
+            for item in items
+        ],
     }
 
 

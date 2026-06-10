@@ -276,7 +276,7 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await expect(page.locator("[data-testid='mission-command']")).toContainText("What do you want Warden to build?");
   await expect(page.locator("[data-testid='mission-command']")).toContainText("Captain breaks goals into bounded agent steps");
   await expect(page.locator("[data-testid='current-mission-card']")).toContainText("No active mission yet");
-  await expect(page.locator("[data-testid='mission-worklog-card']")).toContainText("Captain plans, dispatched steps");
+  await expect(page.locator("[data-testid='mission-worklog-empty']")).toContainText("No mission activity yet");
   await expect(page.locator("[data-testid='operator-inspector']")).toBeVisible();
   await expect(page.locator("[data-testid='inspector-next-move']")).toContainText("Next Move");
   await expect(page.locator("[data-testid='control-room-status']")).toContainText("Control Room Status");

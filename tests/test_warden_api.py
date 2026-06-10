@@ -19,6 +19,7 @@ def clean_mctable():
         CAPTAIN_ROOT,
         MCTABLE_ROOT / "runs",
         MCTABLE_ROOT / "evidence",
+        MCTABLE_ROOT / "captain",
     ]:
         if d.exists():
             shutil.rmtree(d)
@@ -30,6 +31,7 @@ def clean_mctable():
         CAPTAIN_ROOT,
         MCTABLE_ROOT / "runs",
         MCTABLE_ROOT / "evidence",
+        MCTABLE_ROOT / "captain",
     ]:
         if d.exists():
             shutil.rmtree(d)
@@ -1548,3 +1550,50 @@ def test_captain_plan_invalid_step_returns_404(monkeypatch, tmp_path):
     _sample_persisted_plan(client)
     missing = client.post("/api/mcharness/captain/plans/plan_loop01/steps/step_missing/complete", json={})
     assert missing.status_code == 404
+
+
+def test_worklog_empty_when_no_activity(monkeypatch, tmp_path):
+    _enable_private_run_history(monkeypatch, tmp_path)
+    client = TestClient(app)
+    response = client.get("/api/mcharness/worklog/recent")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["items"] == []
+    assert data["service_mode"] == "private"
+
+
+def test_worklog_public_read_returns_empty_list(monkeypatch):
+    client = TestClient(app)
+    response = client.get("/api/mcharness/worklog/recent")
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+    assert response.json()["service_mode"] == "public"
+
+
+def test_worklog_shows_real_events_after_dispatch_and_evidence(monkeypatch, tmp_path):
+    _enable_private_captain_loop(monkeypatch, tmp_path)
+    client = TestClient(app)
+    _sample_persisted_plan(client)
+    dispatch = client.post("/api/mcharness/captain/plans/plan_loop01/steps/step_1/dispatch")
+    assert dispatch.status_code == 200, dispatch.text
+    run_id = dispatch.json()["dispatch"]["runner_id"]
+    saved = client.post(
+        f"/api/mcharness/runs/{run_id}/evidence",
+        json={
+            "type": "transcript",
+            "title": "Worklog evidence",
+            "content": "Captured proof for worklog.",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    worklog = client.get("/api/mcharness/worklog/recent")
+    assert worklog.status_code == 200
+    items = worklog.json()["items"]
+    kinds = {item["kind"] for item in items}
+    assert "plan_created" in kinds
+    assert "step_dispatched" in kinds
+    assert "run_created" in kinds
+    assert "evidence_saved" in kinds
+    assert "sample" not in worklog.text.lower()
+    assert "fake" not in worklog.text.lower()
+    assert "sk-or-" not in worklog.text

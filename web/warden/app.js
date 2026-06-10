@@ -608,6 +608,72 @@
     }
   }
 
+  function worklogStatusClass(status) {
+    const normalized = String(status || "").toLowerCase();
+    if (normalized === "running" || normalized === "dispatched") return "status-ready";
+    if (normalized === "completed" || normalized === "saved" || normalized === "approved") return "status-connected";
+    if (normalized === "stopped" || normalized === "blocked" || normalized === "failed") return "status-disabled";
+    return "status-coming";
+  }
+
+  function renderMissionWorklog() {
+    const list = document.getElementById("mission-worklog-list");
+    const empty = document.getElementById("mission-worklog-empty");
+    const items = state.missionWorklog || [];
+    if (!list || !empty) return;
+    if (!items.length) {
+      list.innerHTML = "";
+      list.style.display = "none";
+      empty.style.display = "";
+      return;
+    }
+    empty.style.display = "none";
+    list.style.display = "flex";
+    list.innerHTML = items.map((item) => {
+      const links = item.links || {};
+      const linkBits = [];
+      if (links.run_id) linkBits.push(`<button type="button" class="btn" data-worklog-run-id="${escapeHtml(links.run_id)}">Run</button>`);
+      if (links.evidence_id) linkBits.push(`<button type="button" class="btn" data-worklog-evidence-id="${escapeHtml(links.evidence_id)}">Evidence</button>`);
+      return `
+        <div class="worklog-event-card" data-testid="worklog-event-${escapeHtml(item.kind || "event")}">
+          <div class="worklog-event-top">
+            <span class="worklog-event-label">${escapeHtml(item.label || item.kind || "event")}</span>
+            <span class="status-pill ${worklogStatusClass(item.status)}">${escapeHtml(String(item.status || "saved").toUpperCase())}</span>
+          </div>
+          <p class="worklog-event-title">${escapeHtml(item.title || "Mission activity")}</p>
+          <p class="worklog-event-summary">${escapeHtml(item.summary || "")}</p>
+          <p class="worklog-event-time">${escapeHtml(formatHistoryTimestamp(item.created_at))}</p>
+          ${linkBits.length ? `<div class="worklog-event-links">${linkBits.join("")}</div>` : ""}
+        </div>
+      `;
+    }).join("");
+    list.querySelectorAll("[data-worklog-run-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const runId = button.getAttribute("data-worklog-run-id");
+        if (runId) openRunDetailModal(runId).catch((e) => console.error(e));
+      });
+    });
+    list.querySelectorAll("[data-worklog-evidence-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const evidenceId = button.getAttribute("data-worklog-evidence-id");
+        if (evidenceId) openEvidenceDetailModal(evidenceId).catch((e) => console.error(e));
+      });
+    });
+  }
+
+  async function loadMissionWorklog() {
+    try {
+      const data = await requestJson(`${MCH}/worklog/recent`);
+      state.missionWorklog = data.items || [];
+      renderMissionWorklog();
+      return data;
+    } catch (e) {
+      state.missionWorklog = [];
+      renderMissionWorklog();
+      return null;
+    }
+  }
+
   function renderRunsPanel() {
     const list = document.getElementById("runs-list");
     const empty = document.querySelector("[data-testid='runs-empty-state']");
@@ -800,14 +866,12 @@
     const header = document.getElementById("current-plan-header");
     const stepsEl = document.getElementById("captain-plan-steps");
     const controls = document.getElementById("captain-plan-controls");
-    const worklog = document.querySelector("[data-testid='mission-worklog-card'] .mission-card-copy");
     const plan = state.activeCaptainPlan;
     if (!empty || !panel || !header || !stepsEl || !controls) return;
 
     if (!plan || plan.status === "stopped") {
       empty.style.display = "";
       panel.style.display = "none";
-      if (worklog) worklog.textContent = "Captain plans, dispatched steps, run updates, and evidence links will appear here.";
       return;
     }
 
@@ -888,9 +952,6 @@
       stopBtn.addEventListener("click", () => stopCaptainPlan().catch((e) => console.error(e)));
     }
 
-    if (worklog && current) {
-      worklog.textContent = `Current step: ${current.title || current.id} (${current.status || "queued"}). Dispatch, review output, save evidence, then mark the step done before advancing.`;
-    }
   }
 
   function deployStepButtonLabel(plan, step) {
@@ -931,7 +992,7 @@
     const dispatch = result.dispatch || {};
     state.selectedThreadId = dispatch.session_id || state.selectedThreadId;
     state.activeWardenRunId = dispatch.runner_id || state.activeWardenRunId;
-    await loadRecentRuns();
+    await Promise.all([loadRecentRuns(), loadMissionWorklog()]);
     closeCaptainDeckModal();
     openLiveCLIMonitor();
     const prompt = dispatch.prompt || step.prompt;
@@ -960,6 +1021,7 @@
       body: { evidence_ids: evidenceIds },
     });
     if (result.plan) setActiveCaptainPlan(result.plan);
+    await loadMissionWorklog();
   }
 
   async function reviseCaptainStep(stepId) {
@@ -974,6 +1036,7 @@
       body: { prompt: revisedPrompt, note: "Operator revised the step prompt." },
     });
     if (result.plan) setActiveCaptainPlan(result.plan);
+    await loadMissionWorklog();
   }
 
   async function stopCaptainPlan() {
@@ -984,6 +1047,7 @@
       body: { note: "Operator stopped the Captain plan." },
     });
     if (result.plan) setActiveCaptainPlan(result.plan);
+    await loadMissionWorklog();
   }
 
   function renderSettingsPanel() {
@@ -1105,7 +1169,7 @@
     const stage = document.querySelector(".warden-stage");
     if (stage) stage.classList.toggle("inspector-visible", showInspector);
     if (state.activeSection === "mission") {
-      loadActiveCaptainPlan().catch((e) => console.error(e));
+      Promise.all([loadActiveCaptainPlan(), loadMissionWorklog()]).catch((e) => console.error(e));
     } else if (state.activeSection === "runs") {
       loadRecentRuns().catch((e) => console.error(e));
     } else if (state.activeSection === "evidence") {
@@ -1736,7 +1800,7 @@
         },
       });
       state.activeWardenRunId = (runnerState && (runnerState.runner_id || (runnerState.warden_run && runnerState.warden_run.run_id))) || "";
-      await Promise.all([loadRecentRuns(), loadRecentEvidence()]);
+      await Promise.all([loadRecentRuns(), loadRecentEvidence(), loadMissionWorklog()]);
 
       if (typeof closeCurrentModal === "function") closeCurrentModal();
       closeSetupModals();
@@ -2127,7 +2191,7 @@
         if (result && result.warden_evidence && result.warden_evidence.evidence_id) {
           state.activeWardenRunId = result.warden_evidence.run_id || state.activeWardenRunId;
         }
-        await Promise.all([loadRecentRuns(), loadRecentEvidence()]);
+        await Promise.all([loadRecentRuns(), loadRecentEvidence(), loadMissionWorklog()]);
         setQuickReplyStatus("Transcript saved as evidence.");
       } catch (e) { setQuickReplyStatus(`Save failed: ${e.message || e}`, true); }
     });
@@ -2185,7 +2249,7 @@
 
     wireSimpleUI();
     setActiveSection("mission");
-    await Promise.all([loadLibraryStatus(), loadCaptainDeckStatus(), loadRecentRuns(), loadRecentEvidence(), loadActiveCaptainPlan()]);
+    await Promise.all([loadLibraryStatus(), loadCaptainDeckStatus(), loadRecentRuns(), loadRecentEvidence(), loadActiveCaptainPlan(), loadMissionWorklog()]);
 
     // initial status check for disabled note etc is handled in deploy
     // If user has runner flags in this process (e.g. private), card will reflect Ready
