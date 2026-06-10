@@ -54,9 +54,59 @@ Returns `secure`, flat safety flags, and human-readable `items[]`:
 
 - Public runner — always disabled
 - Private runner — active only on private service with runner flags enabled
+- Runner sessions — live `mch_run_*` tmux inventory (`healthy`, `warning`, or `limit_reached`)
 - Arbitrary shell input — disabled
 - Jules execution — planning only
 - Secret exposure — false (responses are redacted)
+
+## Runner session inventory
+
+`GET /api/mcharness/runner/sessions`
+
+Returns sanitized inventory of Warden-managed tmux sessions only:
+
+- Includes sessions matching `mch_run_*` prefix only
+- Never includes normal tmux sessions (`main`, `dev`, `grok`, numbered shells, etc.)
+- Public 8124 — summary counts and safe fields only (no pane PIDs or command details when runner is disabled)
+- Private 8125 — full safe inventory when runner is write-enabled
+
+Response fields:
+
+- `max_active_runner_sessions` — dispatch guard limit (default `4`, override via `MCHARNESS_MAX_ACTIVE_RUNNER_SESSIONS`)
+- `total_runner_sessions`, `active_runner_sessions`, `stale_runner_sessions`
+- `items[]` — per-session age, stale/active flags, linked run id (no secrets, env vars, or raw tokenized args)
+
+Mission-control snapshot also surfaces `runner_sessions` summary counts under the top-level payload.
+
+## Runner session cleanup
+
+`POST /api/mcharness/runner/sessions/cleanup`
+
+Private/write-enabled only. Public 8124 returns `403`.
+
+Request body:
+
+```json
+{
+  "confirm": false,
+  "stale_after_seconds": 7200
+}
+```
+
+Behavior:
+
+- Default `confirm=false` — dry-run only; returns `candidates`, `skipped`, `killed` (empty), and `errors` without killing anything
+- `confirm=true` — kills only stale, safe-to-manage `mch_run_*` sessions that are not linked to an active run
+- Never targets non-`mch_run_*` sessions
+- Successful kills append a `runner_sessions_cleaned` worklog/timeline event
+
+## Dispatch guard
+
+Before private Codex dispatch (`POST /api/mcharness/sessions/{id}/runner/start` with `lane_id=codex_cli`), Warden counts live `mch_run_*` sessions. When `active_runner_sessions >= max_active_runner_sessions`, dispatch is rejected with:
+
+`Runner session limit reached. Clean stale sessions first.`
+
+Cleanup dry-run or confirm can reduce the count so dispatch can proceed again. Non-runner flows and `fake_test_lane` are unaffected.
 
 ## Mission control actions
 

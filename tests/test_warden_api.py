@@ -1936,6 +1936,175 @@ def test_mission_pause_and_adjust_plan_private_only(monkeypatch, tmp_path):
     assert "plan_adjustment_requested" in kinds
 
 
+def test_runner_sessions_inventory_public_sanitized(monkeypatch):
+    client = TestClient(app)
+    response = client.get("/api/mcharness/runner/sessions")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["max_active_runner_sessions"] == 4
+    assert "items" in body
+    assert "sk-or-" not in response.text
+
+
+def test_runner_sessions_cleanup_public_rejected(monkeypatch):
+    client = TestClient(app)
+    blocked = client.post("/api/mcharness/runner/sessions/cleanup", json={"confirm": False})
+    assert blocked.status_code == 403
+
+
+def test_runner_sessions_cleanup_dry_run_private(monkeypatch, tmp_path):
+    import subprocess
+
+    import src.warden.api as api_mod
+
+    _enable_private_run_history(monkeypatch, tmp_path)
+
+    def fake_inventory(*args, **kwargs):
+        return {
+            "generated_at": "2026-06-09T12:00:00+00:00",
+            "max_active_runner_sessions": 4,
+            "total_runner_sessions": 1,
+            "active_runner_sessions": 1,
+            "stale_runner_sessions": 1,
+            "items": [
+                {
+                    "session_name": "mch_run_run_stale01",
+                    "safe_to_manage": True,
+                    "age_seconds": 9000,
+                    "active": False,
+                    "dead": False,
+                    "stale": True,
+                    "linked_run_id": "run_stale01",
+                }
+            ],
+        }
+
+    def fake_cleanup(root, **kwargs):
+        assert kwargs.get("confirm") is False
+        return {
+            "dry_run": True,
+            "candidates": ["mch_run_run_stale01"],
+            "killed": [],
+            "skipped": [],
+            "errors": [],
+            "inventory": {"total_runner_sessions": 1, "active_runner_sessions": 1, "stale_runner_sessions": 1},
+        }
+
+    monkeypatch.setattr(api_mod, "build_runner_session_inventory", fake_inventory)
+    monkeypatch.setattr(api_mod, "cleanup_runner_sessions", fake_cleanup)
+    client = TestClient(app)
+    response = client.post("/api/mcharness/runner/sessions/cleanup", json={"confirm": False, "stale_after_seconds": 7200})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["dry_run"] is True
+    assert body["killed"] == []
+    assert body["candidates"] == ["mch_run_run_stale01"]
+
+
+def test_codex_dispatch_rejected_at_runner_session_limit(monkeypatch, tmp_path):
+    import src.warden.api as api_mod
+    import src.warden.runner_sessions as runner_sessions_mod
+
+    _enable_private_run_history(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        runner_sessions_mod,
+        "build_runner_session_inventory",
+        lambda *args, **kwargs: {
+            "max_active_runner_sessions": 4,
+            "active_runner_sessions": 4,
+            "total_runner_sessions": 4,
+            "stale_runner_sessions": 0,
+            "items": [],
+        },
+    )
+    client = TestClient(app)
+    created = client.post(
+        "/api/mcharness/sessions",
+        json={
+            "title": "Limit test",
+            "objective": "Limit test",
+            "plan_instruction": "Test runner limit.",
+            "repo_path": "/root/mcharness-public-export",
+            "agent_lane": "codex_cli",
+        },
+    )
+    sid = created.json()["session_id"]
+    blocked = client.post(
+        f"/api/mcharness/sessions/{sid}/runner/start",
+        json={"lane_id": "codex_cli", "repo_id": "mcharness-public-export"},
+    )
+    assert blocked.status_code == 409
+    assert "Runner session limit reached" in blocked.json()["detail"]
+
+
+def test_safety_and_snapshot_surface_runner_sessions(monkeypatch, tmp_path):
+    import src.warden.api as api_mod
+
+    _enable_private_run_history(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        api_mod,
+        "build_runner_session_inventory",
+        lambda *args, **kwargs: {
+            "generated_at": "2026-06-09T12:00:00+00:00",
+            "max_active_runner_sessions": 4,
+            "total_runner_sessions": 4,
+            "active_runner_sessions": 4,
+            "stale_runner_sessions": 1,
+            "items": [],
+        },
+    )
+    client = TestClient(app)
+    safety = client.get("/api/mcharness/safety/status")
+    assert safety.status_code == 200
+    runner_item = next(item for item in safety.json()["items"] if item["key"] == "runner_sessions")
+    assert runner_item["status"] == "limit_reached"
+    snapshot = client.get("/api/mcharness/mission-control/snapshot")
+    assert snapshot.status_code == 200
+    assert snapshot.json()["runner_sessions"]["active_runner_sessions"] == 4
+
+
+def test_codex_dispatch_allowed_below_runner_session_limit(monkeypatch, tmp_path):
+    import src.warden.runner_sessions as runner_sessions_mod
+
+    _enable_private_run_history(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        runner_sessions_mod,
+        "build_runner_session_inventory",
+        lambda *args, **kwargs: {
+            "max_active_runner_sessions": 4,
+            "active_runner_sessions": 2,
+            "total_runner_sessions": 2,
+            "stale_runner_sessions": 0,
+            "items": [],
+        },
+    )
+    client = TestClient(app)
+    created = client.post(
+        "/api/mcharness/sessions",
+        json={
+            "title": "Below limit",
+            "objective": "Below limit",
+            "plan_instruction": "Test below runner limit.",
+            "repo_path": "/root/mcharness-public-export",
+            "agent_lane": "codex_cli",
+        },
+    )
+    sid = created.json()["session_id"]
+    started = client.post(
+        f"/api/mcharness/sessions/{sid}/runner/start",
+        json={"lane_id": "codex_cli", "repo_id": "mcharness-public-export"},
+    )
+    assert started.status_code == 200, started.text
+    assert "Runner session limit reached" not in (started.text or "")
+
+
+def test_tmux_session_name_uses_mch_run_prefix():
+    import src.warden.api as api_mod
+
+    name = api_mod._tmux_session_name("session-1", "run_abc12345")
+    assert name.startswith("mch_run_")
+
+
 def test_agent_refresh_status_public_codex_not_runnable(monkeypatch):
     client = TestClient(app)
     refreshed = client.post("/api/mcharness/agents/refresh-status")

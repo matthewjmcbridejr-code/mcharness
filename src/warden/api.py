@@ -78,6 +78,11 @@ from .mission_control import (
     build_safety_payload,
     pause_mission,
 )
+from .runner_sessions import (
+    assert_runner_session_capacity,
+    build_runner_session_inventory,
+    cleanup_runner_sessions,
+)
 from .proof_gates import (
     assert_step_completion_allowed,
     create_proof_gate,
@@ -462,6 +467,11 @@ class McHarnessMissionPauseRequest(BaseModel):
 class McHarnessMissionAdjustPlanRequest(BaseModel):
     note: Optional[str] = None
     adjustments: dict[str, Any] = Field(default_factory=dict)
+
+
+class McHarnessRunnerSessionCleanupRequest(BaseModel):
+    confirm: bool = False
+    stale_after_seconds: int = Field(default=7200, ge=60, le=604800)
 
 
 class McHarnessCaptainStatusResponse(BaseModel):
@@ -1225,9 +1235,11 @@ def _save_runner_state(state: dict[str, Any]) -> None:
 
 
 def _tmux_session_name(session_id: str, runner_id: str) -> str:
-    # safe, short, alnum + _ only
-    base = (session_id.replace("-", "") + runner_id.replace("-", ""))[-12:]
-    return "mch_" + "".join(c if c.isalnum() else "_" for c in base)
+    safe_runner = "".join(c if c.isalnum() or c == "_" else "_" for c in str(runner_id or ""))
+    if not safe_runner:
+        base = (session_id.replace("-", "") + runner_id.replace("-", ""))[-12:]
+        safe_runner = "".join(c if c.isalnum() or c == "_" else "_" for c in base)
+    return f"mch_run_{safe_runner}"
 
 
 def _get_tmux_transcript(name: str) -> str:
@@ -2239,6 +2251,7 @@ def post_mcharness_runner_start(session_id: str, payload: McHarnessRunnerStartRe
                 status_code=403,
                 detail="Controlled Codex runner disabled (requires BOTH MCHARNESS_TMUX_RUNNER_ENABLED=true AND MCHARNESS_CODEX_RUNNER_ENABLED=true). For personal manual smoke only; no automated real Codex.",
             )
+        assert_runner_session_capacity(MCTABLE_ROOT, safe_cmd=_safe_cmd, runner_state_root=RUNNER_STATE_ROOT)
     elif payload.lane_id != "fake_test_lane" and not _tmux_runner_enabled():
         raise HTTPException(
             status_code=403,
@@ -2772,6 +2785,15 @@ def post_mcharness_gate_decision(gate_id: str, payload: McHarnessProofGateDecisi
     }
 
 
+def _runner_session_inventory(*, include_details: bool = True) -> dict[str, Any]:
+    return build_runner_session_inventory(
+        MCTABLE_ROOT,
+        safe_cmd=_safe_cmd,
+        runner_state_root=RUNNER_STATE_ROOT,
+        include_details=include_details and _codex_runner_ready(),
+    )
+
+
 def _mission_control_context() -> dict[str, Any]:
     captain_status = _captain_status_payload()
     return {
@@ -2781,6 +2803,7 @@ def _mission_control_context() -> dict[str, Any]:
         "captain_configured": bool(captain_status.get("configured")),
         "tmux_runner_enabled": _tmux_runner_enabled(),
         "codex_runner_enabled": _codex_runner_enabled(),
+        "runner_inventory": _runner_session_inventory(include_details=_codex_runner_ready()),
     }
 
 
@@ -2790,6 +2813,32 @@ def get_mcharness_mission_control_snapshot():
     snapshot = build_mission_control_snapshot(MCTABLE_ROOT, **ctx)
     snapshot["service_mode"] = _service_mode_label()
     return snapshot
+
+
+@mcharness_router.get("/runner/sessions")
+def get_mcharness_runner_sessions():
+    inventory = _runner_session_inventory(include_details=_codex_runner_ready())
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        **inventory,
+    }
+
+
+@mcharness_router.post("/runner/sessions/cleanup", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_runner_sessions_cleanup(payload: McHarnessRunnerSessionCleanupRequest):
+    result = cleanup_runner_sessions(
+        MCTABLE_ROOT,
+        safe_cmd=_safe_cmd,
+        runner_state_root=RUNNER_STATE_ROOT,
+        confirm=payload.confirm,
+        stale_after_seconds=payload.stale_after_seconds,
+    )
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        **result,
+    }
 
 
 @mcharness_router.get("/agents/health")
@@ -2820,6 +2869,7 @@ def get_mcharness_safety_status():
         tmux_runner_enabled=ctx["tmux_runner_enabled"],
         codex_runner_enabled=ctx["codex_runner_enabled"],
         jules_runnable=False,
+        runner_inventory=ctx.get("runner_inventory"),
     )
     return {
         "service": "mcharness-control-plane",

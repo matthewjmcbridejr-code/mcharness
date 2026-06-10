@@ -47,6 +47,13 @@ Skipped curls are normal on a fresh laptop without systemd services.
 
 Polls each endpoint for up to **10 seconds** before failing. The script never restarts services; restart them separately, then run with `--service-checks`.
 
+When services are reachable, also probes (read-only):
+
+- `http://127.0.0.1:8125/api/mcharness/runner/sessions` — inventory counts only; no cleanup
+- `http://127.0.0.1:8125/api/mcharness/safety/status` — includes `runner_sessions` safety item
+
+Runner cleanup is **not** invoked by the smoke script. Use the private cleanup endpoint manually with `confirm=false` (dry-run) before any destructive `confirm=true` cleanup.
+
 ## Safety
 
 - No env/API keys printed
@@ -54,6 +61,14 @@ Polls each endpoint for up to **10 seconds** before failing. The script never re
 - No auto-merge or auto-deploy
 - No public runner exposure
 - No service restarts inside the smoke script
+- No runner session cleanup inside the smoke script (inventory read-only)
+
+### Runner session guardrails (operator)
+
+- Managed tmux names: `mch_run_*` only; never `main`, `dev`, `grok`, or numbered shells
+- Default max active runner sessions: `4`
+- Cleanup: private 8125 only; dry-run by default (`confirm=false`); kills require `confirm=true`
+- Dispatch limit error: `Runner session limit reached. Clean stale sessions first.`
 
 ## Canonical UI
 

@@ -20,6 +20,7 @@ from .proof_gates import (
     list_recent_gates,
 )
 from .run_history import get_run_record, list_recent_runs
+from .runner_sessions import runner_sessions_safety_summary
 from .worklog import EVENT_LABELS, list_recent_worklog
 
 MISSION_STATUSES = frozenset({
@@ -425,6 +426,7 @@ def build_safety_payload(
     tmux_runner_enabled: bool,
     codex_runner_enabled: bool,
     jules_runnable: bool,
+    runner_inventory: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     public_runner_enabled = codex_runner_ready is False and tmux_runner_enabled is False and codex_runner_enabled is False
     # Public service: runners disabled. Private: controlled enablement.
@@ -474,9 +476,16 @@ def build_safety_payload(
             "summary": "API responses redact secrets and sensitive patterns.",
         },
     ]
+    if runner_inventory is not None:
+        items.append(runner_sessions_safety_summary(runner_inventory))
     labels = [item["label"] for item in items]
+    secure = not jules_runnable and not public_runner_enabled
+    if runner_inventory and int(runner_inventory.get("active_runner_sessions") or 0) >= int(
+        runner_inventory.get("max_active_runner_sessions") or 4
+    ):
+        secure = False
     return {
-        "secure": not jules_runnable and not public_runner_enabled,
+        "secure": secure,
         "public_runner_enabled": False,
         "private_runner_enabled": private_runner_enabled,
         "arbitrary_shell_input": False,
@@ -601,6 +610,7 @@ def build_mission_control_snapshot(
     captain_configured: bool,
     tmux_runner_enabled: bool,
     codex_runner_enabled: bool,
+    runner_inventory: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     plan = select_active_plan(root, history_enabled=history_enabled)
     agents = list_all_agents(root, codex_runner_ready=codex_runner_ready, private_only=private_only)
@@ -620,7 +630,16 @@ def build_mission_control_snapshot(
         tmux_runner_enabled=tmux_runner_enabled,
         codex_runner_enabled=codex_runner_enabled,
         jules_runnable=False,
+        runner_inventory=runner_inventory,
     )
+    runner_sessions_summary = None
+    if runner_inventory is not None:
+        runner_sessions_summary = {
+            "max_active_runner_sessions": runner_inventory.get("max_active_runner_sessions"),
+            "total_runner_sessions": runner_inventory.get("total_runner_sessions"),
+            "active_runner_sessions": runner_inventory.get("active_runner_sessions"),
+            "stale_runner_sessions": runner_inventory.get("stale_runner_sessions"),
+        }
     return {
         "service": "mcharness-control-plane",
         "generated_at": _now_iso(),
@@ -637,6 +656,7 @@ def build_mission_control_snapshot(
             "items": agent_items,
         },
         "safety": safety,
+        "runner_sessions": runner_sessions_summary,
         "next_move": build_next_move(
             mission,
             step_rows,
