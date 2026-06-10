@@ -30,6 +30,8 @@
     recentEvidence: [],
     activeWardenRunId: "",
     activeCaptainPlan: null,
+    missionWorklog: [],
+    missionTimelineFilter: "all",
     captainDeck: {
       configured: false,
       planningEnabled: false,
@@ -644,6 +646,13 @@
     return `Proof gate: ${label}`;
   }
 
+  const TIMELINE_FILTER_KINDS = {
+    plans: new Set(["plan_created", "step_dispatched", "step_completed", "step_revised", "plan_stopped"]),
+    runs: new Set(["run_created"]),
+    evidence: new Set(["evidence_saved"]),
+    gates: new Set(["gate_created", "gate_approved", "gate_blocked", "gate_needs_more_evidence"]),
+  };
+
   function worklogStatusClass(status) {
     const normalized = String(status || "").toLowerCase();
     if (normalized === "running" || normalized === "dispatched") return "status-ready";
@@ -652,15 +661,54 @@
     return "status-coming";
   }
 
+  function filteredMissionTimelineItems() {
+    const items = state.missionWorklog || [];
+    const filter = state.missionTimelineFilter || "all";
+    if (filter === "all") return items;
+    const allowed = TIMELINE_FILTER_KINDS[filter];
+    if (!allowed) return items;
+    return items.filter((item) => allowed.has(String(item.kind || "")));
+  }
+
+  function missionTimelineEmptyMessage() {
+    const filter = state.missionTimelineFilter || "all";
+    const hasAny = (state.missionWorklog || []).length > 0;
+    if (!hasAny) return "No mission activity yet. Create a plan to start the timeline.";
+    if (filter === "plans") return "No plan events yet. Captain plan activity will appear here.";
+    if (filter === "runs") return "No run events yet. Dispatched agent runs will appear here.";
+    if (filter === "evidence") return "No evidence events yet. Saved outputs will appear here.";
+    if (filter === "gates") return "No gate events yet. Proof gate decisions will appear here.";
+    return "No timeline events match this filter.";
+  }
+
+  function renderMissionTimelineFilter() {
+    const bar = document.getElementById("mission-timeline-filter");
+    if (!bar) return;
+    bar.querySelectorAll("[data-timeline-filter]").forEach((button) => {
+      const value = button.getAttribute("data-timeline-filter") || "all";
+      button.classList.toggle("active", value === (state.missionTimelineFilter || "all"));
+    });
+  }
+
   function renderMissionWorklog() {
     const list = document.getElementById("mission-worklog-list");
     const empty = document.getElementById("mission-worklog-empty");
-    const items = state.missionWorklog || [];
+    const allItems = state.missionWorklog || [];
+    const items = filteredMissionTimelineItems();
     if (!list || !empty) return;
+    renderMissionTimelineFilter();
+    if (!allItems.length) {
+      list.innerHTML = "";
+      list.style.display = "none";
+      empty.style.display = "";
+      empty.textContent = missionTimelineEmptyMessage();
+      return;
+    }
     if (!items.length) {
       list.innerHTML = "";
       list.style.display = "none";
       empty.style.display = "";
+      empty.textContent = missionTimelineEmptyMessage();
       return;
     }
     empty.style.display = "none";
@@ -960,6 +1008,100 @@
     }
   }
 
+  function runDetailDecisionLabel(decision) {
+    const labels = {
+      approve: "Approved",
+      block: "Blocked",
+      request_more_evidence: "Requested more evidence",
+    };
+    return labels[decision] || String(decision || "decision").replace(/_/g, " ");
+  }
+
+  function linkedCaptainStepForRun(run) {
+    const plan = state.activeCaptainPlan;
+    if (!plan || !run) return null;
+    const runId = String(run.run_id || "");
+    if (!runId) return null;
+    return (plan.steps || []).find((step) => String(step.run_id || "") === runId) || null;
+  }
+
+  function renderRunDetailDecisions(gates) {
+    const decisionsEl = document.getElementById("run-detail-decisions");
+    if (!decisionsEl) return;
+    const entries = [];
+    gates.forEach((gate) => {
+      (gate.decision_log || []).forEach((entry) => {
+        entries.push({
+          at: entry.at,
+          gateTitle: gate.title || gate.gate_id,
+          decision: entry.decision,
+          decidedBy: entry.decided_by,
+          reason: entry.reason,
+        });
+      });
+    });
+    entries.sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+    if (!entries.length) {
+      decisionsEl.innerHTML = "<li>No gate decisions recorded yet.</li>";
+      return;
+    }
+    decisionsEl.innerHTML = entries.map((entry) => {
+      const reason = entry.reason ? ` — ${entry.reason}` : "";
+      return `<li>${escapeHtml(runDetailDecisionLabel(entry.decision))} · ${escapeHtml(entry.gateTitle)} · ${escapeHtml(entry.decidedBy || "operator")}${escapeHtml(reason)} · ${escapeHtml(formatHistoryTimestamp(entry.at))}</li>`;
+    }).join("");
+  }
+
+  function renderRunDetailNextActions(run, gates, evidenceItems, { canWrite = false } = {}) {
+    const actionsEl = document.getElementById("run-detail-next-actions");
+    if (!actionsEl) return;
+    const gateStatus = run.gate_status || (gates.length ? gates[0].status : null);
+    const pendingGate = gates.find((gate) => gate.status === "pending");
+    const linkedStep = linkedCaptainStepForRun(run);
+    const evidenceIds = evidenceItems.map((item) => item.evidence_id).filter(Boolean);
+    const bits = [];
+
+    if (!canWrite) {
+      bits.push('<p class="run-detail-action-note">Manual review actions require the private runner service.</p>');
+    } else if (gateStatus === "blocked") {
+      bits.push('<p class="run-detail-action-note">Hard stop — gate is blocked. Revise the step or resolve the gate before continuing.</p>');
+    } else if (!gates.length) {
+      bits.push('<button type="button" class="btn primary" data-testid="run-detail-create-gate" id="run-detail-create-gate">Create Proof Gate</button>');
+    } else if (pendingGate) {
+      bits.push(`
+        <button type="button" class="btn good" data-testid="run-detail-approve-gate" data-gate-approve="${escapeHtml(pendingGate.gate_id)}">Approve Gate</button>
+        <button type="button" class="btn bad" data-testid="run-detail-block-gate" data-gate-block="${escapeHtml(pendingGate.gate_id)}">Block Gate</button>
+        <button type="button" class="btn" data-testid="run-detail-more-evidence" data-gate-more-evidence="${escapeHtml(pendingGate.gate_id)}">Request More Evidence</button>
+      `);
+    } else if (gateStatus === "needs_more_evidence") {
+      bits.push('<p class="run-detail-action-note">Save more evidence, then approve the gate when ready.</p>');
+      bits.push('<button type="button" class="btn" data-testid="run-detail-create-gate" id="run-detail-create-gate">Create Proof Gate</button>');
+    } else if (gateStatus === "approved") {
+      bits.push('<p class="run-detail-action-note">Gate approved. Mark the linked Captain step done manually when ready — no auto-dispatch.</p>');
+      if (linkedStep && stepCompletionAllowed(linkedStep)) {
+        bits.push(`<button type="button" class="btn good" data-testid="run-detail-complete-step" data-complete-step-id="${escapeHtml(linkedStep.id || linkedStep.step_id)}">Mark Step Complete</button>`);
+      }
+    } else {
+      bits.push('<button type="button" class="btn primary" data-testid="run-detail-create-gate" id="run-detail-create-gate">Create Proof Gate</button>');
+    }
+
+    actionsEl.innerHTML = bits.join("");
+    actionsEl.dataset.gateStatus = gateStatus || "none";
+
+    const createGateBtn = actionsEl.querySelector("#run-detail-create-gate");
+    if (createGateBtn) {
+      createGateBtn.addEventListener("click", () => {
+        createProofGateForRun(run.run_id, evidenceIds).catch((e) => console.error(e));
+      });
+    }
+    bindProofGateActions(actionsEl, run.run_id);
+    actionsEl.querySelectorAll("[data-complete-step-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const stepId = button.getAttribute("data-complete-step-id");
+        if (stepId) completeCaptainStep(stepId).catch((e) => console.error(e));
+      });
+    });
+  }
+
   async function openRunDetailModal(runId) {
     const modal = document.getElementById("run-detail-modal");
     if (!modal) return;
@@ -968,7 +1110,7 @@
       requestJson(`${MCH}/runs/${encodeURIComponent(runId)}/gates`).catch(() => ({ gates: [] })),
     ]);
     const run = data.run || {};
-    const gates = gateData.gates || [];
+    const gates = gateData.gates || data.gates || [];
     state.activeRunDetailId = runId;
     const title = document.getElementById("run-detail-title");
     const meta = document.getElementById("run-detail-meta");
@@ -976,13 +1118,12 @@
     const transcript = document.getElementById("run-detail-transcript");
     const evidence = document.getElementById("run-detail-evidence");
     const gatesEl = document.getElementById("run-detail-gates");
-    const createGateBtn = document.getElementById("run-detail-create-gate");
     const health = state.health || {};
     const canWrite = !!health.tmux_runner_enabled && !!health.codex_runner_enabled;
     if (title) title.textContent = run.title || run.run_id || "Run Detail";
     if (meta) {
       const gateLabel = run.gate_label || (run.gate_status ? String(run.gate_status).replace(/_/g, " ") : "No gate");
-      meta.textContent = `${run.agent_id || "agent"} · ${run.status || "unknown"} · ${formatHistoryTimestamp(run.started_at)} · Gate: ${gateLabel}`;
+      meta.textContent = `${run.agent_id || "agent"} · ${run.status || "unknown"} · ${formatHistoryTimestamp(run.started_at)} · Evidence: ${Number(run.evidence_count || (data.evidence || []).length || 0)} · Gate: ${gateLabel}`;
     }
     const gateStateEl = document.getElementById("run-detail-gate-state");
     if (gateStateEl) {
@@ -1005,17 +1146,11 @@
     }
     if (gatesEl) {
       gatesEl.innerHTML = gates.length
-        ? gates.map((gate) => renderProofGateCard(gate, { interactive: canWrite })).join("")
+        ? gates.map((gate) => renderProofGateCard(gate, { interactive: false })).join("")
         : "<p class=\"history-card-copy\">No proof gate created for this run yet.</p>";
-      bindProofGateActions(gatesEl, runId);
     }
-    if (createGateBtn) {
-      createGateBtn.style.display = canWrite ? "" : "none";
-      createGateBtn.onclick = () => {
-        const evidenceIds = evidenceItems.map((item) => item.evidence_id).filter(Boolean);
-        createProofGateForRun(runId, evidenceIds).catch((e) => console.error(e));
-      };
-    }
+    renderRunDetailDecisions(gates);
+    renderRunDetailNextActions(run, gates, evidenceItems, { canWrite });
     const exportBtn = document.getElementById("run-detail-export");
     if (exportBtn) {
       exportBtn.onclick = () => exportRunReport(runId).catch((e) => console.error(e));
@@ -2307,6 +2442,12 @@
       button.addEventListener("click", () => {
         state.evidenceTypeFilter = button.getAttribute("data-evidence-filter") || "all";
         renderEvidencePanel();
+      });
+    });
+    document.querySelectorAll("[data-timeline-filter]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.missionTimelineFilter = button.getAttribute("data-timeline-filter") || "all";
+        renderMissionWorklog();
       });
     });
     const evidenceDetailClose = document.getElementById("evidence-detail-close");
