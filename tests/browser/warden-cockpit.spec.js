@@ -2253,8 +2253,71 @@ test("demo mode is visibly labeled simulated", async ({ page }) => {
   await page.goto("/web/warden/index.html?demo=1");
   await page.waitForSelector("[data-control-room-ready='1']");
   await expect(page.locator("[data-testid='demo-mode-banner']")).toBeVisible();
-  await expect(page.locator("[data-testid='demo-mode-banner']")).toContainText("Demo data");
+  await expect(page.locator("[data-testid='demo-mode-banner']")).toContainText("Demo data — simulated for product preview");
+  await expect(page.locator("[data-testid='demo-mode-banner']")).toContainText("No backend state is modified in demo mode.");
   await expect(page.locator("[data-testid='cr-mission-active']")).toBeVisible();
+});
+
+test("demo mode renders simulated mission title", async ({ page }) => {
+  await page.goto("/web/warden/index.html?demo=1");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("#cr-mission-title")).toContainText("Warden auth hardening sprint");
+  await expect(page.locator("#cr-mission-id")).toContainText("plan_demo01");
+  await expect(page.locator("[data-testid='cr-mission-status-pill']")).toContainText("in progress");
+});
+
+test("demo mode renders populated proof gates", async ({ page }) => {
+  await page.goto("/web/warden/index.html?demo=1");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("[data-testid='rail-proof-gates']")).toContainText("1 passed");
+  await expect(page.locator("[data-testid='rail-proof-gates']")).toContainText("1 pending");
+  await page.locator("[data-testid='cr-tab-gates']").click();
+  await expect(page.locator("[data-testid='cr-gate-row']")).toHaveCount(2);
+});
+
+test("demo mode renders connected agents", async ({ page }) => {
+  await page.goto("/web/warden/index.html?demo=1");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("[data-testid='rail-connected-agents'] [data-testid='rail-agent-row']")).toHaveCount(3);
+  await expect(page.locator("[data-testid='rail-connected-agents']")).toContainText("Codex CLI");
+  await expect(page.locator("[data-testid='rail-connected-agents']")).toContainText("Captain");
+});
+
+test("demo mode renders runner sessions", async ({ page }) => {
+  await page.goto("/web/warden/index.html?demo=1");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("[data-testid='rail-runner-sessions']")).toContainText("2 active");
+  await expect(page.locator("[data-testid='rail-runner-session-row']")).toHaveCount(2);
+  await page.locator("[data-testid='nav-runner-sessions']").click();
+  await expect(page.locator("[data-testid='runner-session-row']")).toHaveCount(2);
+});
+
+test("real mode does not show demo banner", async ({ page }) => {
+  await page.route("**/api/mcharness/**", async (route) => {
+    if (await fulfillControlRoomRoutes(route)) return;
+    await route.continue();
+  });
+  await page.goto("/web/warden/index.html");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("[data-testid='demo-mode-banner']")).toBeHidden();
+});
+
+test("real idle state stays honest", async ({ page }) => {
+  await page.route("**/api/mcharness/**", async (route) => {
+    if (await fulfillControlRoomRoutes(route)) return;
+    await route.continue();
+  });
+  await page.goto("/web/warden/index.html");
+  await page.waitForSelector("[data-control-room-ready='1']");
+  await expect(page.locator("[data-testid='cr-mission-empty']")).toBeVisible();
+  await expect(page.locator("[data-testid='current-mission-status']")).toContainText("No active mission. Create or load a Captain plan to begin supervised work.");
+  await expect(page.locator("[data-testid='cr-idle-cards']")).toBeVisible();
+  await expect(page.locator("[data-testid='idle-card-captain']")).toContainText("Start with Captain");
+  await expect(page.locator("[data-testid='idle-card-agents']")).toContainText("Configure agents");
+  await expect(page.locator("[data-testid='idle-card-runners']")).toContainText("Review runner sessions");
+  await expect(page.locator("[data-testid='idle-card-safety']")).toContainText("Safety status");
+  await expect(page.locator("[data-testid='cr-mission-active']")).toBeHidden();
+  await expect(page.locator("text=Warden auth hardening sprint")).toHaveCount(0);
 });
 
 test("command center tabs switch and right rail renders", async ({ page }) => {

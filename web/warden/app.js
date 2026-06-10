@@ -1228,6 +1228,10 @@
     return plan.steps.find((step) => step.id === currentId || step.step_id === currentId) || plan.steps[0];
   }
 
+  function isControlRoomDemoMode() {
+    return !!(window.WardenControlRoom && window.WardenControlRoom.isDemoMode && window.WardenControlRoom.isDemoMode());
+  }
+
   function renderMissionPlanPanel() {
     const empty = document.getElementById("current-mission-empty");
     const panel = document.getElementById("current-mission-plan");
@@ -1236,6 +1240,12 @@
     const controls = document.getElementById("captain-plan-controls");
     const plan = state.activeCaptainPlan;
     if (!empty || !panel || !header || !stepsEl || !controls) return;
+
+    if (isControlRoomDemoMode()) {
+      empty.style.display = "none";
+      panel.style.display = "none";
+      return;
+    }
 
     const crEmpty = document.getElementById("cr-mission-empty");
     const crActive = document.getElementById("cr-mission-active");
@@ -1353,9 +1363,15 @@
       } else {
         setActiveCaptainPlan(null);
       }
+      if (isControlRoomDemoMode() && window.WardenControlRoom && window.WardenControlRoom.refresh) {
+        await window.WardenControlRoom.refresh({ quiet: true });
+      }
       return active;
     } catch (e) {
       setActiveCaptainPlan(null);
+      if (isControlRoomDemoMode() && window.WardenControlRoom && window.WardenControlRoom.refresh) {
+        await window.WardenControlRoom.refresh({ quiet: true });
+      }
       return null;
     }
   }
@@ -1578,7 +1594,7 @@
     }
     if (state.activeSection === "mission") {
       Promise.all([loadActiveCaptainPlan(), loadMissionWorklog()]).catch((e) => console.error(e));
-      if (window.WardenControlRoom && window.WardenControlRoom.refresh) {
+      if (window.WardenControlRoom && window.WardenControlRoom.isInitialized && window.WardenControlRoom.isInitialized() && window.WardenControlRoom.refresh) {
         window.WardenControlRoom.refresh({ quiet: true }).catch((e) => console.error(e));
       }
     } else if (state.activeSection === "runs") {
@@ -2701,10 +2717,13 @@
     });
 
     wireSimpleUI();
-    setActiveSection("mission");
-    await Promise.all([loadLibraryStatus(), loadCaptainDeckStatus(), loadRecentRuns(), loadRecentEvidence(), loadActiveCaptainPlan(), loadMissionWorklog(), loadRecentGates()]);
     if (window.WardenControlRoom && window.WardenControlRoom.init) {
       window.WardenControlRoom.init();
+    }
+    setActiveSection("mission");
+    await Promise.all([loadLibraryStatus(), loadCaptainDeckStatus(), loadRecentRuns(), loadRecentEvidence(), loadActiveCaptainPlan(), loadMissionWorklog(), loadRecentGates()]);
+    if (window.WardenControlRoom && window.WardenControlRoom.refresh) {
+      await window.WardenControlRoom.refresh({ quiet: true });
     }
 
     // initial status check for disabled note etc is handled in deploy

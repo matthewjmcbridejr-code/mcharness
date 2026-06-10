@@ -13,7 +13,8 @@
 </head>
 <body>
   <div id="demo-mode-banner" class="demo-mode-banner" style="display:none;" data-testid="demo-mode-banner">
-    Demo data — simulated for product preview
+    <span class="demo-mode-banner-main">Demo data — simulated for product preview</span>
+    <span class="demo-mode-banner-note">No backend state is modified in demo mode.</span>
   </div>
   <div id="warden-toast-host" class="warden-toast-host"></div>
 
@@ -45,8 +46,8 @@
 
       <footer class="sidebar-footer">
         <div class="sidebar-mode-card">
-          <span id="sidebar-service-mode" class="sidebar-mode-label">Service: loading</span>
-          <span id="sidebar-mode-pill" class="mode-pill mode-public">Public</span>
+          <span id="sidebar-service-mode" class="sidebar-mode-label">Service: Connecting…</span>
+          <span id="sidebar-mode-pill" class="mode-pill mode-connecting">…</span>
         </div>
         <span class="warden-powered" data-testid="warden-powered">Powered by McHarness</span>
         <span class="sidebar-build-label">Warden Control Room v1.5</span>
@@ -58,7 +59,7 @@
         <div class="topbar-left">
           <h2 id="topbar-page-title" class="topbar-title">Control Room</h2>
           <span id="topbar-live-indicator" class="live-indicator">Live</span>
-          <span id="topbar-last-refresh" class="topbar-refresh-time">Not refreshed yet</span>
+          <span id="topbar-last-refresh" class="topbar-refresh-time">Connecting…</span>
         </div>
         <div class="topbar-actions">
           <button type="button" id="topbar-refresh" class="btn" data-testid="topbar-refresh">Refresh</button>
@@ -97,10 +98,23 @@
             <div id="cr-mission-empty" data-testid="cr-mission-empty">
               <h3 class="mission-card-title">No active mission</h3>
               <p id="current-mission-status" data-testid="current-mission-status" class="mission-card-lead">No active mission. Create or load a Captain plan to begin supervised work.</p>
-              <div class="cr-empty-actions">
-                <button type="button" class="btn primary" data-action="develop-plan" data-testid="develop-plan-mission">Open Captain</button>
-                <button type="button" class="btn" data-section-jump="agents">Configure agents</button>
-                <button type="button" class="btn" data-section-jump="runner-sessions">View runner sessions</button>
+              <div class="cr-idle-cards" data-testid="cr-idle-cards">
+                <button type="button" class="cr-idle-card" data-action="develop-plan" data-testid="idle-card-captain">
+                  <span class="cr-idle-card-title">Start with Captain</span>
+                  <span class="cr-idle-card-copy">Develop a supervised plan and dispatch bounded steps.</span>
+                </button>
+                <button type="button" class="cr-idle-card" data-section-jump="agents" data-testid="idle-card-agents">
+                  <span class="cr-idle-card-title">Configure agents</span>
+                  <span class="cr-idle-card-copy">Connect Codex CLI or register remote planning agents.</span>
+                </button>
+                <button type="button" class="cr-idle-card" data-section-jump="runner-sessions" data-testid="idle-card-runners">
+                  <span class="cr-idle-card-title">Review runner sessions</span>
+                  <span class="cr-idle-card-copy">Inspect mch_run_* tmux sessions and dry-run cleanup.</span>
+                </button>
+                <button type="button" class="cr-idle-card" data-section-jump="settings" data-testid="idle-card-safety">
+                  <span class="cr-idle-card-title">Safety status</span>
+                  <span class="cr-idle-card-copy">Review runner policy, shell input, and registration gates.</span>
+                </button>
               </div>
             </div>
             <div id="cr-mission-active" data-testid="cr-mission-active" style="display:none;">
@@ -652,7 +666,7 @@
     </div>
   </div>
 
-  <script src="./app.js"></script>
   <script src="./control-room.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>

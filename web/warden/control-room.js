@@ -6,7 +6,7 @@
     service_mode: "private",
     generated_at: new Date().toISOString(),
     mission: {
-      status: "running",
+      status: "in_progress",
       title: "Warden auth hardening sprint",
       mission_id: "plan_demo01",
       progress_pct: 62,
@@ -67,6 +67,12 @@
     },
     runner_sessions: { max_active_runner_sessions: 4, total_runner_sessions: 2, active_runner_sessions: 2, stale_runner_sessions: 0 },
     next_move: { label: "Review proof gate", description: "Approve or request more evidence before advancing the mission.", action: "review_gate" },
+    evidence: {
+      items: [
+        { evidence_id: "ev_demo01", title: "Codex run transcript", type: "transcript", created_at: new Date(Date.now() - 300000).toISOString() },
+        { evidence_id: "ev_demo02", title: "Auth middleware diff", type: "diff", created_at: new Date(Date.now() - 1800000).toISOString() },
+      ],
+    },
   };
 
   const DEMO_RUNNER = {
@@ -88,6 +94,9 @@
     timelineFilter: "all",
     polling: null,
     lastRefresh: null,
+    loadStatus: "connecting",
+    loadError: null,
+    initialized: false,
     registryWriteEnabled: false,
     dryRunResult: null,
     lastCleanupResult: null,
@@ -199,23 +208,81 @@
     banner.style.display = crState.demoMode ? "flex" : "none";
   }
 
+  function serviceModeLabel(mode) {
+    if (mode === "private") return "Private";
+    if (mode === "public") return "Public";
+    return null;
+  }
+
   function renderTopBar() {
     const snap = crState.snapshot || {};
     const title = document.getElementById("topbar-page-title");
     if (title) title.textContent = "Control Room";
     const refreshed = document.getElementById("topbar-last-refresh");
-    if (refreshed) refreshed.textContent = crState.lastRefresh ? `Updated ${formatTs(crState.lastRefresh)}` : "Not refreshed yet";
+    if (refreshed) {
+      if (crState.demoMode) {
+        refreshed.textContent = crState.lastRefresh
+          ? `Demo preview · Updated ${formatTs(crState.lastRefresh)}`
+          : "Demo preview · Connecting…";
+      } else if (crState.loadStatus === "connecting") {
+        refreshed.textContent = "Connecting…";
+      } else if (crState.loadStatus === "degraded") {
+        refreshed.textContent = crState.lastRefresh
+          ? `Degraded · last ok ${formatTs(crState.lastRefresh)}`
+          : "Degraded · snapshot unavailable";
+      } else if (crState.lastRefresh) {
+        const mode = serviceModeLabel(snap.service_mode);
+        refreshed.textContent = mode
+          ? `Updated ${formatTs(crState.lastRefresh)} · ${mode} service`
+          : `Updated ${formatTs(crState.lastRefresh)}`;
+      } else {
+        refreshed.textContent = "Connecting…";
+      }
+    }
     const live = document.getElementById("topbar-live-indicator");
     if (live) {
-      live.classList.toggle("live-on", !crState.demoMode);
-      live.textContent = crState.demoMode ? "Demo" : "Live";
+      if (crState.demoMode) {
+        live.classList.remove("live-on");
+        live.textContent = "Demo";
+      } else if (crState.loadStatus === "degraded") {
+        live.classList.remove("live-on");
+        live.textContent = "Degraded";
+      } else if (crState.loadStatus === "connecting") {
+        live.classList.remove("live-on");
+        live.textContent = "Connecting";
+      } else {
+        live.classList.toggle("live-on", true);
+        live.textContent = "Live";
+      }
     }
     const mode = document.getElementById("sidebar-service-mode");
-    if (mode) mode.textContent = `Service: ${snap.service_mode || "unknown"}`;
     const modePill = document.getElementById("sidebar-mode-pill");
+    const knownMode = serviceModeLabel(snap.service_mode);
+    if (mode) {
+      if (crState.demoMode) {
+        mode.textContent = "Service: private (simulated)";
+      } else if (knownMode) {
+        mode.textContent = `Service: ${snap.service_mode}`;
+      } else if (crState.loadStatus === "connecting") {
+        mode.textContent = "Service: Connecting…";
+      } else {
+        mode.textContent = "Service: unavailable";
+      }
+    }
     if (modePill) {
-      modePill.textContent = snap.service_mode === "private" ? "Private" : "Public";
-      modePill.className = `mode-pill ${snap.service_mode === "private" ? "mode-private" : "mode-public"}`;
+      if (crState.demoMode || snap.service_mode === "private") {
+        modePill.textContent = "Private";
+        modePill.className = "mode-pill mode-private";
+      } else if (snap.service_mode === "public") {
+        modePill.textContent = "Public";
+        modePill.className = "mode-pill mode-public";
+      } else if (crState.loadStatus === "connecting") {
+        modePill.textContent = "…";
+        modePill.className = "mode-pill mode-connecting";
+      } else {
+        modePill.textContent = "Unknown";
+        modePill.className = "mode-pill mode-unknown";
+      }
     }
   }
 
@@ -245,12 +312,14 @@
 
     const empty = document.getElementById("cr-mission-empty");
     const activeCard = document.getElementById("cr-mission-active");
+    const captainPlan = document.getElementById("current-mission-plan");
     if (!empty || !activeCard) return;
     if (!active) {
       empty.style.display = "";
       activeCard.style.display = "none";
       return;
     }
+    if (captainPlan) captainPlan.style.display = "none";
     empty.style.display = "none";
     activeCard.style.display = "";
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
@@ -470,6 +539,7 @@
     if (!host) return;
     const rs = crState.runnerSessions || (crState.snapshot && crState.snapshot.runner_sessions) || {};
     const atLimit = Number(rs.active_runner_sessions || 0) >= Number(rs.max_active_runner_sessions || 4);
+    const items = rs.items || [];
     host.innerHTML = `
       <div class="rail-stat-row">
         <span class="rail-stat ${atLimit ? "bad" : "good"}">${Number(rs.active_runner_sessions || 0)} active</span>
@@ -477,6 +547,12 @@
         <span class="rail-stat warn">${Number(rs.stale_runner_sessions || 0)} stale</span>
         <span class="rail-stat muted">${Number(rs.total_runner_sessions || 0)} total</span>
       </div>
+      <div class="rail-mini-list">${items.slice(0, 3).map((row) => `
+        <div class="rail-mini-item" data-testid="rail-runner-session-row">
+          <span class="mono">${escapeHtml(row.session_name)}</span>
+          <span class="status-pill ${row.active ? "chip-active" : "chip-muted"}">${row.active ? "active" : "idle"}</span>
+        </div>
+      `).join("") || '<div class="muted">No runner sessions</div>'}</div>
       ${atLimit ? '<div class="rail-alert bad">Runner session limit reached. Clean stale sessions first.</div>' : ""}
     `;
     const dryBtn = document.getElementById("rail-runner-dry-run");
@@ -622,7 +698,7 @@
         if (empty) empty.style.display = "none";
         if (plan) plan.style.display = "";
       } else {
-        status.textContent = "No active mission yet.";
+        status.textContent = "No active mission. Create or load a Captain plan to begin supervised work.";
         if (empty) empty.style.display = "";
         if (plan) plan.style.display = "none";
       }
@@ -648,19 +724,37 @@
   }
 
   async function refreshAll({ quiet = false } = {}) {
+    if (!crState.demoMode && crState.loadStatus !== "ok") {
+      crState.loadStatus = "connecting";
+      renderTopBar();
+    }
+    let snapshotOk = false;
+    let runnerOk = false;
     try {
       await loadSnapshot();
+      snapshotOk = true;
     } catch (e) {
+      crState.loadError = e.message || String(e);
       if (!crState.demoMode) crState.snapshot = crState.snapshot || null;
     }
     try {
       await loadRunnerSessions();
+      runnerOk = true;
     } catch (e) {
+      crState.loadError = crState.loadError || e.message || String(e);
       crState.runnerSessions = crState.runnerSessions || null;
     }
-    crState.lastRefresh = new Date().toISOString();
+    if (crState.demoMode || snapshotOk || runnerOk) {
+      crState.loadStatus = "ok";
+      crState.loadError = null;
+      crState.lastRefresh = new Date().toISOString();
+    } else if (!crState.lastRefresh) {
+      crState.loadStatus = "degraded";
+    } else {
+      crState.loadStatus = "degraded";
+    }
     renderAll();
-    if (!quiet) showToast("Control Room refreshed");
+    if (!quiet) showToast(crState.demoMode ? "Demo preview refreshed" : "Control Room refreshed");
   }
 
   async function runDryRunCleanup() {
@@ -815,9 +909,19 @@
   }
 
   function init() {
+    if (crState.initialized) {
+      refreshAll({ quiet: true }).catch(() => renderAll());
+      return;
+    }
+    crState.initialized = true;
     crState.demoMode = new URLSearchParams(window.location.search).get("demo") === "1";
     wireEvents();
-    refreshAll({ quiet: true }).catch(() => renderAll());
+    if (crState.demoMode) {
+      crState.loadStatus = "ok";
+      refreshAll({ quiet: true }).catch(() => renderAll());
+    } else {
+      refreshAll({ quiet: true }).catch(() => renderAll());
+    }
     setPolling(true);
   }
 
@@ -825,6 +929,7 @@
     init,
     refresh: refreshAll,
     isDemoMode,
+    isInitialized: () => crState.initialized,
     getSnapshot: () => crState.snapshot,
     onSectionChange(section) {
       if (section === "mission" || section === "control-room") setPolling(true);
