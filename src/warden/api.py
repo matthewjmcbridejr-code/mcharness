@@ -71,6 +71,14 @@ from .run_history import (
     update_run_record,
 )
 from .worklog import EVENT_LABELS, list_recent_worklog
+from .proof_gates import (
+    create_proof_gate,
+    decide_proof_gate,
+    gate_status_summary_for_run,
+    get_proof_gate,
+    list_gates_for_run,
+    list_recent_gates,
+)
 from .agent_registry import (
     BUILTIN_CODEX_ID,
     McHarnessAgentConfigPatchRequest,
@@ -363,6 +371,21 @@ class McHarnessRunEvidenceCreateRequest(BaseModel):
     content: Optional[str] = None
     agent_id: Optional[str] = None
     source: str = Field(default="operator", min_length=1)
+
+
+class McHarnessProofGateCreateRequest(BaseModel):
+    gate_type: str = Field(default="manual_review", min_length=1)
+    title: str = Field(min_length=1)
+    summary: str = Field(default="")
+    plan_id: Optional[str] = None
+    step_id: Optional[str] = None
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class McHarnessProofGateDecisionRequest(BaseModel):
+    decision: Literal["approve", "block", "request_more_evidence"]
+    decided_by: str = Field(default="operator", min_length=1)
+    decision_reason: Optional[str] = None
 
 
 class McHarnessCaptainPlanRequest(BaseModel):
@@ -2589,6 +2612,78 @@ def get_mcharness_evidence_recent():
         "service": "mcharness-control-plane",
         "service_mode": _service_mode_label(),
         "evidence": list_recent_evidence(MCTABLE_ROOT),
+    }
+
+
+@mcharness_router.get("/gates/recent")
+def get_mcharness_gates_recent():
+    if not _run_history_read_enabled():
+        return {
+            "service": "mcharness-control-plane",
+            "service_mode": _service_mode_label(),
+            "gates": [],
+            "notes": ["Proof gates are available on the private runner service."],
+        }
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "gates": list_recent_gates(MCTABLE_ROOT),
+    }
+
+
+@mcharness_router.get("/runs/{run_id}/gates")
+def get_mcharness_run_gates(run_id: str):
+    if not _run_history_read_enabled():
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    run = get_run_record(MCTABLE_ROOT, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "run_id": run_id,
+        "gates": list_gates_for_run(MCTABLE_ROOT, run_id),
+    }
+
+
+@mcharness_router.post("/runs/{run_id}/gates", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_run_gate(run_id: str, payload: McHarnessProofGateCreateRequest):
+    run = get_run_record(MCTABLE_ROOT, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    gate = create_proof_gate(
+        MCTABLE_ROOT,
+        run_id=run_id,
+        plan_id=payload.plan_id or run.get("plan_id"),
+        step_id=payload.step_id,
+        gate_type=payload.gate_type,
+        title=payload.title,
+        summary=payload.summary,
+        evidence_ids=list(payload.evidence_ids or run.get("evidence_ids") or []),
+    )
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "gate": gate,
+    }
+
+
+@mcharness_router.post("/gates/{gate_id}/decision", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_gate_decision(gate_id: str, payload: McHarnessProofGateDecisionRequest):
+    gate = get_proof_gate(MCTABLE_ROOT, gate_id)
+    if gate is None:
+        raise HTTPException(status_code=404, detail=f"Proof gate not found: {gate_id}")
+    updated = decide_proof_gate(
+        MCTABLE_ROOT,
+        gate_id,
+        decision=payload.decision,
+        decided_by=payload.decided_by,
+        decision_reason=payload.decision_reason,
+    )
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "gate": updated,
     }
 
 

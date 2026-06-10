@@ -20,6 +20,7 @@ def clean_mctable():
         MCTABLE_ROOT / "runs",
         MCTABLE_ROOT / "evidence",
         MCTABLE_ROOT / "captain",
+        MCTABLE_ROOT / "gates",
     ]:
         if d.exists():
             shutil.rmtree(d)
@@ -32,6 +33,7 @@ def clean_mctable():
         MCTABLE_ROOT / "runs",
         MCTABLE_ROOT / "evidence",
         MCTABLE_ROOT / "captain",
+        MCTABLE_ROOT / "gates",
     ]:
         if d.exists():
             shutil.rmtree(d)
@@ -1597,3 +1599,81 @@ def test_worklog_shows_real_events_after_dispatch_and_evidence(monkeypatch, tmp_
     assert "sample" not in worklog.text.lower()
     assert "fake" not in worklog.text.lower()
     assert "sk-or-" not in worklog.text
+
+
+def _create_private_run(client):
+    created = client.post(
+        "/api/mcharness/sessions",
+        json={
+            "title": "Gate smoke",
+            "objective": "o",
+            "plan_instruction": "p",
+            "repo_path": "/root/mcharness-public-export",
+            "agent_lane": "manual_paste",
+        },
+    )
+    sid = created.json()["session_id"]
+    started = client.post(
+        f"/api/mcharness/sessions/{sid}/runner/start",
+        json={
+            "lane_id": "codex_cli",
+            "repo_id": "mcharness-public-export",
+            "title": "Gate smoke",
+            "prompt": "Inspect proof gates.",
+        },
+    )
+    return started.json()["runner_id"]
+
+
+def test_proof_gate_private_create_and_list_on_run(monkeypatch, tmp_path):
+    _enable_private_run_history(monkeypatch, tmp_path)
+    client = TestClient(app)
+    run_id = _create_private_run(client)
+    created = client.post(
+        f"/api/mcharness/runs/{run_id}/gates",
+        json={"title": "Manual review", "summary": "Check transcript quality."},
+    )
+    assert created.status_code == 200, created.text
+    listed = client.get(f"/api/mcharness/runs/{run_id}/gates")
+    assert listed.status_code == 200
+    assert len(listed.json()["gates"]) == 1
+    assert listed.json()["gates"][0]["status"] == "pending"
+
+
+def test_proof_gate_public_create_blocked(monkeypatch, tmp_path):
+    client = TestClient(app)
+    blocked = client.post(
+        "/api/mcharness/runs/run_fake123/gates",
+        json={"title": "Should fail", "summary": "blocked"},
+    )
+    assert blocked.status_code == 403
+
+
+def test_proof_gate_decision_requires_reason_and_does_not_auto_dispatch(monkeypatch, tmp_path):
+    _enable_private_captain_loop(monkeypatch, tmp_path)
+    client = TestClient(app)
+    _sample_persisted_plan(client)
+    dispatch = client.post("/api/mcharness/captain/plans/plan_loop01/steps/step_1/dispatch")
+    run_id = dispatch.json()["dispatch"]["runner_id"]
+    gate = client.post(
+        f"/api/mcharness/runs/{run_id}/gates",
+        json={"title": "Approve gate", "summary": "Review before next step."},
+    )
+    gate_id = gate.json()["gate"]["gate_id"]
+    missing_reason = client.post(
+        f"/api/mcharness/gates/{gate_id}/decision",
+        json={"decision": "block", "decided_by": "operator"},
+    )
+    assert missing_reason.status_code == 400
+    approved = client.post(
+        f"/api/mcharness/gates/{gate_id}/decision",
+        json={"decision": "approve", "decided_by": "operator"},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["gate"]["status"] == "approved"
+    plan = client.get("/api/mcharness/captain/plans/plan_loop01").json()["plan"]
+    assert plan["current_step_id"] == "step_1"
+    step2 = next(step for step in plan["steps"] if step["id"] == "step_2")
+    assert step2["status"] in {"queued", "revised"}
+    assert not step2.get("run_id")
+    assert "sk-or-" not in approved.text

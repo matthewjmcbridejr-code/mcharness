@@ -765,27 +765,166 @@
     }
   }
 
+  function proofGateStatusClass(status) {
+    const normalized = String(status || "").toLowerCase();
+    if (normalized === "approved") return "status-connected";
+    if (normalized === "pending") return "status-coming";
+    return "status-disabled";
+  }
+
+  function renderProofGateCard(gate, { interactive = false } = {}) {
+    const status = gate.status || "pending";
+    const actions = interactive && status === "pending"
+      ? `
+        <div class="proof-gate-actions">
+          <button type="button" class="btn good" data-gate-approve="${escapeHtml(gate.gate_id)}">Approve</button>
+          <button type="button" class="btn bad" data-gate-block="${escapeHtml(gate.gate_id)}">Block</button>
+          <button type="button" class="btn" data-gate-more-evidence="${escapeHtml(gate.gate_id)}">Request More Evidence</button>
+        </div>
+      `
+      : gate.decision_reason
+        ? `<p class="history-card-meta">Decision: ${escapeHtml(gate.decision_reason)}</p>`
+        : "";
+    return `
+      <div class="proof-gate-card" data-gate-id="${escapeHtml(gate.gate_id)}">
+        <div class="history-card-top">
+          <h4 class="history-card-title">${escapeHtml(gate.title || gate.gate_id)}</h4>
+          <span class="status-pill ${proofGateStatusClass(status)}">${escapeHtml(String(status).toUpperCase())}</span>
+        </div>
+        <p class="history-card-meta">${escapeHtml(gate.gate_type || "manual_review")} · ${escapeHtml(formatHistoryTimestamp(gate.created_at))}</p>
+        <p class="history-card-copy">${escapeHtml(gate.summary || "Manual proof gate.")}</p>
+        ${actions}
+      </div>
+    `;
+  }
+
+  function bindProofGateActions(container, runId) {
+    if (!container) return;
+    container.querySelectorAll("[data-gate-approve]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const gateId = button.getAttribute("data-gate-approve");
+        if (gateId) decideProofGate(gateId, "approve", runId).catch((e) => console.error(e));
+      });
+    });
+    container.querySelectorAll("[data-gate-block]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const gateId = button.getAttribute("data-gate-block");
+        if (gateId) decideProofGate(gateId, "block", runId).catch((e) => console.error(e));
+      });
+    });
+    container.querySelectorAll("[data-gate-more-evidence]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const gateId = button.getAttribute("data-gate-more-evidence");
+        if (gateId) decideProofGate(gateId, "request_more_evidence", runId).catch((e) => console.error(e));
+      });
+    });
+  }
+
+  async function decideProofGate(gateId, decision, runId) {
+    let decisionReason = null;
+    if (decision === "block" || decision === "request_more_evidence") {
+      decisionReason = window.prompt("Enter a short reason for this decision:");
+      if (!decisionReason || !decisionReason.trim()) return;
+    }
+    await requestJson(`${MCH}/gates/${encodeURIComponent(gateId)}/decision`, {
+      method: "POST",
+      body: {
+        decision,
+        decided_by: "operator",
+        decision_reason: decisionReason,
+      },
+    });
+    if (runId) await openRunDetailModal(runId);
+    await Promise.all([loadRecentGates(), loadMissionWorklog()]);
+  }
+
+  async function createProofGateForRun(runId, evidenceIds) {
+    const title = window.prompt("Proof gate title:", "Manual review gate");
+    if (!title || !title.trim()) return;
+    await requestJson(`${MCH}/runs/${encodeURIComponent(runId)}/gates`, {
+      method: "POST",
+      body: {
+        title: title.trim(),
+        summary: "Operator-created manual proof gate.",
+        evidence_ids: evidenceIds || [],
+      },
+    });
+    await openRunDetailModal(runId);
+    await Promise.all([loadRecentGates(), loadMissionWorklog()]);
+  }
+
+  function renderInspectorGatesSummary() {
+    const summary = document.getElementById("inspector-gates-summary");
+    if (!summary) return;
+    const gates = state.recentGates || [];
+    if (!gates.length) {
+      summary.textContent = "No proof gates yet.";
+      return;
+    }
+    const pending = gates.filter((gate) => gate.status === "pending").length;
+    const latest = gates[0];
+    summary.innerHTML = `
+      <div>${pending} pending · ${gates.length} total</div>
+      <div class="history-card-meta">Latest: ${escapeHtml(latest.title || latest.gate_id)} (${escapeHtml(latest.status || "pending")})</div>
+    `;
+  }
+
+  async function loadRecentGates() {
+    try {
+      const data = await requestJson(`${MCH}/gates/recent`);
+      state.recentGates = data.gates || [];
+      renderInspectorGatesSummary();
+      return data;
+    } catch (e) {
+      state.recentGates = [];
+      renderInspectorGatesSummary();
+      return null;
+    }
+  }
+
   async function openRunDetailModal(runId) {
     const modal = document.getElementById("run-detail-modal");
     if (!modal) return;
-    const data = await requestJson(`${MCH}/runs/${encodeURIComponent(runId)}`);
+    const [data, gateData] = await Promise.all([
+      requestJson(`${MCH}/runs/${encodeURIComponent(runId)}`),
+      requestJson(`${MCH}/runs/${encodeURIComponent(runId)}/gates`).catch(() => ({ gates: [] })),
+    ]);
     const run = data.run || {};
+    const gates = gateData.gates || [];
+    state.activeRunDetailId = runId;
     const title = document.getElementById("run-detail-title");
     const meta = document.getElementById("run-detail-meta");
     const prompt = document.getElementById("run-detail-prompt");
     const transcript = document.getElementById("run-detail-transcript");
     const evidence = document.getElementById("run-detail-evidence");
+    const gatesEl = document.getElementById("run-detail-gates");
+    const createGateBtn = document.getElementById("run-detail-create-gate");
+    const health = state.health || {};
+    const canWrite = !!health.tmux_runner_enabled && !!health.codex_runner_enabled;
     if (title) title.textContent = run.title || run.run_id || "Run Detail";
     if (meta) {
       meta.textContent = `${run.agent_id || "agent"} · ${run.status || "unknown"} · ${formatHistoryTimestamp(run.started_at)}`;
     }
     if (prompt) prompt.textContent = run.prompt || run.prompt_excerpt || "(no prompt saved)";
     if (transcript) transcript.textContent = run.transcript_excerpt || "(no transcript saved yet)";
+    const evidenceItems = data.evidence || [];
     if (evidence) {
-      const items = data.evidence || [];
-      evidence.innerHTML = items.length
-        ? items.map((item) => `<li>${escapeHtml(item.title || item.evidence_id)} · ${escapeHtml(item.type || "evidence")}</li>`).join("")
+      evidence.innerHTML = evidenceItems.length
+        ? evidenceItems.map((item) => `<li>${escapeHtml(item.title || item.evidence_id)} · ${escapeHtml(item.type || "evidence")}</li>`).join("")
         : "<li>No saved evidence linked to this run yet.</li>";
+    }
+    if (gatesEl) {
+      gatesEl.innerHTML = gates.length
+        ? gates.map((gate) => renderProofGateCard(gate, { interactive: canWrite })).join("")
+        : "<p class=\"history-card-copy\">No proof gate created for this run yet.</p>";
+      bindProofGateActions(gatesEl, runId);
+    }
+    if (createGateBtn) {
+      createGateBtn.style.display = canWrite ? "" : "none";
+      createGateBtn.onclick = () => {
+        const evidenceIds = evidenceItems.map((item) => item.evidence_id).filter(Boolean);
+        createProofGateForRun(runId, evidenceIds).catch((e) => console.error(e));
+      };
     }
     modal.style.display = "flex";
   }
@@ -2249,7 +2388,7 @@
 
     wireSimpleUI();
     setActiveSection("mission");
-    await Promise.all([loadLibraryStatus(), loadCaptainDeckStatus(), loadRecentRuns(), loadRecentEvidence(), loadActiveCaptainPlan(), loadMissionWorklog()]);
+    await Promise.all([loadLibraryStatus(), loadCaptainDeckStatus(), loadRecentRuns(), loadRecentEvidence(), loadActiveCaptainPlan(), loadMissionWorklog(), loadRecentGates()]);
 
     // initial status check for disabled note etc is handled in deploy
     // If user has runner flags in this process (e.g. private), card will reflect Ready

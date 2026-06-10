@@ -224,6 +224,10 @@
               <li id="inspector-jules-agent" data-testid="inspector-jules-agent">Jules Remote — Planning only</li>
             </ul>
           </div>
+          <div class="inspector-card" data-testid="inspector-proof-gates">
+            <h3 class="inspector-title">Proof Gates</h3>
+            <div id="inspector-gates-summary" data-testid="inspector-gates-summary" class="inspector-copy">No proof gates yet.</div>
+          </div>
         </aside>
       </div>
     </main>
@@ -424,6 +428,11 @@
       <div class="history-modal-section">
         <h4>Evidence</h4>
         <ul id="run-detail-evidence" data-testid="run-detail-evidence" class="history-modal-list"></ul>
+      </div>
+      <div class="history-modal-section" data-testid="run-detail-gates-section">
+        <h4>Proof Gates</h4>
+        <div id="run-detail-gates" data-testid="run-detail-gates" class="proof-gate-list"></div>
+        <button type="button" id="run-detail-create-gate" data-testid="run-detail-create-gate" class="btn" style="display:none;">Create Proof Gate</button>
       </div>
       <button type="button" id="run-detail-close" data-testid="run-detail-close" class="btn">Close</button>
     </div>
