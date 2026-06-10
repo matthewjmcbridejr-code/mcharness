@@ -223,3 +223,34 @@ def test_captain_manual_evidence_and_gate_decision_routes_exposed_via_api():
     )
     assert decision_response.status_code == 200
     assert decision_response.json()["hard_gates"][0]["decision"] == "reject"
+
+def test_get_task_events():
+    client = TestClient(app)
+
+    # Test not found
+    response = client.get("/api/marius/tasks/non-existent-task-for-events/events")
+    assert response.status_code == 404
+
+    # Create task
+    payload = {
+        "task_id": "events-test-task",
+        "title": "Events Test Task",
+        "description": "Task for testing events endpoint",
+        "command": "fake-worker-success",
+        "args": [],
+    }
+    created = client.post("/api/marius/tasks", json=payload)
+    assert created.status_code == 200
+
+    # Get events
+    response = client.get("/api/marius/tasks/events-test-task/events")
+    assert response.status_code == 200
+    events = response.json()
+
+    assert isinstance(events, list)
+    assert len(events) == 2
+    assert events[0]["event"] == "task_created"
+    assert "timestamp" in events[0]
+    assert events[1]["event"] == "step_executed"
+    assert "step" in events[1]
+    assert "timestamp" in events[1]
