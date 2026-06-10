@@ -27,7 +27,7 @@ def create_app() -> FastAPI:
     }
     app.include_router(mcharness_router)
     if _WEB_DIR.exists():
-        app.mount("/web", StaticFiles(directory=str(_WEB_DIR), html=False), name="web")
+        app.mount("/web", StaticFiles(directory=str(_WEB_DIR), html=True), name="web")
     return app
 
 
