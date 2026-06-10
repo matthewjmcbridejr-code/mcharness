@@ -93,6 +93,7 @@ from .agent_registry import (
     get_agent_by_id,
     list_all_agents,
     probe_agent,
+    refresh_agent_statuses,
     sanitize_agent_profile,
     test_agent_config,
     update_registered_agent,
@@ -1971,6 +1972,25 @@ def get_mcharness_agent_status(agent_id: str):
         root=MCTABLE_ROOT,
         probe_codex=_codex_probe_payload if agent.get("adapter") == "codex_cli" else None,
     )
+
+
+@mcharness_router.post("/agents/refresh-status")
+def refresh_mcharness_agent_statuses():
+    agents = refresh_agent_statuses(
+        MCTABLE_ROOT,
+        codex_runner_ready=_codex_runner_ready(),
+        private_only=_agent_registry_private_only(),
+        probe_codex=_codex_probe_payload,
+    )
+    last_checked_at = max((agent.get("last_checked_at") or "" for agent in agents), default=None)
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "registry_write_enabled": _agent_registry_write_enabled(),
+        "last_checked_at": last_checked_at,
+        "agents": agents,
+        "notes": ["Status refresh probes agents only. No tasks were started."],
+    }
 
 
 @mcharness_router.post("/agents/{agent_id}/probe")

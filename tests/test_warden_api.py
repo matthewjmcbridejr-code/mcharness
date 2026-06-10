@@ -1250,7 +1250,11 @@ def test_mcharness_agents_probe_codex_and_jules(monkeypatch, tmp_path):
     agent_id = created.json()["agent"]["id"]
     jules_probe = client.post(f"/api/mcharness/agents/{agent_id}/probe")
     assert jules_probe.status_code == 200, jules_probe.text
-    assert jules_probe.json()["status"] == "connected"
+    jules_payload = jules_probe.json()
+    assert jules_payload["connection_status"] == "connected"
+    assert jules_payload["status"] == "ready"
+    assert jules_payload.get("runnable") is False
+    assert jules_payload.get("last_checked_at")
     assert "test-jules-key" not in jules_probe.text
 
 
@@ -1711,3 +1715,29 @@ def test_run_report_includes_evidence_gates_and_redacts_secrets(monkeypatch, tmp
     assert len(body["gates"]) == 1
     assert "sk-or-report-secret" not in report.text
     assert "[REDACTED]" in report.text
+
+
+def test_agent_refresh_status_public_codex_not_runnable(monkeypatch):
+    client = TestClient(app)
+    refreshed = client.post("/api/mcharness/agents/refresh-status")
+    assert refreshed.status_code == 200, refreshed.text
+    codex = next(agent for agent in refreshed.json()["agents"] if agent["id"] == "codex_cli")
+    assert codex["runnable"] is False
+    assert codex["status"] in {"disabled", "ready"}
+    assert refreshed.json()["service_mode"] == "public"
+    assert "test-jules-key" not in refreshed.text
+
+
+def test_agent_refresh_status_private_codex_runnable(monkeypatch, tmp_path):
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
+    import src.warden.api as api_mod
+
+    monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
+    client = TestClient(app)
+    refreshed = client.post("/api/mcharness/agents/refresh-status")
+    assert refreshed.status_code == 200
+    codex = next(agent for agent in refreshed.json()["agents"] if agent["id"] == "codex_cli")
+    assert codex["runnable"] is True
+    assert codex.get("last_checked_at")
+    assert "No tasks were started" in " ".join(refreshed.json().get("notes") or [])

@@ -515,13 +515,26 @@
       state.registryWriteEnabled = !!data.registry_write_enabled;
       renderRegisteredAgentCards();
       populateCaptainAgents();
+      renderSettingsPanel();
       return data;
     } catch (e) {
       state.agents = [];
       state.registryWriteEnabled = false;
       renderRegisteredAgentCards();
+      renderSettingsPanel();
       return null;
     }
+  }
+
+  async function refreshAgentStatuses() {
+    const data = await requestJson(`${MCH}/agents/refresh-status`, { method: "POST" });
+    state.agents = data.agents || [];
+    state.agentStatusLastChecked = data.last_checked_at || null;
+    state.registryWriteEnabled = !!data.registry_write_enabled;
+    renderRegisteredAgentCards();
+    populateCaptainAgents();
+    renderSettingsPanel();
+    return data;
   }
 
   async function loadAgentTemplates() {
@@ -1256,6 +1269,7 @@
     const settingsCodex = document.getElementById("settings-codex-status");
     const settingsJules = document.getElementById("settings-jules-status");
     const inspectorNextMove = document.getElementById("inspector-next-move-copy");
+    const inspectorCaptain = document.getElementById("inspector-captain-agent");
     const inspectorCodex = document.getElementById("inspector-codex-agent");
     const inspectorJules = document.getElementById("inspector-jules-agent");
     const useCodexDirectly = document.getElementById("use-codex-directly");
@@ -1320,11 +1334,23 @@
         ? "Agent registration: Enabled on this service"
         : "Agent registration: Private only";
     }
+    const codexAgent = (state.agents || []).find((agent) => agent.id === "codex_cli");
+    const codexReady = !!(codexAgent && codexAgent.runnable);
+    const codexChecked = codexAgent && codexAgent.last_checked_at
+      ? ` · ${formatHistoryTimestamp(codexAgent.last_checked_at)}`
+      : state.agentStatusLastChecked
+        ? ` · ${formatHistoryTimestamp(state.agentStatusLastChecked)}`
+        : "";
+    if (inspectorCaptain) {
+      inspectorCaptain.textContent = `Captain — ${deck.configured ? "Ready" : "Not configured"}`;
+    }
     if (inspectorCodex) {
-      inspectorCodex.textContent = `Codex CLI — ${runnerActive ? "Ready" : "Disabled"}`;
+      inspectorCodex.textContent = `Codex CLI — ${codexReady ? "Ready" : "Disabled"}${codexChecked}`;
     }
     if (inspectorJules) {
-      inspectorJules.textContent = `Jules Remote — ${julesInspectorStatus()}`;
+      const julesChecked = (state.agents || []).find((agent) => agent.adapter === "jules_remote" && agent.user_created);
+      const suffix = julesChecked && julesChecked.last_checked_at ? ` · ${formatHistoryTimestamp(julesChecked.last_checked_at)}` : "";
+      inspectorJules.textContent = `Jules Remote — ${julesInspectorStatus()}${suffix}`;
     }
     if (useCodexDirectly) useCodexDirectly.style.display = runnerActive ? "" : "none";
     if (inspectorViewCodex) inspectorViewCodex.style.display = runnerActive ? "" : "none";
@@ -1879,6 +1905,17 @@
         setCodexStatusPill({ disabled: true, label: "DISABLED" });
       }
       renderCodexCapabilityChips(codex);
+      const statusLine = document.getElementById("codex-status-line");
+      if (statusLine) {
+        const checkedAt = codex.last_checked_at || state.agentStatusLastChecked;
+        if (checkedAt) {
+          statusLine.style.display = "";
+          statusLine.textContent = `Last checked ${formatHistoryTimestamp(checkedAt)}`;
+        } else {
+          statusLine.style.display = "none";
+          statusLine.textContent = "";
+        }
+      }
       renderSettingsPanel();
     } catch (e) {
       setCodexStatusPill({ disabled: true, label: "Disabled" });
@@ -2260,6 +2297,19 @@
 
     const viewCodexBtn = document.getElementById("view-agent-codex-btn");
     if (viewCodexBtn) viewCodexBtn.addEventListener("click", openLiveCLIMonitor);
+
+    const refreshAgentStatus = document.getElementById("refresh-agent-status");
+    if (refreshAgentStatus) {
+      refreshAgentStatus.addEventListener("click", () => {
+        refreshAgentStatuses().catch((e) => console.error(e));
+      });
+    }
+    const inspectorRefreshAgents = document.getElementById("inspector-refresh-agents");
+    if (inspectorRefreshAgents) {
+      inspectorRefreshAgents.addEventListener("click", () => {
+        refreshAgentStatuses().catch((e) => console.error(e));
+      });
+    }
 
     const cancel = document.getElementById("cancel-use-agent");
     if (cancel) cancel.addEventListener("click", closeUseAgentModal);

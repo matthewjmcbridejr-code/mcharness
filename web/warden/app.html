@@ -85,8 +85,13 @@
 
       <section id="warden-section-agents" class="workspace-section" data-section="agents" data-testid="warden-section-agents">
         <header class="workspace-header">
-          <h2 class="workspace-title">Agent Library</h2>
-          <p class="workspace-subhead">Connect local CLI agents and remote workers, then dispatch bounded work through Captain.</p>
+          <div class="workspace-header-row">
+            <div>
+              <h2 class="workspace-title">Agent Library</h2>
+              <p class="workspace-subhead">Connect local CLI agents and remote workers, then dispatch bounded work through Captain.</p>
+            </div>
+            <button type="button" id="refresh-agent-status" data-testid="refresh-agent-status" class="btn">Refresh Status</button>
+          </div>
         </header>
 
         <div id="agent-library-cards" data-testid="agent-library-cards" class="agent-library-groups">
@@ -226,9 +231,11 @@
           <div class="inspector-card" data-testid="inspector-connected-agents">
             <h3 class="inspector-title">Connected Agents</h3>
             <ul class="control-room-list">
+              <li id="inspector-captain-agent" data-testid="inspector-captain-agent">Captain — Not configured</li>
               <li id="inspector-codex-agent" data-testid="inspector-codex-agent">Codex CLI — Disabled</li>
               <li id="inspector-jules-agent" data-testid="inspector-jules-agent">Jules Remote — Planning only</li>
             </ul>
+            <button type="button" id="inspector-refresh-agents" data-testid="inspector-refresh-agents" class="btn" style="margin-top:8px;">Refresh Status</button>
           </div>
           <div class="inspector-card" data-testid="inspector-proof-gates">
             <h3 class="inspector-title">Proof Gates</h3>

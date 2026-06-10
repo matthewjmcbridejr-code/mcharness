@@ -1009,6 +1009,14 @@ textarea {
   background: rgba(125, 176, 255, 0.12);
 }
 
+.workspace-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .mission-card-wide {
   grid-column: 1 / -1;
 }
