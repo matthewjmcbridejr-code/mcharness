@@ -103,16 +103,20 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await expect(page.locator("[data-testid='warden-byline']")).toContainText("by Marius Systems");
   await expect(page.locator("[data-testid='warden-sidebar']")).toBeVisible();
   await expect(page.locator("[data-testid='warden-powered']")).toContainText("Powered by McHarness");
-  await expect(page.locator("[data-testid='warden-hero']")).toContainText("What do you want Warden to build?");
+  await expect(page.locator("[data-testid='nav-mission']")).toHaveClass(/active/);
+  await expect(page.locator("[data-testid='warden-section-mission']")).toHaveClass(/active/);
+  await expect(page.locator("[data-testid='mission-command']")).toContainText("What do you want Warden to build?");
+  await expect(page.locator("[data-testid='mission-command']")).toContainText("Captain breaks goals into bounded agent steps");
+  await expect(page.locator("[data-testid='current-mission-card']")).toContainText("No active mission yet");
+  await expect(page.locator("[data-testid='mission-worklog-card']")).toContainText("Captain plans, dispatched steps");
+  await expect(page.locator("[data-testid='operator-inspector']")).toBeVisible();
+  await expect(page.locator("[data-testid='inspector-next-move']")).toContainText("Next Move");
   await expect(page.locator("[data-testid='control-room-status']")).toContainText("Control Room Status");
   await expect(page.locator("[data-testid='cr-public-runner']")).toContainText("Public runner: Disabled");
-  await expect(page.locator("text=Agent Library")).toBeVisible();
+  await expect(page.locator("[data-testid='inspector-connected-agents']")).toBeVisible();
   await expect(page.locator("[data-testid='develop-plan-primary']")).toBeVisible();
-  await expect(page.locator("[data-testid='agent-group-ready']")).toBeVisible();
-  await expect(page.locator("[data-testid='agent-group-ready']")).toContainText("Ready to Run");
-  await expect(page.locator("#codex-card")).toBeVisible();
-  await expect(page.locator("#codex-card")).toContainText("Codex CLI");
-  await expect(page.locator("#codex-card")).toContainText("Run live coding tasks through Warden");
+  await expect(page.locator("#warden-section-agents.active")).toHaveCount(0);
+  await expect(page.locator("#warden-section-mission.active")).toBeVisible();
 
   await page.locator("[data-testid='nav-tasks']").click();
   await expect(page.locator("[data-testid='tasks-empty-state']")).toContainText("No active task plan yet");
@@ -129,6 +133,13 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await expect(page.locator("text=SERVER CONTROL PLANE")).toHaveCount(0);
   await expect(page.locator("text=Advanced / Legacy Cockpit")).toHaveCount(0);
   await page.locator("[data-testid='nav-agents']").click();
+  await expect(page.locator("text=Agent Library")).toBeVisible();
+  await expect(page.locator("[data-testid='operator-inspector']")).toBeVisible();
+  await expect(page.locator("[data-testid='agent-group-ready']")).toBeVisible();
+  await expect(page.locator("[data-testid='agent-group-ready']")).toContainText("Ready to Run");
+  await expect(page.locator("#codex-card")).toBeVisible();
+  await expect(page.locator("#codex-card")).toContainText("Codex CLI");
+  await expect(page.locator("#codex-card")).toContainText("Run live coding tasks through Warden");
   await expect(page.locator("#codex-card").getByRole("button", { name: "Use Agent" })).toBeVisible();
   await expect(page.locator("#codex-card").getByRole("button", { name: "View Agent" })).toBeVisible();
   await expect(page.locator("[data-testid='agent-library-cards']")).not.toContainText("Open Live Monitor");
@@ -142,6 +153,7 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await viewMon.locator("#modal-close").click();
   await expect(viewMon).not.toBeVisible();
 
+  await page.locator("[data-testid='nav-mission']").click();
   await page.locator("[data-testid='develop-plan-hero']").click();
   const captainModal = page.locator("#captain-deck-modal");
   await expect(captainModal).toBeVisible();
@@ -154,6 +166,7 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await expect(captainModal).not.toBeVisible();
 
   // Use Agent opens modal with required fields
+  await page.locator("[data-testid='nav-agents']").click();
   await page.getByRole("button", { name: "Use Agent" }).click();
   const useModal = page.locator("#use-agent-modal");
   await expect(useModal).toBeVisible();
@@ -718,6 +731,7 @@ test("private runner quick replies send allowed keys and refresh transcript", as
   });
 
   await page.goto("http://127.0.0.1:8125/web/mctable-studio/cockpit-app.html");
+  await page.locator("[data-testid='nav-agents']").click();
   await expect(page.locator("text=Agent Library")).toBeVisible();
 
   await page.getByRole("button", { name: "Use Agent" }).click();
@@ -1249,6 +1263,8 @@ test("Agent Registry configure flow and Captain dropdown use registered agents",
 
   await page.goto("/web/mctable-studio/cockpit-app.html");
   await expect(page.locator("h1")).toContainText("Warden");
+  await expect(page.locator("[data-testid='nav-mission']")).toHaveClass(/active/);
+  await page.locator("[data-testid='nav-agents']").click();
   await expect(page.locator("text=Agent Library")).toBeVisible();
   await expect(page.locator("[data-testid='agent-group-ready']")).toContainText("Ready to Run");
   await expect(page.locator("#codex-card")).toContainText("Codex CLI");

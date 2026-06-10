@@ -25,7 +25,7 @@
     liveMonitorExpanded: false,
     liveAutoScroll: true,
     lastMonitorTranscriptText: "",
-    activeSection: "agents",
+    activeSection: "mission",
     captainDeck: {
       configured: false,
       planningEnabled: false,
@@ -563,6 +563,20 @@
     return "Setup needed";
   }
 
+  function julesHeroStatus() {
+    const jules = (state.agents || []).find((agent) => agent.adapter === "jules_remote" && agent.user_created);
+    if (jules && jules.connection_status === "connected" && jules.status === "ready") return "Connected";
+    return "Planning only";
+  }
+
+  function julesInspectorStatus() {
+    const jules = (state.agents || []).find((agent) => agent.adapter === "jules_remote" && agent.user_created);
+    if (jules && jules.connection_status === "connected" && jules.status === "ready") {
+      return "Connected, planning only";
+    }
+    return "Setup needed";
+  }
+
   function renderCodexCapabilityChips(codex) {
     const capsEl = document.getElementById("codex-capabilities");
     if (!capsEl) return;
@@ -602,6 +616,13 @@
     const crPrivate = document.getElementById("cr-private-runner");
     const crShell = document.getElementById("cr-shell-input");
     const crAgentReg = document.getElementById("cr-agent-registration");
+    const settingsCodex = document.getElementById("settings-codex-status");
+    const settingsJules = document.getElementById("settings-jules-status");
+    const inspectorNextMove = document.getElementById("inspector-next-move-copy");
+    const inspectorCodex = document.getElementById("inspector-codex-agent");
+    const inspectorJules = document.getElementById("inspector-jules-agent");
+    const useCodexDirectly = document.getElementById("use-codex-directly");
+    const inspectorViewCodex = document.getElementById("inspector-view-codex");
     const runnerActive = !!health.tmux_runner_enabled && !!health.codex_runner_enabled;
     const shellDisabled = !health.arbitrary_command_execution_enabled;
     const publicRunnerText = "Public runner: Disabled on public service";
@@ -636,12 +657,25 @@
       heroCaptain.textContent = `Captain: ${deck.configured ? "Ready" : "Not configured"}`;
     }
     if (heroCodex) heroCodex.textContent = `Codex: ${runnerActive ? "Ready" : "Disabled"}`;
-    if (heroJules) heroJules.textContent = `Jules: ${julesWorkspaceStatus()}`;
+    if (heroJules) heroJules.textContent = `Jules: ${julesHeroStatus()}`;
+    if (settingsCodex) {
+      settingsCodex.textContent = runnerActive ? "Codex CLI: Ready on this service" : "Codex CLI: Disabled on this service";
+    }
+    if (settingsJules) {
+      const jules = (state.agents || []).find((agent) => agent.adapter === "jules_remote" && agent.user_created);
+      if (!jules) {
+        settingsJules.textContent = "Jules Remote: Not configured";
+      } else if (jules.connection_status === "connected" && jules.status === "ready") {
+        settingsJules.textContent = "Jules Remote: Connected — planning and status only";
+      } else {
+        settingsJules.textContent = "Jules Remote: Setup needed";
+      }
+    }
     if (crPublic) crPublic.textContent = "Public runner: Disabled";
     if (crPrivate) {
       crPrivate.textContent = runnerActive
         ? "Private runner: Active on this service"
-        : "Private runner: Available on private service";
+        : "Private runner: Unavailable on this service";
     }
     if (crShell) crShell.textContent = shellDisabled ? "Arbitrary shell input: Disabled" : "Arbitrary shell input: Enabled";
     if (crAgentReg) {
@@ -649,17 +683,39 @@
         ? "Agent registration: Enabled on this service"
         : "Agent registration: Private only";
     }
+    if (inspectorCodex) {
+      inspectorCodex.textContent = `Codex CLI — ${runnerActive ? "Ready" : "Disabled"}`;
+    }
+    if (inspectorJules) {
+      inspectorJules.textContent = `Jules Remote — ${julesInspectorStatus()}`;
+    }
+    if (useCodexDirectly) useCodexDirectly.style.display = runnerActive ? "" : "none";
+    if (inspectorViewCodex) inspectorViewCodex.style.display = runnerActive ? "" : "none";
+    if (inspectorNextMove) {
+      if (!runnerActive) {
+        inspectorNextMove.textContent = "Private runner is unavailable on this service.";
+      } else if (!deck.configured) {
+        inspectorNextMove.textContent = "Configure Captain before planning work.";
+      } else {
+        inspectorNextMove.textContent = "Create a plan, then dispatch the first bounded step to Codex.";
+      }
+    }
     updateRunsEvidenceActions();
   }
 
   function setActiveSection(sectionId) {
-    state.activeSection = sectionId || "agents";
+    state.activeSection = sectionId || "mission";
     document.querySelectorAll(".workspace-section").forEach((section) => {
       section.classList.toggle("active", section.dataset.section === state.activeSection);
     });
     document.querySelectorAll(".nav-item").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.section === state.activeSection);
     });
+    const inspector = document.getElementById("operator-inspector");
+    const showInspector = state.activeSection === "mission" || state.activeSection === "agents";
+    if (inspector) inspector.style.display = showInspector ? "" : "none";
+    const stage = document.querySelector(".warden-stage");
+    if (stage) stage.classList.toggle("inspector-visible", showInspector);
   }
 
   function registeredAgentCardCopy(agent) {
@@ -1527,6 +1583,12 @@
     const useBtn = document.getElementById("use-codex-btn");
     if (useBtn) useBtn.addEventListener("click", openUseAgentModal);
 
+    const useCodexDirectly = document.getElementById("use-codex-directly");
+    if (useCodexDirectly) useCodexDirectly.addEventListener("click", openUseAgentModal);
+
+    const inspectorViewCodex = document.getElementById("inspector-view-codex");
+    if (inspectorViewCodex) inspectorViewCodex.addEventListener("click", openLiveCLIMonitor);
+
     const viewCodexBtn = document.getElementById("view-agent-codex-btn");
     if (viewCodexBtn) viewCodexBtn.addEventListener("click", openLiveCLIMonitor);
 
@@ -1704,7 +1766,7 @@
     });
 
     wireSimpleUI();
-    setActiveSection("agents");
+    setActiveSection("mission");
     await Promise.all([loadLibraryStatus(), loadCaptainDeckStatus()]);
 
     // initial status check for disabled note etc is handled in deploy

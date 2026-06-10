@@ -809,3 +809,127 @@ textarea {
   color: var(--muted);
   max-width: 52ch;
 }
+
+.warden-stage {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  max-width: 1680px;
+  margin: 0 auto;
+}
+
+.warden-stage-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.warden-stage-main .workspace-section {
+  max-width: none;
+  margin: 0;
+}
+
+.warden-stage:not(.inspector-visible) .warden-stage-main {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.operator-inspector {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  top: 28px;
+}
+
+.inspector-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px 18px;
+  background: rgba(15, 26, 45, 0.88);
+}
+
+.inspector-title {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.inspector-copy {
+  margin: 0 0 12px;
+  font-size: 0.86rem;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.inspector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mission-command-panel {
+  border: 1px solid rgba(125, 176, 255, 0.18);
+  border-radius: 14px;
+  padding: 24px 26px;
+  background: linear-gradient(135deg, rgba(17, 29, 49, 0.98), rgba(12, 22, 38, 0.98));
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+  margin-bottom: 22px;
+}
+
+.mission-command-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.mission-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.mission-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px 20px;
+  background: var(--bg-2);
+}
+
+.mission-card-title {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.mission-card-lead {
+  margin: 0 0 6px;
+  font-size: 0.92rem;
+}
+
+.mission-card-copy {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 1280px) {
+  .warden-stage {
+    flex-direction: column;
+  }
+
+  .operator-inspector {
+    width: 100%;
+    position: static;
+  }
+
+  .mission-cards-grid {
+    grid-template-columns: 1fr;
+  }
+}

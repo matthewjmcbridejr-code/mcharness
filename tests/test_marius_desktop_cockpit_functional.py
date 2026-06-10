@@ -19,19 +19,29 @@ def test_functional_cockpit_page_is_served_with_control_plane_labels():
     client = TestClient(app)
     response = client.get("/web/mctable-studio/cockpit-app.html")
     assert response.status_code == 200
-    # Simple Agent Library default (SIMPLE MODE)
+    # Mission-first operator workbench (SIMPLE MODE)
     for snippet in [
         "Warden",
         "by Marius Systems",
         "Supervised agent ops",
         "Powered by McHarness",
+        "nav-mission",
+        "Mission Command",
+        "mission-command",
         "What do you want Warden to build?",
+        "Captain breaks goals into bounded agent steps",
+        "Current Mission",
+        "Mission Worklog",
+        "operator-inspector",
+        "inspector-next-move",
         "Control Room Status",
         "warden-sidebar",
         "nav-tasks",
         "No active task plan yet",
         "settings-captain-status",
         "settings-safety-list",
+        "settings-codex-status",
+        "settings-jules-status",
         "Public runner: Disabled",
         "Public runner: Disabled on public service",
         "Private runner: Available only on private service",

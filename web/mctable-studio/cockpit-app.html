@@ -25,7 +25,8 @@
       <button id="develop-plan-primary" data-testid="develop-plan-primary" data-action="develop-plan" class="btn primary sidebar-primary" type="button">Develop Plan</button>
 
       <nav class="sidebar-nav" data-testid="warden-nav" aria-label="Warden sections">
-        <button type="button" class="nav-item active" data-section="agents" data-testid="nav-agents">Agents</button>
+        <button type="button" class="nav-item active" data-section="mission" data-testid="nav-mission">Mission</button>
+        <button type="button" class="nav-item" data-section="agents" data-testid="nav-agents">Agents</button>
         <button type="button" class="nav-item" data-section="tasks" data-testid="nav-tasks">Tasks</button>
         <button type="button" class="nav-item" data-section="runs" data-testid="nav-runs">Runs</button>
         <button type="button" class="nav-item" data-section="evidence" data-testid="nav-evidence">Evidence</button>
@@ -38,29 +39,42 @@
     </aside>
 
     <main class="warden-workspace" data-testid="warden-workspace">
-      <section id="warden-section-agents" class="workspace-section active" data-section="agents" data-testid="warden-section-agents">
-        <div class="workspace-top-grid">
-          <div class="hero-panel" data-testid="warden-hero">
-            <h2 class="hero-title">What do you want Warden to build?</h2>
-            <p class="hero-subtitle">Captain turns your goal into bounded agent steps. You approve what runs.</p>
+      <div class="warden-stage">
+        <div class="warden-stage-main">
+      <section id="warden-section-mission" class="workspace-section active" data-section="mission" data-testid="warden-section-mission">
+        <header class="workspace-header">
+          <h2 class="workspace-title">Mission Command</h2>
+        </header>
+
+        <div class="mission-command-panel" data-testid="mission-command">
+          <h3 class="hero-title">What do you want Warden to build?</h3>
+          <p class="hero-subtitle">Captain breaks goals into bounded agent steps. You approve what runs.</p>
+          <div class="mission-command-actions">
             <button type="button" class="btn primary hero-cta" data-action="develop-plan" data-testid="develop-plan-hero">Develop Plan</button>
-            <div class="hero-status-row" data-testid="hero-status-row">
-              <span class="hero-status-chip" id="hero-captain-status" data-testid="hero-captain-status">Captain: Not configured</span>
-              <span class="hero-status-chip" id="hero-codex-status" data-testid="hero-codex-status">Codex: Disabled</span>
-              <span class="hero-status-chip" id="hero-jules-status" data-testid="hero-jules-status">Jules: Planning only</span>
-            </div>
+            <button type="button" class="btn" id="use-codex-directly" data-testid="use-codex-directly" style="display:none;">Use Codex Directly</button>
           </div>
-          <aside class="control-room-status" data-testid="control-room-status">
-            <h3 class="control-room-title">Control Room Status</h3>
-            <ul class="control-room-list">
-              <li id="cr-public-runner" data-testid="cr-public-runner">Public runner: Disabled</li>
-              <li id="cr-private-runner" data-testid="cr-private-runner">Private runner: Available on private service</li>
-              <li id="cr-shell-input" data-testid="cr-shell-input">Arbitrary shell input: Disabled</li>
-              <li id="cr-agent-registration" data-testid="cr-agent-registration">Agent registration: Private only</li>
-            </ul>
-          </aside>
+          <div class="hero-status-row" data-testid="hero-status-row">
+            <span class="hero-status-chip" id="hero-captain-status" data-testid="hero-captain-status">Captain: Not configured</span>
+            <span class="hero-status-chip" id="hero-codex-status" data-testid="hero-codex-status">Codex: Disabled</span>
+            <span class="hero-status-chip" id="hero-jules-status" data-testid="hero-jules-status">Jules: Planning only</span>
+          </div>
         </div>
 
+        <div class="mission-cards-grid">
+          <div class="mission-card" data-testid="current-mission-card">
+            <h3 class="mission-card-title">Current Mission</h3>
+            <p id="current-mission-status" data-testid="current-mission-status" class="mission-card-lead">No active mission yet.</p>
+            <p class="mission-card-copy">Create a plan to start a supervised Warden run.</p>
+            <button type="button" class="btn primary" data-action="develop-plan" data-testid="develop-plan-mission">Develop Plan</button>
+          </div>
+          <div class="mission-card" data-testid="mission-worklog-card">
+            <h3 class="mission-card-title">Mission Worklog</h3>
+            <p class="mission-card-copy">Captain plans, dispatched steps, run updates, and evidence links will appear here.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="warden-section-agents" class="workspace-section" data-section="agents" data-testid="warden-section-agents">
         <header class="workspace-header">
           <h2 class="workspace-title">Agent Library</h2>
           <p class="workspace-subhead">Connect local CLI agents and remote workers, then dispatch bounded work through Captain.</p>
@@ -130,7 +144,7 @@
           <p class="workspace-subhead">Proof artifacts from supervised agent work.</p>
         </header>
         <div class="empty-state-card" data-testid="evidence-empty-state">
-          <h3>Saved outputs, transcripts, proof reports, diffs, and PR links will appear here.</h3>
+          <h3>Saved outputs, transcripts, proof reports, diffs, screenshots, and PR links will appear here.</h3>
           <p>When a Codex session is active, use View Agent to review output or save evidence.</p>
           <button type="button" id="evidence-open-output" class="btn" data-testid="evidence-open-output" style="display:none;">Open Current Output</button>
         </div>
@@ -162,8 +176,45 @@
               <li id="settings-agent-registration" data-testid="settings-agent-registration">Agent registration: Private only</li>
             </ul>
           </div>
+          <div class="settings-card">
+            <h3>Codex CLI</h3>
+            <p id="settings-codex-status" data-testid="settings-codex-status" class="settings-meta">Loading Codex status...</p>
+          </div>
+          <div class="settings-card">
+            <h3>Jules Remote</h3>
+            <p id="settings-jules-status" data-testid="settings-jules-status" class="settings-meta">Loading Jules status...</p>
+          </div>
         </div>
       </section>
+        </div>
+
+        <aside id="operator-inspector" class="operator-inspector" data-testid="operator-inspector">
+          <div class="inspector-card" data-testid="inspector-next-move">
+            <h3 class="inspector-title">Next Move</h3>
+            <p id="inspector-next-move-copy" data-testid="inspector-next-move-copy" class="inspector-copy">Loading operator guidance...</p>
+            <div class="inspector-actions">
+              <button type="button" class="btn primary" id="inspector-develop-plan" data-action="develop-plan" data-testid="inspector-develop-plan">Develop Plan</button>
+              <button type="button" class="btn" id="inspector-view-codex" data-testid="inspector-view-codex">View Codex</button>
+            </div>
+          </div>
+          <div class="inspector-card" data-testid="control-room-status">
+            <h3 class="inspector-title">Control Room Status</h3>
+            <ul class="control-room-list">
+              <li id="cr-public-runner" data-testid="cr-public-runner">Public runner: Disabled</li>
+              <li id="cr-private-runner" data-testid="cr-private-runner">Private runner: Available on private service</li>
+              <li id="cr-shell-input" data-testid="cr-shell-input">Arbitrary shell input: Disabled</li>
+              <li id="cr-agent-registration" data-testid="cr-agent-registration">Agent registration: Private only</li>
+            </ul>
+          </div>
+          <div class="inspector-card" data-testid="inspector-connected-agents">
+            <h3 class="inspector-title">Connected Agents</h3>
+            <ul class="control-room-list">
+              <li id="inspector-codex-agent" data-testid="inspector-codex-agent">Codex CLI — Disabled</li>
+              <li id="inspector-jules-agent" data-testid="inspector-jules-agent">Jules Remote — Planning only</li>
+            </ul>
+          </div>
+        </aside>
+      </div>
     </main>
   </div>
 
