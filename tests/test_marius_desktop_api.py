@@ -1,3 +1,4 @@
+import uuid
 import shutil
 
 import pytest
@@ -223,3 +224,23 @@ def test_captain_manual_evidence_and_gate_decision_routes_exposed_via_api():
     )
     assert decision_response.status_code == 200
     assert decision_response.json()["hard_gates"][0]["decision"] == "reject"
+
+def test_create_duplicate_task():
+    client = TestClient(app)
+    task_id = f"duplicate-task-{uuid.uuid4().hex}"
+    payload = {
+        "task_id": task_id,
+        "title": "Duplicate Task Test",
+        "description": "Test for duplicate task creation",
+        "command": "fake-worker-success",
+        "args": [],
+    }
+
+    # First creation should succeed
+    response = client.post("/api/marius/tasks", json=payload)
+    assert response.status_code == 200
+
+    # Second creation should fail with 400
+    response2 = client.post("/api/marius/tasks", json=payload)
+    assert response2.status_code == 400
+    assert "already exists" in response2.json()["detail"]
