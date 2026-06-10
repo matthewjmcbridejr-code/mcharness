@@ -264,7 +264,7 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
       }),
     });
   });
-  await page.goto("/web/mctable-studio/cockpit-app.html");
+  await page.goto("/web/warden/index.html");
 
   // Simple default UI
   await expect(page.locator("h1")).toContainText("Warden");
@@ -659,7 +659,7 @@ test("Captain Settings saves a private OpenRouter key and enables Captain planni
     await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: `Unhandled route: ${pathname}` }) });
   });
 
-  await page.goto("http://127.0.0.1:8125/web/mctable-studio/cockpit-app.html");
+  await page.goto("http://127.0.0.1:8125/web/warden/index.html");
   await expect(page.locator("[data-testid='develop-plan-primary']")).toBeVisible();
 
   await page.locator("[data-testid='develop-plan-primary']").click();
@@ -913,7 +913,7 @@ test("private runner quick replies send allowed keys and refresh transcript", as
     await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: `Unhandled route: ${pathname}` }) });
   });
 
-  await page.goto("http://127.0.0.1:8125/web/mctable-studio/cockpit-app.html");
+  await page.goto("http://127.0.0.1:8125/web/warden/index.html");
   await page.locator("[data-testid='nav-agents']").click();
   await expect(page.locator("text=Agent Library")).toBeVisible();
 
@@ -1264,7 +1264,7 @@ test("Captain Deck creates a plan and deploys the first prompt", async ({ page }
     await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: `Unhandled route: ${pathname}` }) });
   });
 
-  await page.goto("http://127.0.0.1:8125/web/mctable-studio/cockpit-app.html");
+  await page.goto("http://127.0.0.1:8125/web/warden/index.html");
   await expect(page.locator("[data-testid='develop-plan-primary']")).toBeVisible();
 
   await page.locator("[data-testid='develop-plan-primary']").click();
@@ -1443,7 +1443,7 @@ test("Captain supervised step loop advances manually in Mission", async ({ page 
     await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: `Unhandled route: ${pathname}` }) });
   });
 
-  await page.goto("http://127.0.0.1:8125/web/mctable-studio/cockpit-app.html");
+  await page.goto("http://127.0.0.1:8125/web/warden/index.html");
   await page.locator("[data-testid='develop-plan-primary']").click();
   const captainModal = page.locator("#captain-deck-modal");
   await captainModal.locator("#captain-goal").fill("Prove supervised Captain loop in Mission.");
@@ -1641,7 +1641,7 @@ test("Agent Registry configure flow and Captain dropdown use registered agents",
     await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: `Unhandled route: ${pathname}` }) });
   });
 
-  await page.goto("/web/mctable-studio/cockpit-app.html");
+  await page.goto("/web/warden/index.html");
   await expect(page.locator("h1")).toContainText("Warden");
   await expect(page.locator("[data-testid='nav-mission']")).toHaveClass(/active/);
   await page.locator("[data-testid='nav-agents']").click();
@@ -1963,7 +1963,7 @@ test("run history and evidence appear after private Codex dispatch", async ({ pa
     await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: `Unhandled route: ${pathname}` }) });
   });
 
-  await page.goto("/web/mctable-studio/cockpit-app.html");
+  await page.goto("/web/warden/index.html");
   await page.locator("[data-testid='nav-runs']").click();
   await expect(page.locator("[data-testid='runs-empty-state']")).toBeVisible();
 

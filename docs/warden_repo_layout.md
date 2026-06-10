@@ -1,31 +1,32 @@
 # Warden repository layout
 
-Warden is the supervised agent control room product from Marius Systems. McHarness is the engine and API namespace.
+Warden is the supervised agent control room from Marius Systems. McHarness is the engine and API namespace.
 
 ## Runtime layout
 
 ```text
-src/warden/                 # Primary Python package (control plane)
-src/marius_desktop/         # Temporary import shims — migrate callers to src.warden
-src/server/api.py           # Service entrypoint (imports src.warden.app)
+src/warden/          # Warden control plane (FastAPI)
+src/server/api.py    # Service entrypoint
 
-web/warden/                 # Canonical Warden UI
-  index.html                # /web/warden/index.html
-  app.html                  # alias
+web/warden/          # Canonical Warden UI
+  index.html         # http://127.0.0.1:8125/web/warden/index.html
+  app.html
   app.js
   app.css
 
-web/mctable-studio/         # Compatibility URL path (8124/8125 services)
-  cockpit-app.html          # /web/mctable-studio/cockpit-app.html
-  cockpit-app.js
-  cockpit-app.css
+tests/
+  test_warden_*.py
+  browser/warden-cockpit.spec.js
 
-docs/archive/legacy/        # Archived Marius Desktop / McTable artifacts
+docs/
+  warden_repo_layout.md
+  branding.md
+  quickstart.md
 ```
 
 ## Data paths
 
-Runtime state is stored under `MCHARNESS_DATA_ROOT` (default `_mctable/`):
+Runtime state lives under `MCHARNESS_DATA_ROOT` (default `_mctable/`, gitignored):
 
 - `captain/plans.json` — Captain supervised plans
 - `mcharness/runners/` — Codex runner session state
@@ -33,16 +34,8 @@ Runtime state is stored under `MCHARNESS_DATA_ROOT` (default `_mctable/`):
 - `mcharness/evidence/` — Evidence records
 - `agents/` — Agent registry
 
-These directories are gitignored.
+## API namespace
 
-## API namespaces
+Warden UI uses **`/api/mcharness/...`** exclusively.
 
-- `/api/mcharness/...` — McHarness engine (Warden UI primary consumer)
-- `/api/marius/...` — Legacy workbench/captain/task graph routes (still mounted for compatibility)
-
-## Compatibility notes
-
-- Keep `/web/mctable-studio/cockpit-app.html` until all systemd/bookmarks migrate.
-- `src.marius_desktop` shims re-export `src.warden` modules; remove after import migration.
-- Archived public marketing page: `docs/archive/legacy/cockpit-public-demo.html`.
-- Archived Tauri shell: `docs/archive/legacy/src-tauri/`.
+Legacy `/api/marius` routes are not mounted in the Warden service.

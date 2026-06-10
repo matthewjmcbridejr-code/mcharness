@@ -1,15 +1,8 @@
-# Branding
+# Warden branding
 
-Public identity:
+- **Product:** Warden
+- **Studio:** Marius Systems
+- **Engine / repo / API namespace:** McHarness
+- **Canonical UI:** `/web/warden/index.html`
 
-- Product name: McHarness
-- Repo name: `mcharness`
-- Public demo URL: `https://mctable.team`
-- Tagline: A local-first agentic harness for supervised AI work.
-- Category: AI agentic harness
-
-Implementation note:
-
-- The internal Python module currently remains `src/marius_desktop`.
-- Branding is loaded locally from `branding.json`; no external service is required.
-- `Marius Desktop` is the legacy codename only.
+McHarness appears in UI as the powered-by engine label. Warden is the product name shown to operators.

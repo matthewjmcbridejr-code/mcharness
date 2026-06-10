@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from .api import legacy_router, mcharness_router, router as marius_router
+from .api import mcharness_router
 from .branding import CATEGORY, PRODUCT_NAME, PUBLIC_URL, REPO_NAME, TAGLINE
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -25,9 +25,7 @@ def create_app() -> FastAPI:
         "tagline": TAGLINE,
         "category": CATEGORY,
     }
-    app.include_router(marius_router)
     app.include_router(mcharness_router)
-    app.include_router(legacy_router)
     if _WEB_DIR.exists():
         app.mount("/web", StaticFiles(directory=str(_WEB_DIR), html=False), name="web")
     return app

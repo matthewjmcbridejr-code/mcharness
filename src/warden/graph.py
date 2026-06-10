@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 MCTABLE_ROOT = Path(os.getenv("MCHARNESS_DATA_ROOT", "_mctable"))
 TASKS_DIR = MCTABLE_ROOT / "tasks"
 CHECKPOINTS_DIR = MCTABLE_ROOT / "checkpoints"
-CHECKPOINT_DB_PATH = CHECKPOINTS_DIR / "marius_desktop.sqlite"
+CHECKPOINT_DB_PATH = CHECKPOINTS_DIR / "warden.sqlite"
 
 FINAL_TASK_STATUSES = {"completed", "failed", "cancelled"}
 PAUSED_TASK_STEP = "human_review_gate"

@@ -11,24 +11,20 @@ from src.server.api import app
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_standalone_app_serves_backend_status_and_web():
+def test_standalone_app_serves_health_and_web():
     client = TestClient(standalone_app)
     assert app is standalone_app
 
-    status_response = client.get("/api/marius/status")
-    assert status_response.status_code == 200
-    status = status_response.json()
-    assert status["status"] == "online"
-    assert status["service"] == "marius-desktop-api"
+    health_response = client.get("/api/mcharness/health")
+    assert health_response.status_code == 200
+    health = health_response.json()
+    assert health["ok"] is True
+    assert health["service"] == "mcharness-control-plane"
 
     warden_response = client.get("/web/warden/index.html")
     assert warden_response.status_code == 200
     assert "Warden" in warden_response.text
     assert "by Marius Systems" in warden_response.text
-
-    compat_response = client.get("/web/mctable-studio/cockpit-app.html")
-    assert compat_response.status_code == 200
-    assert "Warden" in compat_response.text
 
 
 def test_branding_and_readme_are_public():

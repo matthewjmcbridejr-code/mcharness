@@ -1,46 +1,25 @@
 # Warden (McHarness)
 
-Warden is the supervised agent control room from **Marius Systems**. **McHarness** is the local-first engine underneath — tasks, runs, evidence, Captain plans, and the private Codex runner.
+Warden is the supervised agent control room from **Marius Systems**. **McHarness** is the local-first engine underneath.
 
-Public demo: [https://mctable.team](https://mctable.team) (read-only / runner-disabled view).
-
-## What it is
-
-- Mission-first operator shell for bounded agent work
-- Captain Deck (OpenRouter planning) with supervised step loop
-- Agent Library (Codex CLI, Jules Remote configuration)
-- Run History + Evidence on the private service (8125)
-- Codex Live Monitor for controlled prompt dispatch
-
-## What it is not
-
-- Not a public SaaS control plane with open runner access
-- Not autonomous — operators approve each step
-- Not arbitrary shell execution
-- Not production-readiness proof by itself
-
-## Quickstart
-
-See [docs/quickstart.md](docs/quickstart.md) and [docs/warden_repo_layout.md](docs/warden_repo_layout.md).
-
-## Warden UI paths
-
-Canonical:
+## UI
 
 ```text
 http://127.0.0.1:8125/web/warden/index.html
 ```
 
-Compatibility (services/bookmarks may still use this):
+## Features
 
-```text
-http://127.0.0.1:8125/web/mctable-studio/cockpit-app.html
-```
+- Mission-first operator shell
+- Captain Deck with supervised step loop
+- Agent Library (Codex CLI, Jules Remote)
+- Run History + Evidence (private 8125)
+- Codex Live Monitor
 
 ## Safety
 
-See [SECURITY.md](SECURITY.md). Public 8124 remains runner-disabled; private 8125 enables Codex dispatch only.
+- Public 8124: runner-disabled, read-mostly
+- Private 8125: Codex dispatch enabled, operator-supervised only
+- No arbitrary shell execution
 
-## Legacy
-
-`src/marius_desktop/` contains temporary import shims. Archived Marius Desktop / McTable artifacts live under `docs/archive/legacy/`.
+See [docs/warden_repo_layout.md](docs/warden_repo_layout.md), [docs/quickstart.md](docs/quickstart.md), and [SECURITY.md](SECURITY.md).
