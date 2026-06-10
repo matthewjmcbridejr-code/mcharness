@@ -569,7 +569,11 @@
     const captainStatus = document.getElementById("settings-captain-status");
     const captainModel = document.getElementById("settings-captain-model");
     const agentNote = document.getElementById("settings-agent-note");
-    const modeNote = document.getElementById("settings-mode-note");
+    const publicRunner = document.getElementById("settings-public-runner");
+    const privateRunner = document.getElementById("settings-private-runner");
+    const shellInput = document.getElementById("settings-shell-input");
+    const agentRegistration = document.getElementById("settings-agent-registration");
+    const runnerActive = !!health.tmux_runner_enabled && !!health.codex_runner_enabled;
     if (captainStatus) {
       captainStatus.textContent = deck.configured
         ? `Captain: Configured${deck.keySource && deck.keySource !== "missing" ? ` (${deck.keySource})` : ""}`
@@ -583,11 +587,23 @@
         ? "Add and configure CLI or remote agents from the Agents section after connection checks."
         : "Agent registration is available on the private runner service (8125).";
     }
-    if (modeNote) {
-      const runnerActive = !!health.tmux_runner_enabled && !!health.codex_runner_enabled;
-      modeNote.textContent = runnerActive
-        ? "Private runner mode is active on this service. Codex runs through controlled tmux sessions."
-        : "Public real agent launch is disabled on this service.";
+    if (publicRunner) {
+      publicRunner.textContent = "Public runner: Disabled on public service";
+    }
+    if (privateRunner) {
+      privateRunner.textContent = runnerActive
+        ? "Private runner: Active on this service"
+        : "Private runner: Available only on private service";
+    }
+    if (shellInput) {
+      shellInput.textContent = health.arbitrary_command_execution_enabled
+        ? "Arbitrary shell input: Enabled"
+        : "Arbitrary shell input: Disabled";
+    }
+    if (agentRegistration) {
+      agentRegistration.textContent = state.registryWriteEnabled
+        ? "Agent registration: Enabled on this service"
+        : "Agent registration: Private only";
     }
     updateRunsEvidenceActions();
   }
@@ -1562,16 +1578,6 @@
       if (e.target === addAgentModal) closeAddAgentModal();
     });
 
-    // Legacy toggle (show old if present)
-    const legLink = document.getElementById("legacy-link");
-    const leg = document.getElementById("legacy-cockpit");
-    if (legLink && leg) {
-      legLink.addEventListener("click", (e) => {
-        e.preventDefault();
-        leg.open = !leg.open;
-      });
-    }
-
     // Monitor buttons (if elements exist from the modal HTML)
     const mRefresh = document.getElementById("modal-refresh");
     if (mRefresh) mRefresh.addEventListener("click", refreshLiveMonitor);
@@ -1648,7 +1654,7 @@
     const oldSelectors = [".rail", ".panel", "#sessions-list", "#queue-list", "#artifact-list", "#evidence-list", "#gate-list", "#safety-list", "#log-hint", "section.layout-stack", "main.panel"];
     oldSelectors.forEach((sel) => {
       document.querySelectorAll(sel).forEach((el) => {
-        if (el.id && (el.id.includes("modal") || el.id === "legacy-cockpit" || el.id === "codex-card" || el.id.includes("use-agent"))) return;
+        if (el.id && (el.id.includes("modal") || el.id === "codex-card" || el.id.includes("use-agent"))) return;
         el.style.display = "none";
       });
     });

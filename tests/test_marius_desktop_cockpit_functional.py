@@ -21,11 +21,6 @@ def test_functional_cockpit_page_is_served_with_control_plane_labels():
     assert response.status_code == 200
     # Simple Agent Library default (SIMPLE MODE)
     for snippet in [
-        "SERVER CONTROL PLANE",
-        "ALLOWLISTED CLI LANES ONLY",
-        "ARBITRARY COMMAND EXECUTION DISABLED",
-        "PUBLIC REAL AGENT LAUNCH DISABLED",
-        "FAKE/MANUAL MODE",
         "Warden",
         "by Marius Systems",
         "Supervised agent ops",
@@ -34,6 +29,11 @@ def test_functional_cockpit_page_is_served_with_control_plane_labels():
         "nav-tasks",
         "No active task plan yet",
         "settings-captain-status",
+        "settings-safety-list",
+        "Public runner: Disabled on public service",
+        "Private runner: Available only on private service",
+        "Arbitrary shell input: Disabled",
+        "Agent registration: Private only",
         "Connect local CLI agents and remote workers",
         "Agent Library",
         "Ready to Run",
@@ -46,10 +46,14 @@ def test_functional_cockpit_page_is_served_with_control_plane_labels():
         "add-agent-modal",
         "add-agent-step-choose",
         "Test Connection",
-        "Advanced / Legacy Cockpit",
         "Captain Deck",
     ]:
         assert snippet in response.text
+    for removed_snippet in [
+        "SERVER CONTROL PLANE",
+        "Advanced / Legacy Cockpit",
+    ]:
+        assert removed_snippet not in response.text
 
 
 def test_mcharness_control_plane_loop_persists_after_reload():

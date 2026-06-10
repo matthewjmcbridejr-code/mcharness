@@ -119,6 +119,12 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await expect(page.locator("[data-testid='evidence-empty-state']")).toContainText("Saved transcripts");
   await page.locator("[data-testid='nav-settings']").click();
   await expect(page.locator("[data-testid='settings-captain-status']")).toContainText("Captain:");
+  await expect(page.locator("[data-testid='settings-public-runner']")).toContainText("Public runner: Disabled on public service");
+  await expect(page.locator("[data-testid='settings-private-runner']")).toContainText("Private runner:");
+  await expect(page.locator("[data-testid='settings-shell-input']")).toContainText("Arbitrary shell input: Disabled");
+  await expect(page.locator("[data-testid='settings-agent-registration']")).toContainText("Agent registration:");
+  await expect(page.locator("text=SERVER CONTROL PLANE")).toHaveCount(0);
+  await expect(page.locator("text=Advanced / Legacy Cockpit")).toHaveCount(0);
   await page.locator("[data-testid='nav-agents']").click();
   await expect(page.locator("#codex-card").getByRole("button", { name: "Use Agent" })).toBeVisible();
   await expect(page.locator("#codex-card").getByRole("button", { name: "View Agent" })).toBeVisible();
@@ -172,9 +178,6 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await mon.locator("#modal-close").or(page.getByTestId("modal-close")).click();
   await expect(mon).not.toBeVisible();
   await expect(useModal).not.toBeVisible();
-
-  // Legacy link exists for advanced
-  await expect(page.locator("#legacy-link")).toBeVisible();
 
   await page.screenshot({ path: testInfo.outputPath("cockpit-final.png"), fullPage: true });
 });

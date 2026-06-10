@@ -390,7 +390,7 @@ textarea {
 /* Warden control room shell */
 .warden-shell {
   display: flex;
-  min-height: calc(100vh - 42px);
+  min-height: 100vh;
 }
 
 .warden-sidebar {
@@ -478,15 +478,6 @@ textarea {
   font-size: 0.72rem;
 }
 
-.warden-legacy-link {
-  color: var(--accent);
-  text-decoration: none;
-}
-
-.warden-legacy-link:hover {
-  text-decoration: underline;
-}
-
 .warden-powered {
   color: var(--muted);
 }
@@ -570,22 +561,13 @@ textarea {
   margin-bottom: 0;
 }
 
-.legacy-cockpit-details {
-  margin-top: 20px;
-  font-size: 0.85em;
-  color: var(--accent);
-}
-
-.legacy-cockpit-details summary {
-  cursor: pointer;
-}
-
-.legacy-cockpit-note {
-  margin-top: 8px;
-  padding: 8px;
-  border: 1px solid var(--line);
-  font-size: 0.8em;
+.settings-safety-list {
+  margin: 0;
+  padding-left: 18px;
   color: var(--muted);
+  font-size: 0.84rem;
+  display: grid;
+  gap: 6px;
 }
 
 .agent-card-top {
