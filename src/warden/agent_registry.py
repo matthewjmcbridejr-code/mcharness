@@ -625,6 +625,7 @@ def agent_status_payload(
     codex_runner_ready: bool,
     root: Path | None = None,
     probe_codex: Callable[[], dict[str, Any]] | None = None,
+    last_checked_at: str | None = None,
 ) -> dict[str, Any]:
     enriched = enrich_agent_profile(agent, codex_runner_ready=codex_runner_ready, root=root)
     payload: dict[str, Any] = {
@@ -637,6 +638,7 @@ def agent_status_payload(
         "runnable": enriched["runnable"],
         "enabled": enriched.get("enabled", True),
         "notes": [],
+        "last_checked_at": last_checked_at,
     }
     adapter = str(enriched.get("adapter") or "")
     if adapter == "codex_cli" and probe_codex is not None:
@@ -666,6 +668,7 @@ def probe_agent(
     root: Path | None = None,
     probe_codex: Callable[[], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    checked_at = _now_iso()
     adapter = str(agent.get("adapter") or "")
     if adapter == "codex_cli":
         if probe_codex is None:
@@ -675,7 +678,9 @@ def probe_agent(
             "id": agent.get("id"),
             "adapter": adapter,
             "status": "ready" if probe.get("installed") and codex_runner_ready else "disabled",
+            "runnable": bool(probe.get("installed") and codex_runner_ready),
             "probe": probe,
+            "last_checked_at": checked_at,
             "notes": ["Probe checks executable presence only. No run was started."],
         }
     if adapter == "jules_remote":
@@ -687,6 +692,9 @@ def probe_agent(
                 "id": agent.get("id"),
                 "adapter": adapter,
                 "status": "not_configured",
+                "connection_status": "not_configured",
+                "runnable": False,
+                "last_checked_at": checked_at,
                 "notes": ["Jules API key is not configured for this agent."],
             }
         test_result = test_jules_remote_config(
@@ -694,12 +702,49 @@ def probe_agent(
             default_repo_id=agent.get("default_repo_id"),
             default_branch=agent.get("default_branch"),
         )
+        status = str(test_result.get("status") or "error")
         return {
             "id": agent.get("id"),
             "adapter": adapter,
-            "status": test_result.get("status"),
+            "status": "ready" if status == "connected" else status,
+            "connection_status": status,
+            "runnable": False,
             "message": test_result.get("message"),
             "safe_details": test_result.get("safe_details") or {},
-            "notes": ["Jules probe checks API key only. No session was started."],
+            "last_checked_at": checked_at,
+            "notes": ["Jules probe checks API key only. No session was started. Planning only; execution comes next."],
         }
     raise HTTPException(status_code=400, detail=f"Probe is not supported for adapter '{adapter}'.")
+
+
+def refresh_agent_statuses(
+    root: Path,
+    *,
+    codex_runner_ready: bool,
+    private_only: bool,
+    probe_codex: Callable[[], dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    refreshed: list[dict[str, Any]] = []
+    for agent in list_all_agents(root, codex_runner_ready=codex_runner_ready, private_only=private_only):
+        try:
+            probed = probe_agent(
+                agent,
+                codex_runner_ready=codex_runner_ready,
+                root=root,
+                probe_codex=probe_codex if agent.get("adapter") == "codex_cli" else None,
+            )
+        except HTTPException:
+            probed = {"status": agent.get("status"), "last_checked_at": _now_iso()}
+        payload = sanitize_agent_profile(agent)
+        payload["last_checked_at"] = probed.get("last_checked_at")
+        if "status" in probed:
+            payload["status"] = probed["status"]
+        if "connection_status" in probed:
+            payload["connection_status"] = probed["connection_status"]
+        if "runnable" in probed:
+            payload["runnable"] = probed["runnable"]
+        elif agent.get("adapter") == "jules_remote":
+            payload["runnable"] = False
+        payload["notes"] = list(probed.get("notes") or [])
+        refreshed.append(payload)
+    return refreshed

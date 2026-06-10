@@ -70,6 +70,16 @@ from .run_history import (
     list_recent_runs,
     update_run_record,
 )
+from .worklog import EVENT_LABELS, list_recent_worklog
+from .proof_gates import (
+    create_proof_gate,
+    decide_proof_gate,
+    gate_status_summary_for_run,
+    get_proof_gate,
+    list_gates_for_run,
+    list_recent_gates,
+)
+from .run_reports import build_run_report_payload
 from .agent_registry import (
     BUILTIN_CODEX_ID,
     McHarnessAgentConfigPatchRequest,
@@ -83,6 +93,7 @@ from .agent_registry import (
     get_agent_by_id,
     list_all_agents,
     probe_agent,
+    refresh_agent_statuses,
     sanitize_agent_profile,
     test_agent_config,
     update_registered_agent,
@@ -362,6 +373,21 @@ class McHarnessRunEvidenceCreateRequest(BaseModel):
     content: Optional[str] = None
     agent_id: Optional[str] = None
     source: str = Field(default="operator", min_length=1)
+
+
+class McHarnessProofGateCreateRequest(BaseModel):
+    gate_type: str = Field(default="manual_review", min_length=1)
+    title: str = Field(min_length=1)
+    summary: str = Field(default="")
+    plan_id: Optional[str] = None
+    step_id: Optional[str] = None
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class McHarnessProofGateDecisionRequest(BaseModel):
+    decision: Literal["approve", "block", "request_more_evidence"]
+    decided_by: str = Field(default="operator", min_length=1)
+    decision_reason: Optional[str] = None
 
 
 class McHarnessCaptainPlanRequest(BaseModel):
@@ -1948,6 +1974,25 @@ def get_mcharness_agent_status(agent_id: str):
     )
 
 
+@mcharness_router.post("/agents/refresh-status")
+def refresh_mcharness_agent_statuses():
+    agents = refresh_agent_statuses(
+        MCTABLE_ROOT,
+        codex_runner_ready=_codex_runner_ready(),
+        private_only=_agent_registry_private_only(),
+        probe_codex=_codex_probe_payload,
+    )
+    last_checked_at = max((agent.get("last_checked_at") or "" for agent in agents), default=None)
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "registry_write_enabled": _agent_registry_write_enabled(),
+        "last_checked_at": last_checked_at,
+        "agents": agents,
+        "notes": ["Status refresh probes agents only. No tasks were started."],
+    }
+
+
 @mcharness_router.post("/agents/{agent_id}/probe")
 def probe_mcharness_agent(agent_id: str):
     agent = get_agent_by_id(
@@ -2526,10 +2571,18 @@ def get_mcharness_runs_recent():
             "runs": [],
             "notes": ["Run history is available on the private runner service."],
         }
+    runs = list_recent_runs(MCTABLE_ROOT)
+    enriched = []
+    for run in runs:
+        row = dict(run)
+        run_id = str(run.get("run_id") or "")
+        if run_id:
+            row["gate_status"] = gate_status_summary_for_run(MCTABLE_ROOT, run_id)
+        enriched.append(row)
     return {
         "service": "mcharness-control-plane",
         "service_mode": _service_mode_label(),
-        "runs": list_recent_runs(MCTABLE_ROOT),
+        "runs": enriched,
     }
 
 
@@ -2541,12 +2594,24 @@ def get_mcharness_run_detail(run_id: str):
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
     evidence = evidence_summaries_for_run(MCTABLE_ROOT, list(run.get("evidence_ids") or []))
+    gates = list_gates_for_run(MCTABLE_ROOT, run_id)
     return {
         "service": "mcharness-control-plane",
         "service_mode": _service_mode_label(),
-        "run": run,
+        "run": {
+            **run,
+            "gate_status": gate_status_summary_for_run(MCTABLE_ROOT, run_id),
+        },
         "evidence": evidence,
+        "gates": gates,
     }
+
+
+@mcharness_router.get("/runs/{run_id}/report")
+def get_mcharness_run_report(run_id: str):
+    if not _run_history_read_enabled():
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    return build_run_report_payload(MCTABLE_ROOT, run_id)
 
 
 @mcharness_router.post("/runs/{run_id}/evidence", dependencies=[Depends(_require_run_history_write)])
@@ -2576,7 +2641,7 @@ def post_mcharness_run_evidence(run_id: str, payload: McHarnessRunEvidenceCreate
 
 
 @mcharness_router.get("/evidence/recent")
-def get_mcharness_evidence_recent():
+def get_mcharness_evidence_recent(type: Optional[str] = None):
     if not _run_history_read_enabled():
         return {
             "service": "mcharness-control-plane",
@@ -2584,10 +2649,109 @@ def get_mcharness_evidence_recent():
             "evidence": [],
             "notes": ["Evidence history is available on the private runner service."],
         }
+    evidence = list_recent_evidence(MCTABLE_ROOT)
+    if type:
+        evidence = [item for item in evidence if str(item.get("type") or "") == type]
     return {
         "service": "mcharness-control-plane",
         "service_mode": _service_mode_label(),
-        "evidence": list_recent_evidence(MCTABLE_ROOT),
+        "evidence": evidence,
+        "filter_type": type,
+    }
+
+
+@mcharness_router.get("/gates/recent")
+def get_mcharness_gates_recent():
+    if not _run_history_read_enabled():
+        return {
+            "service": "mcharness-control-plane",
+            "service_mode": _service_mode_label(),
+            "gates": [],
+            "notes": ["Proof gates are available on the private runner service."],
+        }
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "gates": list_recent_gates(MCTABLE_ROOT),
+    }
+
+
+@mcharness_router.get("/runs/{run_id}/gates")
+def get_mcharness_run_gates(run_id: str):
+    if not _run_history_read_enabled():
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    run = get_run_record(MCTABLE_ROOT, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "run_id": run_id,
+        "gates": list_gates_for_run(MCTABLE_ROOT, run_id),
+    }
+
+
+@mcharness_router.post("/runs/{run_id}/gates", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_run_gate(run_id: str, payload: McHarnessProofGateCreateRequest):
+    run = get_run_record(MCTABLE_ROOT, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    gate = create_proof_gate(
+        MCTABLE_ROOT,
+        run_id=run_id,
+        plan_id=payload.plan_id or run.get("plan_id"),
+        step_id=payload.step_id,
+        gate_type=payload.gate_type,
+        title=payload.title,
+        summary=payload.summary,
+        evidence_ids=list(payload.evidence_ids or run.get("evidence_ids") or []),
+    )
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "gate": gate,
+    }
+
+
+@mcharness_router.post("/gates/{gate_id}/decision", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_gate_decision(gate_id: str, payload: McHarnessProofGateDecisionRequest):
+    gate = get_proof_gate(MCTABLE_ROOT, gate_id)
+    if gate is None:
+        raise HTTPException(status_code=404, detail=f"Proof gate not found: {gate_id}")
+    updated = decide_proof_gate(
+        MCTABLE_ROOT,
+        gate_id,
+        decision=payload.decision,
+        decided_by=payload.decided_by,
+        decision_reason=payload.decision_reason,
+    )
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "gate": updated,
+    }
+
+
+@mcharness_router.get("/worklog/recent")
+def get_mcharness_worklog_recent():
+    if not _run_history_read_enabled():
+        return {
+            "service": "mcharness-control-plane",
+            "service_mode": _service_mode_label(),
+            "items": [],
+            "notes": ["Mission worklog is available on the private runner service."],
+        }
+    items = list_recent_worklog(MCTABLE_ROOT)
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "items": [
+            {
+                **item,
+                "label": EVENT_LABELS.get(str(item.get("kind")), str(item.get("kind") or "event")),
+            }
+            for item in items
+        ],
     }
 
 

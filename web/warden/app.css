@@ -919,6 +919,104 @@ textarea {
   line-height: 1.45;
 }
 
+.mission-worklog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.worklog-event-card {
+  border: 1px solid rgba(36, 56, 84, 0.85);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(12, 23, 39, 0.65);
+}
+
+.worklog-event-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.worklog-event-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.worklog-event-title {
+  margin: 0 0 2px;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.worklog-event-summary {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.worklog-event-time {
+  margin: 4px 0 0;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.proof-gate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.proof-gate-card {
+  border: 1px solid rgba(36, 56, 84, 0.85);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(12, 23, 39, 0.65);
+}
+
+.proof-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.history-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.evidence-type-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.evidence-type-filter .btn.active {
+  border-color: rgba(125, 176, 255, 0.45);
+  background: rgba(125, 176, 255, 0.12);
+}
+
+.workspace-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .mission-card-wide {
   grid-column: 1 / -1;
 }

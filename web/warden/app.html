@@ -77,15 +77,21 @@
           </div>
           <div class="mission-card" data-testid="mission-worklog-card">
             <h3 class="mission-card-title">Mission Worklog</h3>
-            <p class="mission-card-copy">Captain plans, dispatched steps, run updates, and evidence links will appear here.</p>
+            <div id="mission-worklog-list" data-testid="mission-worklog-list" class="mission-worklog-list"></div>
+            <p id="mission-worklog-empty" data-testid="mission-worklog-empty" class="mission-card-copy">No mission activity yet. Create a plan to start the worklog.</p>
           </div>
         </div>
       </section>
 
       <section id="warden-section-agents" class="workspace-section" data-section="agents" data-testid="warden-section-agents">
         <header class="workspace-header">
-          <h2 class="workspace-title">Agent Library</h2>
-          <p class="workspace-subhead">Connect local CLI agents and remote workers, then dispatch bounded work through Captain.</p>
+          <div class="workspace-header-row">
+            <div>
+              <h2 class="workspace-title">Agent Library</h2>
+              <p class="workspace-subhead">Connect local CLI agents and remote workers, then dispatch bounded work through Captain.</p>
+            </div>
+            <button type="button" id="refresh-agent-status" data-testid="refresh-agent-status" class="btn">Refresh Status</button>
+          </div>
         </header>
 
         <div id="agent-library-cards" data-testid="agent-library-cards" class="agent-library-groups">
@@ -152,6 +158,12 @@
           <h2 class="workspace-title">Evidence</h2>
           <p class="workspace-subhead">Proof artifacts from supervised agent work.</p>
         </header>
+        <div id="evidence-type-filter" data-testid="evidence-type-filter" class="evidence-type-filter" style="display:none;">
+          <button type="button" class="btn active" data-evidence-filter="all">All</button>
+          <button type="button" class="btn" data-evidence-filter="transcript">Transcript</button>
+          <button type="button" class="btn" data-evidence-filter="manual">Manual</button>
+          <button type="button" class="btn" data-evidence-filter="test">Test</button>
+        </div>
         <div id="evidence-list" data-testid="evidence-list" class="history-card-list" style="display:none;"></div>
         <div class="empty-state-card" data-testid="evidence-empty-state">
           <h3>Saved outputs, transcripts, proof reports, diffs, screenshots, and PR links will appear here.</h3>
@@ -219,9 +231,15 @@
           <div class="inspector-card" data-testid="inspector-connected-agents">
             <h3 class="inspector-title">Connected Agents</h3>
             <ul class="control-room-list">
+              <li id="inspector-captain-agent" data-testid="inspector-captain-agent">Captain — Not configured</li>
               <li id="inspector-codex-agent" data-testid="inspector-codex-agent">Codex CLI — Disabled</li>
               <li id="inspector-jules-agent" data-testid="inspector-jules-agent">Jules Remote — Planning only</li>
             </ul>
+            <button type="button" id="inspector-refresh-agents" data-testid="inspector-refresh-agents" class="btn" style="margin-top:8px;">Refresh Status</button>
+          </div>
+          <div class="inspector-card" data-testid="inspector-proof-gates">
+            <h3 class="inspector-title">Proof Gates</h3>
+            <div id="inspector-gates-summary" data-testid="inspector-gates-summary" class="inspector-copy">No proof gates yet.</div>
           </div>
         </aside>
       </div>
@@ -424,7 +442,15 @@
         <h4>Evidence</h4>
         <ul id="run-detail-evidence" data-testid="run-detail-evidence" class="history-modal-list"></ul>
       </div>
-      <button type="button" id="run-detail-close" data-testid="run-detail-close" class="btn">Close</button>
+      <div class="history-modal-section" data-testid="run-detail-gates-section">
+        <h4>Proof Gates</h4>
+        <div id="run-detail-gates" data-testid="run-detail-gates" class="proof-gate-list"></div>
+        <button type="button" id="run-detail-create-gate" data-testid="run-detail-create-gate" class="btn" style="display:none;">Create Proof Gate</button>
+      </div>
+      <div class="history-modal-actions">
+        <button type="button" id="run-detail-export" data-testid="run-detail-export" class="btn">Export Report</button>
+        <button type="button" id="run-detail-close" data-testid="run-detail-close" class="btn">Close</button>
+      </div>
     </div>
   </div>
 

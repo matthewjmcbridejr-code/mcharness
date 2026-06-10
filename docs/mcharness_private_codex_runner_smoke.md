@@ -92,7 +92,7 @@ for l in data.get("lanes", []):
 Open a browser on the server (or use `lynx`/`w3m` for quick check) and go to:
 
 ```
-http://127.0.0.1:8125/web/mctable-studio/cockpit-app.html
+http://127.0.0.1:8125/web/warden/index.html
 ```
 
 ### Option B — From your laptop (SSH tunnel)
@@ -105,7 +105,7 @@ ssh -L 8125:127.0.0.1:8125 -N -f youruser@McServer
 Then browse:
 
 ```
-http://localhost:8125/web/mctable-studio/cockpit-app.html
+http://localhost:8125/web/warden/index.html
 ```
 
 (The tunnel forwards only to localhost on the server; nothing is public.)

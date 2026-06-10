@@ -515,8 +515,8 @@ def _generate_queue_items(state: CaptainState, plan: CaptainPlan) -> list[Prompt
     roles = ["reviewer", "test_runner", "docs_writer"]
     files = [
         ["README.md", "docs/architecture.md"],
-        ["tests/test_marius_desktop_captain.py", "tests/test_marius_desktop_workbench.py"],
-        ["web/mctable-studio/cockpit.html", "docs/workbench_core.md"],
+        ["tests/test_warden_captain.py", "tests/test_warden_workbench.py"],
+        ["web/warden/index.html", "docs/workbench_core.md"],
     ]
     prompts = [
         f"Review the captain state machine for {state.objective}.",
@@ -643,7 +643,7 @@ def _template_library() -> dict[str, CaptainTemplate]:
                     minion_id="status_auditor",
                     role="auditor",
                     scope="Review the live status and proof surface.",
-                    files=["src/marius_desktop/api.py", "web/mctable-studio/cockpit.html"],
+                    files=["src/warden/api.py", "web/warden/index.html"],
                     notes="Keep the scope to the local desktop surface.",
                 ),
                 MinionTask(
@@ -662,8 +662,8 @@ def _template_library() -> dict[str, CaptainTemplate]:
                 files=["docs/release_checklist.md", "docs/demo_script.md"],
             ),
             planned_acceptance_commands=[
-                "python -m pytest -q tests/test_marius_desktop_captain.py tests/test_marius_desktop_api.py",
-                "PYTHONPATH=. python scripts/verify_marius_desktop_backend.py",
+                "python -m pytest -q tests/test_warden_captain.py tests/test_warden_api.py",
+                "PYTHONPATH=. python pytest -q tests/test_warden_api.py",
             ],
         ),
         "ui_polish": CaptainTemplate(
@@ -687,7 +687,7 @@ def _template_library() -> dict[str, CaptainTemplate]:
                     minion_id="cockpit_editor",
                     role="designer",
                     scope="Polish the cockpit display text.",
-                    files=["web/mctable-studio/cockpit.html"],
+                    files=["web/warden/index.html"],
                 ),
                 MinionTask(
                     minion_id="shell_editor",
@@ -698,7 +698,7 @@ def _template_library() -> dict[str, CaptainTemplate]:
             ],
             hard_gates=[_safe_gate("Keep the work local and avoid runtime artifacts.")],
             planned_acceptance_commands=[
-                "python -m pytest -q tests/test_marius_desktop_cockpit_static.py tests/test_marius_desktop_tauri_shell.py",
+                "python -m pytest -q tests/test_warden_cockpit_static.py tests/test_warden_tauri_shell.py",
             ],
         ),
         "docs_audit": CaptainTemplate(
@@ -731,7 +731,7 @@ def _template_library() -> dict[str, CaptainTemplate]:
                 files=["docs/architecture.md", "docs/demo_script.md", "docs/marius_agent_desktop_captain_mode.md"],
             ),
             planned_acceptance_commands=[
-                "python -m pytest -q tests/test_marius_desktop_api.py tests/test_marius_desktop_captain.py",
+                "python -m pytest -q tests/test_warden_api.py tests/test_warden_captain.py",
             ],
         ),
         "test_triage": CaptainTemplate(
@@ -755,12 +755,12 @@ def _template_library() -> dict[str, CaptainTemplate]:
                     minion_id="test_runner",
                     role="qa",
                     scope="Run the focused backend tests.",
-                    files=["tests/test_marius_desktop_api.py", "tests/test_marius_desktop_captain.py"],
+                    files=["tests/test_warden_api.py", "tests/test_warden_captain.py"],
                 ),
             ],
             hard_gates=[_safe_gate("Do not widen scope beyond the local test slice.")],
             planned_acceptance_commands=[
-                "python -m pytest -q tests/test_marius_desktop_captain.py tests/test_marius_desktop_api.py tests/test_marius_desktop_contracts.py tests/test_marius_desktop_graph.py",
+                "python -m pytest -q tests/test_warden_captain.py tests/test_warden_api.py tests/test_warden_contracts.py tests/test_warden_graph.py",
             ],
         ),
         "marathon_queue": CaptainTemplate(
@@ -789,8 +789,8 @@ def _template_library() -> dict[str, CaptainTemplate]:
             ],
             hard_gates=[_safe_gate("Keep the sprint local and avoid runtime artifacts.")],
             planned_acceptance_commands=[
-                "python -m pytest -q tests/test_marius_desktop_captain.py",
-                "ruff check src/marius_desktop tests/test_marius_desktop_* scripts/fake_worker.py scripts/verify_marius_desktop_backend.py scripts/demo_marius_desktop.py",
+                "python -m pytest -q tests/test_warden_captain.py",
+                "ruff check src/warden tests/test_warden_* scripts/fake_worker.py pytest -q tests/test_warden_api.py ",
             ],
         ),
     }

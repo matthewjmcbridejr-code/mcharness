@@ -2,41 +2,34 @@
 
 ## Prerequisites
 
-- Python environment for the backend and tests
-- Rust toolchain for the Tauri shell
+- Python 3.11+
+- Virtualenv with project dependencies (`pip install -e .` or use `/root/hybrid-agent-os/.venv`)
 
-## 1. Run the backend verification first
-
-```bash
-PYTHONPATH=. python scripts/verify_marius_desktop_backend.py
-```
-
-## 2. Start the backend
+## 1. Start the Warden backend
 
 ```bash
-PYTHONPATH=. uvicorn src.marius_desktop.app:app --reload
+cd /root/mcharness-public-export
+PYTHONPATH=. uvicorn src.server.api:app --host 127.0.0.1 --port 8125 --reload
 ```
 
-## 3. Open the cockpit
-
-The canonical public demo is `https://mctable.team` and does not require login.
+## 2. Open Warden
 
 ```text
-http://127.0.0.1:8000/web/mctable-studio/cockpit.html
+http://127.0.0.1:8125/web/warden/index.html
 ```
 
-The cockpit shows the active backend target. The default is local, and documented local tunnel URLs are allowed only for manual override.
+Public read-only service (runner disabled) may run on port 8124 via systemd.
 
-## 4. Run the Tauri shell
+## 3. Verify health
 
 ```bash
-cargo run --manifest-path src-tauri/Cargo.toml
+curl -sS http://127.0.0.1:8125/api/mcharness/health
+curl -sS http://127.0.0.1:8125/api/mcharness/agents
 ```
 
-## 5. Use only allowlisted commands
+## 4. Run tests
 
-- `fake-worker-success`
-- `fake-worker-fail`
-- `fake-worker-sleep`
-
-Anything else must be rejected.
+```bash
+pytest -q tests
+npx playwright test tests/browser/warden-cockpit.spec.js --config=playwright.config.js
+```

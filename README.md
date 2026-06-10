@@ -1,46 +1,51 @@
 # Warden (McHarness)
 
-Warden is the supervised agent control room from **Marius Systems**. **McHarness** is the local-first engine underneath — tasks, runs, evidence, Captain plans, and the private Codex runner.
+**Warden** is the supervised agent control room from **Marius Systems**. **McHarness** is the local-first engine and API namespace underneath.
 
-Public demo: [https://mctable.team](https://mctable.team) (read-only / runner-disabled view).
+## Quick proof
 
-## What it is
+```bash
+bash scripts/warden_smoke.sh
+```
 
-- Mission-first operator shell for bounded agent work
-- Captain Deck (OpenRouter planning) with supervised step loop
-- Agent Library (Codex CLI, Jules Remote configuration)
-- Run History + Evidence on the private service (8125)
-- Codex Live Monitor for controlled prompt dispatch
+See [docs/warden_operator_smoke.md](docs/warden_operator_smoke.md) for details.
 
-## What it is not
-
-- Not a public SaaS control plane with open runner access
-- Not autonomous — operators approve each step
-- Not arbitrary shell execution
-- Not production-readiness proof by itself
-
-## Quickstart
-
-See [docs/quickstart.md](docs/quickstart.md) and [docs/warden_repo_layout.md](docs/warden_repo_layout.md).
-
-## Warden UI paths
-
-Canonical:
+## UI
 
 ```text
 http://127.0.0.1:8125/web/warden/index.html
 ```
 
-Compatibility (services/bookmarks may still use this):
+## Services
 
-```text
-http://127.0.0.1:8125/web/mctable-studio/cockpit-app.html
-```
+| Port | Mode | Runner | Notes |
+|------|------|--------|-------|
+| 8124 | Public | Disabled | Read-mostly preview; Codex not runnable |
+| 8125 | Private | Enabled | Operator-supervised Codex dispatch |
+
+## Agents (honest status)
+
+- **Codex CLI** — runnable only on private 8125 when the tmux/Codex runner flags are enabled
+- **Jules Remote** — connected for planning/status only; not executable yet
+- **Captain** — OpenRouter planning on private service; supervised step loop is manual
+
+## Operator workbench highlights
+
+- Mission worklog from real plans, runs, and evidence
+- Manual proof gates (approve / block / request more evidence)
+- Run review + markdown export
+- Agent status refresh without starting tasks
 
 ## Safety
 
-See [SECURITY.md](SECURITY.md). Public 8124 remains runner-disabled; private 8125 enables Codex dispatch only.
+- No arbitrary shell execution
+- No auto-merge or auto-deploy
+- No autonomous multi-step execution
+- Public 8124 remains runner-disabled
 
-## Legacy
+## Docs
 
-`src/marius_desktop/` contains temporary import shims. Archived Marius Desktop / McTable artifacts live under `docs/archive/legacy/`.
+- [docs/warden_operator_smoke.md](docs/warden_operator_smoke.md)
+- [docs/warden_repo_layout.md](docs/warden_repo_layout.md)
+- [docs/quickstart.md](docs/quickstart.md)
+- [SECURITY.md](SECURITY.md)

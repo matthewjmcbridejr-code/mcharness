@@ -6,7 +6,7 @@ const webServer =
   process.env.MCHARNESS_PLAYWRIGHT_START_SERVER === "1"
     ? {
         command: "python -m uvicorn src.server.api:app --host 127.0.0.1 --port 8124",
-        url: "http://127.0.0.1:8124/web/mctable-studio/cockpit-app.html",
+        url: "http://127.0.0.1:8124/web/warden/index.html",
         reuseExistingServer: true,
         stdout: "pipe",
         stderr: "pipe",

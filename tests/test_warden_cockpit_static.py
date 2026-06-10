@@ -7,13 +7,10 @@ from src.server.api import app
 
 ROOT = Path(__file__).resolve().parents[1]
 WARDEN_APP = ROOT / "web" / "warden" / "index.html"
-COMPAT_APP = ROOT / "web" / "mctable-studio" / "cockpit-app.html"
-ARCHIVED_DEMO = ROOT / "docs" / "archive" / "legacy" / "cockpit-public-demo.html"
 
 
 def test_warden_app_static_asset_exists():
     assert WARDEN_APP.is_file(), "web/warden/index.html must exist"
-    assert COMPAT_APP.is_file(), "web/mctable-studio/cockpit-app.html compatibility path must exist"
 
 
 def test_warden_app_served_by_api_mount():
@@ -23,10 +20,6 @@ def test_warden_app_served_by_api_mount():
     assert "Warden" in warden_response.text
     assert "by Marius Systems" in warden_response.text
     assert "Powered by McHarness" in warden_response.text
-
-    compat_response = client.get("/web/mctable-studio/cockpit-app.html")
-    assert compat_response.status_code == 200
-    assert "Warden" in compat_response.text
 
 
 def test_warden_app_has_control_room_sections():
@@ -54,10 +47,3 @@ def test_warden_app_has_control_room_sections():
     ]
     for snippet in banned_snippets:
         assert snippet not in content, f"Legacy product copy found: {snippet}"
-
-
-def test_archived_public_demo_preserved_for_reference():
-    assert ARCHIVED_DEMO.is_file()
-    content = ARCHIVED_DEMO.read_text(encoding="utf-8")
-    assert "McHarness" in content
-    assert "./cockpit-app.html" in content

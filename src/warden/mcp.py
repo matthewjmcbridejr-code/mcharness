@@ -15,7 +15,7 @@ FAKE_WORKER_COMMANDS = {
     "fake-worker-sleep",
 }
 
-MCP_SCHEMA = "marius_desktop.mcp.v1"
+MCP_SCHEMA = "warden.mcp.v1"
 
 try:
     from mcp.server.fastmcp import FastMCP
