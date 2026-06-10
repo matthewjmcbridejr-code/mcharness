@@ -1,0 +1,5 @@
+🧪 [test] add 404 error test for get_worker_run
+
+🎯 **What:** Added a missing error test for the `get_worker_run` endpoint to verify it correctly handles `FileNotFoundError` when a requested run ID does not exist.
+📊 **Coverage:** The scenario where a non-existent worker run ID is requested is now covered, ensuring a 404 HTTP Exception is raised with the appropriate error detail. Also added `*.egg-info/` to `.gitignore`.
+✨ **Result:** Increased test reliability and coverage by validating error conditions for the worker run endpoint.
