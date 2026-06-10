@@ -1,5 +1,6 @@
 (function () {
   const MCH = "/api/mcharness";
+  const JULES_VIEW_URL = "https://jules.google.com/session";
   // Minimal state for Agent Library + Codex flow + Live Monitor
   const state = {
     repos: [],
@@ -594,6 +595,7 @@
           <div class="agent-card-actions">
             ${runnable ? `<button class="btn" type="button" data-use-agent-id="${escapeHtml(agent.id)}">Use Agent</button>` : ""}
             ${showEdit ? `<button class="btn" type="button" data-edit-agent-id="${escapeHtml(agent.id)}">Edit Config</button>` : ""}
+            ${agent.adapter === "jules_remote" ? `<a class="btn view-agent-link" href="${JULES_VIEW_URL}" target="_blank" rel="noopener noreferrer" title="Open Jules remote agent workspace" aria-label="View Agent — open Jules remote agent workspace" data-testid="view-agent-jules">View Agent</a>` : ""}
             <button class="btn bad" type="button" data-remove-agent-id="${escapeHtml(agent.id)}">Remove</button>
           </div>
         </div>
@@ -1392,8 +1394,8 @@
     const useBtn = document.getElementById("use-codex-btn");
     if (useBtn) useBtn.addEventListener("click", openUseAgentModal);
 
-    const monBtn = document.getElementById("open-live-monitor-btn");
-    if (monBtn) monBtn.addEventListener("click", openLiveCLIMonitor);
+    const viewCodexBtn = document.getElementById("view-agent-codex-btn");
+    if (viewCodexBtn) viewCodexBtn.addEventListener("click", openLiveCLIMonitor);
 
     const cancel = document.getElementById("cancel-use-agent");
     if (cancel) cancel.addEventListener("click", closeUseAgentModal);

@@ -110,8 +110,17 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await expect(page.locator("#codex-card")).toContainText("Codex CLI");
   await expect(page.locator("#codex-card")).toContainText("Use for live coding tasks through the controlled terminal monitor.");
   await expect(page.locator("#codex-card").getByRole("button", { name: "Use Agent" })).toBeVisible();
+  await expect(page.locator("#codex-card").getByRole("button", { name: "View Agent" })).toBeVisible();
+  await expect(page.locator("[data-testid='agent-library-cards']")).not.toContainText("Open Live Monitor");
   await expect(page.getByRole("button", { name: "Add Agent" })).toBeVisible();
   await expect(page.locator("[data-testid='add-agent-help']")).toContainText("configuration and connection checks");
+
+  await page.locator("[data-testid='view-agent-codex']").click();
+  const viewMon = page.locator("#live-cli-modal");
+  await expect(viewMon).toBeVisible();
+  await expect(viewMon).toContainText("Codex Live Monitor");
+  await viewMon.locator("#modal-close").click();
+  await expect(viewMon).not.toBeVisible();
 
   await page.locator("[data-testid='develop-plan-primary']").click();
   const captainModal = page.locator("#captain-deck-modal");
@@ -1263,6 +1272,12 @@ test("Agent Registry configure flow and Captain dropdown use registered agents",
   await expect(page.locator(".registered-agent-card")).toContainText("Remote execution is not enabled yet.");
   await expect(page.locator(".registered-agent-card button", { hasText: "Use Agent" })).toHaveCount(0);
   await expect(page.locator(".registered-agent-card button", { hasText: "Edit Config" })).toBeVisible();
+  const julesView = page.locator(".registered-agent-card [data-testid='view-agent-jules']");
+  await expect(julesView).toBeVisible();
+  await expect(julesView).toHaveAttribute("href", "https://jules.google.com/session");
+  await expect(julesView).toHaveAttribute("target", "_blank");
+  await expect(julesView).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(julesView).toHaveAttribute("title", "Open Jules remote agent workspace");
   await expect(page.evaluate(() => window.__storageWrites || [])).resolves.toEqual([]);
 
   await page.locator("[data-testid='develop-plan-primary']").click();

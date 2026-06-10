@@ -525,6 +525,12 @@ textarea {
   flex-wrap: wrap;
 }
 
+.agent-card-actions .view-agent-link {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 .add-agent-section {
   margin-bottom: 16px;
 }
