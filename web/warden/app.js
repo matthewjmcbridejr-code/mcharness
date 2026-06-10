@@ -621,6 +621,29 @@
     }
   }
 
+  function stepCompletionAllowed(step) {
+    const gateStatus = step && step.gate_status;
+    return !gateStatus || gateStatus === "approved";
+  }
+
+  function gateBannerCopy(step, { isCurrent = false } = {}) {
+    if (!isCurrent || !step || !step.gate_status) return "";
+    const label = step.gate_label || step.gate_status;
+    if (step.gate_status === "blocked") {
+      return `Hard stop — ${label}. Resolve the gate before continuing.`;
+    }
+    if (step.gate_status === "needs_more_evidence") {
+      return "More evidence is required before this step can be marked done.";
+    }
+    if (step.gate_status === "pending") {
+      return "Proof gate pending. Review and decide before marking the step done.";
+    }
+    if (step.gate_status === "approved") {
+      return `Proof gate approved. You may mark the step done manually when ready.`;
+    }
+    return `Proof gate: ${label}`;
+  }
+
   function worklogStatusClass(status) {
     const normalized = String(status || "").toLowerCase();
     if (normalized === "running" || normalized === "dispatched") return "status-ready";
@@ -890,7 +913,7 @@
       },
     });
     if (runId) await openRunDetailModal(runId);
-    await Promise.all([loadRecentGates(), loadMissionWorklog()]);
+    await Promise.all([loadRecentGates(), loadMissionWorklog(), loadActiveCaptainPlan()]);
   }
 
   async function createProofGateForRun(runId, evidenceIds) {
@@ -905,7 +928,7 @@
       },
     });
     await openRunDetailModal(runId);
-    await Promise.all([loadRecentGates(), loadMissionWorklog()]);
+    await Promise.all([loadRecentGates(), loadMissionWorklog(), loadActiveCaptainPlan()]);
   }
 
   function renderInspectorGatesSummary() {
@@ -958,7 +981,19 @@
     const canWrite = !!health.tmux_runner_enabled && !!health.codex_runner_enabled;
     if (title) title.textContent = run.title || run.run_id || "Run Detail";
     if (meta) {
-      meta.textContent = `${run.agent_id || "agent"} · ${run.status || "unknown"} · ${formatHistoryTimestamp(run.started_at)}`;
+      const gateLabel = run.gate_label || (run.gate_status ? String(run.gate_status).replace(/_/g, " ") : "No gate");
+      meta.textContent = `${run.agent_id || "agent"} · ${run.status || "unknown"} · ${formatHistoryTimestamp(run.started_at)} · Gate: ${gateLabel}`;
+    }
+    const gateStateEl = document.getElementById("run-detail-gate-state");
+    if (gateStateEl) {
+      const gateStatus = run.gate_status || (gates.length ? gates[0].status : null);
+      const gateLabel = run.gate_label || (gateStatus ? String(gateStatus).replace(/_/g, " ") : "No gate");
+      let copy = `Proof gate state: ${gateLabel}`;
+      if (gateStatus === "blocked") copy = `Hard stop — ${gateLabel}. This run cannot advance until the gate is resolved.`;
+      if (gateStatus === "needs_more_evidence") copy = "This run needs more evidence before the step can be marked done.";
+      if (gateStatus === "pending") copy = "Proof gate pending. Review evidence and decide before marking the step done.";
+      gateStateEl.textContent = copy;
+      gateStateEl.dataset.gateStatus = gateStatus || "none";
     }
     if (prompt) prompt.textContent = run.prompt || run.prompt_excerpt || "(no prompt saved)";
     if (transcript) transcript.textContent = run.transcript_excerpt || "(no transcript saved yet)";
@@ -1076,10 +1111,13 @@
     empty.style.display = "none";
     panel.style.display = "";
     const current = currentCaptainStep(plan);
+    const currentGateBanner = gateBannerCopy(current, { isCurrent: true });
     header.innerHTML = `
       <strong>${escapeHtml(plan.title || "Captain plan")}</strong>
       <div>${escapeHtml(plan.summary || "")}</div>
       <div>Status: ${escapeHtml(plan.status || "active")} · Repo: ${escapeHtml(plan.repo_id || "n/a")}</div>
+      ${current && current.gate_label ? `<div data-testid="current-step-gate-label">Gate: ${escapeHtml(current.gate_label)}</div>` : ""}
+      ${currentGateBanner ? `<p class="captain-gate-banner" data-testid="captain-step-gate-banner">${escapeHtml(currentGateBanner)}</p>` : ""}
     `;
 
     stepsEl.innerHTML = (plan.steps || []).map((step) => {
@@ -1091,20 +1129,23 @@
       if ((step.evidence_ids || []).length) {
         links.push(`<button type="button" class="btn" data-view-step-evidence="${escapeHtml(step.evidence_ids[0])}">View Evidence</button>`);
       }
+      const canComplete = stepCompletionAllowed(step);
       const actionRow = isCurrent && plan.status === "active" ? `
         <div class="captain-plan-step-actions" data-testid="captain-step-actions-${escapeHtml(step.id)}">
           <button type="button" class="btn primary" data-deploy-step-id="${escapeHtml(step.id)}">${escapeHtml(deployStepButtonLabel(plan, step))}</button>
-          <button type="button" class="btn good" data-complete-step-id="${escapeHtml(step.id)}">Mark Step Done</button>
+          <button type="button" class="btn good" data-complete-step-id="${escapeHtml(step.id)}" ${canComplete ? "" : "disabled"}>Mark Step Done</button>
           <button type="button" class="btn" data-revise-step-id="${escapeHtml(step.id)}">Revise Step</button>
         </div>
       ` : links.join("");
+      const stepGateBanner = gateBannerCopy(step, { isCurrent });
       return `
         <div class="${classes}" data-step-id="${escapeHtml(step.id)}">
           <div class="captain-plan-step-top">
             <h4 class="captain-plan-step-title">${escapeHtml(step.title || step.id)}</h4>
             <span class="status-pill ${status === "passed" ? "status-ready" : isCurrent ? "status-connected" : "status-coming"}">${escapeHtml(status.toUpperCase())}</span>
           </div>
-          <p class="captain-plan-step-meta">${escapeHtml(step.agent || "codex_cli")}${step.run_id ? ` · Run ${escapeHtml(step.run_id)}` : ""}</p>
+          <p class="captain-plan-step-meta">${escapeHtml(step.agent || "codex_cli")}${step.run_id ? ` · Run ${escapeHtml(step.run_id)}` : ""}${step.gate_label ? ` · ${escapeHtml(step.gate_label)}` : ""}</p>
+          ${stepGateBanner && !isCurrent ? `<p class="captain-gate-banner">${escapeHtml(stepGateBanner)}</p>` : ""}
           <p class="captain-plan-step-prompt-preview">${escapeHtml((step.prompt || "").slice(0, 220))}${(step.prompt || "").length > 220 ? "..." : ""}</p>
           ${actionRow}
         </div>
