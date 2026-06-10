@@ -131,7 +131,7 @@ def test_mcharness_captain_key_save_delete_and_status_round_trip(monkeypatch, tm
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("MCHARNESS_CAPTAIN_MODEL", raising=False)
 
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
 
     monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
     client = TestClient(app)
@@ -174,7 +174,7 @@ def test_mcharness_captain_key_env_precedence_over_saved_key(monkeypatch, tmp_pa
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-env-test-key")
     monkeypatch.setenv("MCHARNESS_CAPTAIN_MODEL", "openrouter/env-model")
 
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
 
     monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
     saved_path = tmp_path / "secrets" / "captain_openrouter.json"
@@ -266,7 +266,7 @@ def test_mcharness_captain_plan_parses_mocked_openrouter_json(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
     monkeypatch.setenv("MCHARNESS_CAPTAIN_MODEL", "openrouter/auto")
 
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
 
     def fake_openrouter(*, messages, model, timeout):
         assert model == "openrouter/auto"
@@ -329,7 +329,7 @@ def test_mcharness_captain_plan_parses_mocked_openrouter_json(monkeypatch):
 def test_mcharness_captain_plan_rejects_invalid_model_response(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
 
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
 
     def fake_openrouter(*, messages, model, timeout):
         return {"choices": [{"message": {"content": "not-json"}}]}
@@ -355,7 +355,7 @@ def test_mcharness_captain_plan_uses_saved_key_when_env_missing(monkeypatch, tmp
     monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
     monkeypatch.delenv("MCHARNESS_CAPTAIN_MODEL", raising=False)
 
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
 
     monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
     monkeypatch.setattr(api_mod, "CAPTAIN_PLAN_ROOT", tmp_path / "captain" / "plans")
@@ -553,7 +553,7 @@ def test_post_task_decision():
 def test_mcharness_agent_lanes_rich_detection_shape(monkeypatch):
     client = TestClient(app)
     # Force deterministic detection without host CLIs
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
 
     def fake_detect(name: str):
         if name == "codex":
@@ -758,7 +758,7 @@ def test_fake_test_lane_runner_full_flow(monkeypatch):
     client = TestClient(app)
     monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
     # patch start to avoid real tmux in test (still exercises state, endpoints, evidence)
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
     orig_start = api_mod._start_fake_runner
     def fake_start(state):
         p = api_mod.Path(state["transcript_file_path"])
@@ -834,7 +834,7 @@ def test_runner_rejects_unknown_lane_repo(monkeypatch):
 def test_codex_detection_and_disabled_without_both_envs(monkeypatch):
     client = TestClient(app)
     # force codex "installed" via patch, no real exec
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
     orig_detect = api_mod._detect_executable
     def fake_detect(name):
         if name == "codex":
@@ -875,7 +875,7 @@ def test_codex_detection_and_disabled_without_both_envs(monkeypatch):
 
 def test_codex_command_template_and_missing_handling(monkeypatch):
     client = TestClient(app)
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
     # patch detect to installed
     def fake_detect(name):
         if name == "codex":
@@ -923,7 +923,7 @@ def test_fake_interactive_tmux_runner_prompt_injection_and_capture(monkeypatch):
     """
     client = TestClient(app)
     monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
     import time
 
     s = client.post("/api/mcharness/sessions", json={
@@ -969,7 +969,7 @@ def test_codex_cli_uses_interactive_tmux_mode_not_exec_wrapper(monkeypatch):
     client = TestClient(app)
     monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
     monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
 
     # patch start to record what command would be used, without real tmux
     recorded = {}
@@ -1032,7 +1032,7 @@ def test_codex_start_auto_skips_update_prompt(monkeypatch):
     client = TestClient(app)
     monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
     monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
 
     calls = []
 
@@ -1061,7 +1061,7 @@ def test_codex_start_auto_skips_update_prompt(monkeypatch):
 
 def test_runner_send_key_allows_only_quick_reply_keys(monkeypatch, tmp_path):
     client = TestClient(app)
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
 
     session_id = "quick-reply-session"
     runner_id = "run_1234abcd"
@@ -1115,7 +1115,7 @@ def test_runner_send_key_allows_only_quick_reply_keys(monkeypatch, tmp_path):
 
 def test_runner_send_key_submit_continue_sends_tab_then_enter(monkeypatch, tmp_path):
     client = TestClient(app)
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
 
     session_id = "submit-continue-session"
     runner_id = "run_5678abcd"
@@ -1162,7 +1162,7 @@ def test_runner_send_key_submit_continue_sends_tab_then_enter(monkeypatch, tmp_p
 
 def test_runner_send_key_rejects_invalid_state_and_arbitrary_tmux(monkeypatch):
     client = TestClient(app)
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
 
     session_id = "quick-reply-reject"
     runner_id = "run_deadbeef"
@@ -1227,14 +1227,14 @@ def _enable_private_agent_registry(monkeypatch, tmp_path):
     monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "true")
     monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
     monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
 
     monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
     return api_mod
 
 
 def _mock_jules_connected(monkeypatch):
-    import src.marius_desktop.agent_registry as registry_mod
+    import src.warden.agent_registry as registry_mod
 
     def fake_test(*, api_key, default_repo_id=None, default_branch=None):
         if api_key == "bad-jules-key":
@@ -1371,7 +1371,7 @@ def test_mcharness_agents_rejects_custom_cli_and_duplicate_codex(monkeypatch, tm
     monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
     monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
 
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
 
     monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
     client = TestClient(app)
@@ -1461,7 +1461,7 @@ def test_mcharness_agents_probe_codex_and_jules(monkeypatch, tmp_path):
 def _enable_private_run_history(monkeypatch, tmp_path):
     monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
     monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
 
     monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
 
@@ -1643,7 +1643,7 @@ def test_run_history_missing_records_return_404(monkeypatch, tmp_path):
 
 def _enable_private_captain_loop(monkeypatch, tmp_path):
     _enable_private_run_history(monkeypatch, tmp_path)
-    import src.marius_desktop.api as api_mod
+    import src.warden.api as api_mod
 
     monkeypatch.setattr(api_mod, "CAPTAIN_PLAN_ROOT", tmp_path / "captain" / "plans")
 

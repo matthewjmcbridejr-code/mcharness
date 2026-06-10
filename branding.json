@@ -1,9 +1,9 @@
 {
-  "product_name": "McHarness",
+  "product_name": "Warden",
   "repo_name": "mcharness",
   "public_url": "https://mctable.team",
-  "tagline": "A local-first agentic harness for supervised AI work.",
-  "category": "AI agentic harness",
-  "internal_module": "src.marius_desktop",
+  "tagline": "Supervised agent ops control room by Marius Systems.",
+  "category": "AI agent control room",
+  "internal_module": "src.warden",
   "legacy_codename": "Marius Desktop"
 }

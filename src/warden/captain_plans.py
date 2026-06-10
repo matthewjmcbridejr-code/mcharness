@@ -1,0 +1,377 @@
+"""Persistent Captain supervised plans and step progression."""
+
+from __future__ import annotations
+
+import json
+import threading
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from fastapi import HTTPException
+
+_FILE_LOCK = threading.Lock()
+
+STEP_STATUSES = frozenset({
+    "queued",
+    "dispatched",
+    "running",
+    "needs_review",
+    "passed",
+    "failed",
+    "revised",
+    "skipped",
+    "stopped",
+})
+
+PLAN_STATUSES = frozenset({"active", "stopped", "completed"})
+
+DISPATCHABLE_STEP_STATUSES = frozenset({"queued", "revised", "needs_review", "dispatched"})
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def plans_index_path(root: Path) -> Path:
+    return root / "captain" / "plans.json"
+
+
+def _read_plans(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Failed to read Captain plans index.") from exc
+    if not isinstance(data, list):
+        raise HTTPException(status_code=500, detail="Invalid Captain plans index format.")
+    return data
+
+
+def _write_plans(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+
+
+def _prompt_preview(prompt: str, limit: int = 280) -> str:
+    text = (prompt or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
+
+
+def normalize_step(raw: dict[str, Any], *, order: int) -> dict[str, Any]:
+    now = _now_iso()
+    step_id = str(raw.get("step_id") or raw.get("id") or f"step_{order}")
+    return {
+        "step_id": step_id,
+        "order": order,
+        "title": str(raw.get("title") or f"Step {order}").strip(),
+        "prompt": str(raw.get("prompt") or "").strip(),
+        "agent_id": str(raw.get("agent_id") or raw.get("agent") or "codex_cli"),
+        "status": str(raw.get("status") or "queued"),
+        "run_id": raw.get("run_id"),
+        "evidence_ids": list(raw.get("evidence_ids") or []),
+        "created_at": raw.get("created_at") or now,
+        "updated_at": raw.get("updated_at") or now,
+    }
+
+
+def _sorted_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(steps, key=lambda step: int(step.get("order") or 0))
+
+
+def _find_step(plan: dict[str, Any], step_id: str) -> dict[str, Any]:
+    for step in plan.get("steps") or []:
+        if step.get("step_id") == step_id or step.get("id") == step_id:
+            return step
+    raise HTTPException(status_code=404, detail=f"Captain plan step not found: {step_id}")
+
+
+def _first_queued_step_id(plan: dict[str, Any]) -> str | None:
+    for step in _sorted_steps(plan.get("steps") or []):
+        if step.get("status") in {"queued", "revised"}:
+            return str(step.get("step_id"))
+    return None
+
+
+def _next_queued_step_id(plan: dict[str, Any], after_step_id: str) -> str | None:
+    steps = _sorted_steps(plan.get("steps") or [])
+    seen = False
+    for step in steps:
+        if step.get("step_id") == after_step_id:
+            seen = True
+            continue
+        if seen and step.get("status") in {"queued", "revised"}:
+            return str(step.get("step_id"))
+    return None
+
+
+def append_decision_log(plan: dict[str, Any], *, action: str, detail: str, step_id: str | None = None) -> None:
+    log = list(plan.get("decision_log") or [])
+    log.insert(0, {
+        "at": _now_iso(),
+        "action": action,
+        "detail": detail,
+        "step_id": step_id,
+    })
+    plan["decision_log"] = log[:100]
+
+
+def persist_plan(
+    root: Path,
+    *,
+    goal: str,
+    repo_id: str | None,
+    plan_data: dict[str, Any],
+    status: str = "active",
+) -> dict[str, Any]:
+    now = _now_iso()
+    plan_id = str(plan_data.get("plan_id") or f"plan_{uuid.uuid4().hex[:8]}")
+    raw_steps = plan_data.get("steps") or []
+    steps = [normalize_step(step, order=index) for index, step in enumerate(raw_steps, start=1)]
+    if not steps:
+        raise HTTPException(status_code=400, detail="Captain plan must include at least one step.")
+    current_step_id = str(plan_data.get("current_step_id") or steps[0]["step_id"])
+    record = {
+        "plan_id": plan_id,
+        "goal": goal.strip(),
+        "title": str(plan_data.get("title") or "Captain plan").strip(),
+        "summary": str(plan_data.get("summary") or goal).strip(),
+        "repo_id": repo_id,
+        "created_at": plan_data.get("created_at") or now,
+        "updated_at": now,
+        "status": status if status in PLAN_STATUSES else "active",
+        "current_step_id": current_step_id,
+        "steps": steps,
+        "decision_log": list(plan_data.get("decision_log") or []),
+    }
+    if not record["decision_log"]:
+        append_decision_log(record, action="plan_created", detail="Captain plan persisted.", step_id=current_step_id)
+    with _FILE_LOCK:
+        path = plans_index_path(root)
+        rows = _read_plans(path)
+        rows = [row for row in rows if row.get("plan_id") != plan_id]
+        rows.insert(0, record)
+        _write_plans(path, rows[:100])
+    return sanitize_plan_detail(record)
+
+
+def _save_plan(root: Path, plan: dict[str, Any]) -> dict[str, Any]:
+    plan["updated_at"] = _now_iso()
+    with _FILE_LOCK:
+        path = plans_index_path(root)
+        rows = _read_plans(path)
+        found = False
+        for index, row in enumerate(rows):
+            if row.get("plan_id") == plan.get("plan_id"):
+                rows[index] = plan
+                found = True
+                break
+        if not found:
+            rows.insert(0, plan)
+        _write_plans(path, rows[:100])
+    return plan
+
+
+def get_plan_record(root: Path, plan_id: str) -> dict[str, Any] | None:
+    with _FILE_LOCK:
+        rows = _read_plans(plans_index_path(root))
+    for row in rows:
+        if row.get("plan_id") == plan_id:
+            return row
+    return None
+
+
+def list_recent_plans(root: Path, *, limit: int = 20) -> list[dict[str, Any]]:
+    with _FILE_LOCK:
+        rows = _read_plans(plans_index_path(root))
+    return [sanitize_plan_summary(row) for row in rows[:limit]]
+
+
+def get_plan_detail(root: Path, plan_id: str, *, include_prompts: bool = True) -> dict[str, Any] | None:
+    plan = get_plan_record(root, plan_id)
+    if plan is None:
+        return None
+    if include_prompts:
+        return sanitize_plan_detail(plan)
+    return sanitize_plan_summary(plan)
+
+
+def mark_step_dispatched(
+    root: Path,
+    plan_id: str,
+    step_id: str,
+    *,
+    run_id: str,
+    status: str = "dispatched",
+) -> dict[str, Any]:
+    plan = get_plan_record(root, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Captain plan not found: {plan_id}")
+    if plan.get("status") != "active":
+        raise HTTPException(status_code=409, detail="Captain plan is not active.")
+    step = _find_step(plan, step_id)
+    if plan.get("current_step_id") != step_id:
+        raise HTTPException(status_code=409, detail="Only the current Captain step can be dispatched.")
+    if step.get("status") not in DISPATCHABLE_STEP_STATUSES:
+        raise HTTPException(status_code=409, detail=f"Step cannot be dispatched from status {step.get('status')}.")
+    step["status"] = status
+    step["run_id"] = run_id
+    step["updated_at"] = _now_iso()
+    append_decision_log(plan, action="step_dispatched", detail=f"Dispatched step to Codex run {run_id}.", step_id=step_id)
+    saved = _save_plan(root, plan)
+    return sanitize_plan_detail(saved)
+
+
+def mark_step_running(root: Path, plan_id: str, step_id: str) -> dict[str, Any] | None:
+    plan = get_plan_record(root, plan_id)
+    if plan is None:
+        return None
+    step = _find_step(plan, step_id)
+    if step.get("status") in {"dispatched", "queued", "revised"}:
+        step["status"] = "running"
+        step["updated_at"] = _now_iso()
+        return sanitize_plan_detail(_save_plan(root, plan))
+    return sanitize_plan_detail(plan)
+
+
+def complete_step(
+    root: Path,
+    plan_id: str,
+    step_id: str,
+    *,
+    evidence_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    plan = get_plan_record(root, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Captain plan not found: {plan_id}")
+    if plan.get("status") != "active":
+        raise HTTPException(status_code=409, detail="Captain plan is not active.")
+    step = _find_step(plan, step_id)
+    if plan.get("current_step_id") != step_id:
+        raise HTTPException(status_code=409, detail="Only the current Captain step can be marked done.")
+    if step.get("status") in {"passed", "skipped", "stopped"}:
+        raise HTTPException(status_code=409, detail="Step is already complete.")
+    if evidence_ids:
+        merged = list(step.get("evidence_ids") or [])
+        for evidence_id in evidence_ids:
+            if evidence_id and evidence_id not in merged:
+                merged.append(evidence_id)
+        step["evidence_ids"] = merged
+    step["status"] = "passed"
+    step["updated_at"] = _now_iso()
+    next_step_id = _next_queued_step_id(plan, step_id)
+    if next_step_id:
+        plan["current_step_id"] = next_step_id
+        plan["status"] = "active"
+    else:
+        plan["status"] = "completed"
+        plan["current_step_id"] = step_id
+    append_decision_log(
+        plan,
+        action="step_completed",
+        detail="Operator marked the current step done. Next step is ready but not auto-dispatched.",
+        step_id=step_id,
+    )
+    saved = _save_plan(root, plan)
+    return sanitize_plan_detail(saved)
+
+
+def revise_step(
+    root: Path,
+    plan_id: str,
+    step_id: str,
+    *,
+    title: str | None = None,
+    prompt: str | None = None,
+    note: str | None = None,
+) -> dict[str, Any]:
+    plan = get_plan_record(root, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Captain plan not found: {plan_id}")
+    if plan.get("status") != "active":
+        raise HTTPException(status_code=409, detail="Captain plan is not active.")
+    step = _find_step(plan, step_id)
+    if title and title.strip():
+        step["title"] = title.strip()
+    if prompt and prompt.strip():
+        step["prompt"] = prompt.strip()
+    step["status"] = "revised"
+    step["updated_at"] = _now_iso()
+    append_decision_log(
+        plan,
+        action="step_revised",
+        detail=note or "Operator revised the step prompt.",
+        step_id=step_id,
+    )
+    saved = _save_plan(root, plan)
+    return sanitize_plan_detail(saved)
+
+
+def stop_plan(root: Path, plan_id: str, *, note: str | None = None) -> dict[str, Any]:
+    plan = get_plan_record(root, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Captain plan not found: {plan_id}")
+    plan["status"] = "stopped"
+    for step in plan.get("steps") or []:
+        if step.get("status") in {"queued", "revised", "dispatched", "running", "needs_review"}:
+            step["status"] = "stopped"
+            step["updated_at"] = _now_iso()
+    append_decision_log(plan, action="plan_stopped", detail=note or "Operator stopped the Captain plan.", step_id=plan.get("current_step_id"))
+    saved = _save_plan(root, plan)
+    return sanitize_plan_detail(saved)
+
+
+def sanitize_plan_summary(plan: dict[str, Any]) -> dict[str, Any]:
+    steps = _sorted_steps(plan.get("steps") or [])
+    return {
+        "plan_id": plan.get("plan_id"),
+        "goal": plan.get("goal"),
+        "title": plan.get("title"),
+        "summary": plan.get("summary"),
+        "repo_id": plan.get("repo_id"),
+        "created_at": plan.get("created_at"),
+        "updated_at": plan.get("updated_at"),
+        "status": plan.get("status"),
+        "current_step_id": plan.get("current_step_id"),
+        "step_count": len(steps),
+        "steps": [
+            {
+                "step_id": step.get("step_id"),
+                "order": step.get("order"),
+                "title": step.get("title"),
+                "agent_id": step.get("agent_id"),
+                "status": step.get("status"),
+                "prompt_preview": _prompt_preview(step.get("prompt") or "", 160),
+                "run_id": step.get("run_id"),
+                "evidence_count": len(step.get("evidence_ids") or []),
+                "evidence_ids": list(step.get("evidence_ids") or []),
+            }
+            for step in steps
+        ],
+    }
+
+
+def sanitize_plan_detail(plan: dict[str, Any], *, include_prompts: bool = True) -> dict[str, Any]:
+    summary = sanitize_plan_summary(plan)
+    if include_prompts:
+        step_map = {str(step.get("step_id")): step for step in _sorted_steps(plan.get("steps") or [])}
+        summary["steps"] = [
+            {
+                **step_summary,
+                "prompt": str(step_map.get(str(step_summary.get("step_id")), {}).get("prompt") or ""),
+            }
+            for step_summary in summary["steps"]
+        ]
+    summary["decision_log"] = list(plan.get("decision_log") or [])[:20]
+    return summary
+
+
+def sanitize_plan_public(plan: dict[str, Any]) -> dict[str, Any]:
+    summary = sanitize_plan_summary(plan)
+    for step in summary.get("steps") or []:
+        step.pop("evidence_ids", None)
+    return summary

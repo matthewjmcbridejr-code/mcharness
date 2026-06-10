@@ -1,0 +1,2621 @@
+import json
+import os
+import subprocess
+import uuid
+import time
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import List, Literal, Optional, Any, Dict
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+from urllib.error import HTTPError, URLError
+from urllib.request import Request as URLRequest, urlopen
+
+from .captain import (
+    router as captain_router,
+    CaptainAssignmentCompleteRequest,
+    CaptainAssignmentEvidenceRequest,
+    CaptainPlanRequest,
+    CaptainQueueItemCreateRequest,
+    add_captain_queue_item,
+    assign_captain_minions,
+    complete_captain_assignment,
+    continue_captain_run,
+    create_captain_state_machine_run,
+    export_captain_queue_item,
+    plan_captain_run,
+    queue_captain_run,
+    record_captain_assignment_evidence,
+)
+from .contracts import CapabilityStatus, TaskState, WorkerRun
+from .graph import (
+    CHECKPOINT_DB_PATH,
+    LANGGRAPH_AVAILABLE,
+    McTableTaskGraph,
+    TASKS_DIR,
+    checkpoint_file_exists,
+    get_runtime_capabilities,
+)
+from .workbench import (
+    router as workbench_router,
+    STORE as WORKBENCH_STORE,
+    WorkbenchArtifactCreateRequest,
+    WorkbenchEvidenceRecordCreateRequest,
+    WorkbenchRunEventCreateRequest,
+    WorkbenchRunProofGateDecisionRequest,
+    WorkbenchThreadCreateRequest,
+    WorkbenchThreadUpdateRequest,
+)
+from .worker import WorkerStub, ALLOWED_COMMANDS
+from .captain_plans import (
+    complete_step as complete_captain_plan_step,
+    get_plan_detail,
+    get_plan_record,
+    list_recent_plans,
+    mark_step_dispatched,
+    persist_plan,
+    revise_step as revise_captain_plan_step,
+    sanitize_plan_public,
+    stop_plan as stop_captain_plan,
+)
+from .run_history import (
+    create_evidence_record,
+    create_run_record,
+    evidence_summaries_for_run,
+    find_run_by_session,
+    get_evidence_record,
+    get_run_record,
+    list_recent_evidence,
+    list_recent_runs,
+    update_run_record,
+)
+from .agent_registry import (
+    BUILTIN_CODEX_ID,
+    McHarnessAgentConfigPatchRequest,
+    McHarnessAgentCreateRequest,
+    McHarnessAgentPatchRequest,
+    McHarnessAgentTestConfigRequest,
+    agent_status_payload,
+    agent_templates,
+    create_registered_agent,
+    delete_registered_agent,
+    get_agent_by_id,
+    list_all_agents,
+    probe_agent,
+    sanitize_agent_profile,
+    test_agent_config,
+    update_registered_agent,
+    update_registered_agent_config,
+)
+
+router = APIRouter(prefix="/api/marius", tags=["marius-desktop"])
+router.include_router(captain_router)
+router.include_router(workbench_router)
+
+mcharness_router = APIRouter(prefix="/api/mcharness", tags=["mcharness"])
+legacy_router = APIRouter(tags=["marius-desktop-legacy"])
+
+SAFE_REPO_PATHS = [
+    Path("/root/hybrid-agent-os"),
+    Path("/root/mcharness-public-export"),
+]
+MCTABLE_ROOT = Path(os.getenv("MCHARNESS_DATA_ROOT", "_mctable"))
+ARTIFACT_BODY_ROOT = MCTABLE_ROOT / "mcharness" / "artifacts"
+CAPTAIN_PLAN_ROOT = MCTABLE_ROOT / "captain" / "plans"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+AGENT_LANES = [
+    {
+        "lane_id": "codex_cli",
+        "title": "Codex CLI",
+        "implemented": True,
+        "manual_only": True,
+    },
+    {
+        "lane_id": "agy_cli",
+        "title": "AGY / Antigravity CLI",
+        "implemented": True,
+        "manual_only": True,
+    },
+    {
+        "lane_id": "manual_paste",
+        "title": "Manual paste-back",
+        "implemented": True,
+        "manual_only": True,
+    },
+    {
+        "lane_id": "grok_placeholder",
+        "title": "Grok",
+        "implemented": False,
+        "manual_only": True,
+    },
+    {
+        "lane_id": "jules_placeholder",
+        "title": "Jules",
+        "implemented": False,
+        "manual_only": True,
+    },
+    {
+        "lane_id": "opencode_placeholder",
+        "title": "OpenCode",
+        "implemented": False,
+        "manual_only": True,
+    },
+    {
+        "lane_id": "fake_test_lane",
+        "title": "Fake Test Lane (internal/harmless for automated proof only)",
+        "implemented": True,
+        "manual_only": False,
+        "test_only": True,
+    },
+]
+
+
+def _env_flag(*names: str, default: str = "false") -> bool:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None:
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+    return default.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _git_commit() -> Optional[str]:
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception:
+        return None
+    commit = proc.stdout.strip()
+    return commit or None
+
+
+def _public_write_enabled() -> bool:
+    return _env_flag("MCHARNESS_PUBLIC_WRITE_ENABLED", "MCHARNESSS_PUBLIC_WRITE_ENABLED", default="true")
+
+
+def _tmux_runner_enabled() -> bool:
+    # Tolerate the common misspelling variant as done for PUBLIC_WRITE
+    return _env_flag(
+        "MCHARNESS_TMUX_RUNNER_ENABLED",
+        "MCHARNESSS_TMUX_RUNNER_ENABLED",
+        default="false",
+    )
+
+
+def _codex_runner_enabled() -> bool:
+    # Explicit second gate for real Codex (personal manual smoke only). Tolerate misspelling.
+    return _env_flag(
+        "MCHARNESS_CODEX_RUNNER_ENABLED",
+        "MCHARNESSS_CODEX_RUNNER_ENABLED",
+        default="false",
+    )
+
+
+def _safe_cmd(cmd: list[str], timeout: float = 2.5, cwd: str | None = None) -> subprocess.CompletedProcess | None:
+    """Run a command with timeout; never raise, always return structured result or None."""
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=cwd,
+        )
+    except Exception:
+        return None
+
+
+def _detect_executable(name: str) -> dict[str, Any]:
+    """Safe, non-interactive detection using command -v + optional --version. No auth files, no login, no secrets."""
+    exe: Optional[str] = None
+    version: Optional[str] = None
+    # Per spec: use command -v
+    res = _safe_cmd(["bash", "-c", f"command -v {name} || true"], timeout=2.0)
+    if res is not None and res.returncode == 0 and res.stdout.strip():
+        exe = res.stdout.strip().splitlines()[0].strip() or None
+    if exe:
+        # Try --version (or -v for some); tolerate non-zero (some CLIs print version to stderr)
+        for args in ([exe, "--version"], [exe, "-v"], [exe, "--help"]):
+            vres = _safe_cmd(args, timeout=3.0)
+            if vres is not None and (vres.stdout or vres.stderr):
+                version = (vres.stdout or vres.stderr).strip().splitlines()[0][:140]
+                break
+    return {
+        "installed": bool(exe),
+        "executable_path": exe,
+        "version": version,
+    }
+
+
+def _get_git_status(path: Path) -> dict[str, Any]:
+    """Safe git status for allowlisted repo only. Timeouts, no arbitrary paths."""
+    if not path.exists() or not (path / ".git").exists():
+        return {
+            "current_branch": None,
+            "dirty": False,
+            "changed_files_count": 0,
+            "last_commit_short": None,
+            "status_summary": "unavailable (no .git)",
+            "safety_notes": ["git metadata unavailable"],
+        }
+    info: dict[str, Any] = {}
+    for cmd, key in (
+        (["git", "rev-parse", "--abbrev-ref", "HEAD"], "current_branch"),
+        (["git", "rev-parse", "--short", "HEAD"], "last_commit_short"),
+    ):
+        r = _safe_cmd(cmd, timeout=2.0, cwd=str(path))
+        info[key] = r.stdout.strip() if (r is not None and r.returncode == 0) else None
+    r = _safe_cmd(["git", "status", "--porcelain"], timeout=3.0, cwd=str(path))
+    if r is not None and r.returncode == 0:
+        lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+        info["changed_files_count"] = len(lines)
+        info["dirty"] = len(lines) > 0
+    else:
+        info["changed_files_count"] = 0
+        info["dirty"] = False
+    branch = info.get("current_branch") or ""
+    summary = f"{'dirty' if info.get('dirty') else 'clean'} ({info.get('changed_files_count', 0)} changed)"
+    if branch:
+        summary += f" on {branch}"
+    info["status_summary"] = summary
+    info["safety_notes"] = []
+    return info
+
+
+def _require_public_write_access(request: Request) -> None:
+    if _public_write_enabled():
+        return
+    expected_token = os.getenv("MCHARNESS_ADMIN_TOKEN", "").strip()
+    presented_token = request.headers.get("X-MCHarness-Admin-Token", "").strip()
+    if expected_token and presented_token == expected_token:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Public write access is disabled for this deployment.",
+    )
+
+class TaskCreateRequest(BaseModel):
+    task_id: str = Field(..., pattern=r"^[a-zA-Z0-9_-]+$")
+    title: str
+    description: str
+    command: str
+    args: List[str] = Field(default_factory=list)
+
+class DecisionRequest(BaseModel):
+    decision: Literal["approve", "reject", "edit_state"]
+    actor: str
+    reviewer_note: Optional[str] = None
+    state_patch: Dict[str, Any] = Field(default_factory=dict)
+
+
+class McHarnessSessionCreateRequest(BaseModel):
+    title: str = Field(min_length=1)
+    objective: str = Field(min_length=1)
+    plan_instruction: str = Field(min_length=1)
+    repo_path: str = Field(min_length=1)
+    agent_lane: str = Field(min_length=1)
+
+
+class McHarnessQueueRequest(BaseModel):
+    title: str = Field(min_length=1)
+    prompt: str = Field(min_length=1)
+    target_role: Literal["ui_inspector", "safety_auditor", "test_runner", "implementer", "docs_writer", "reviewer"] = "reviewer"
+    file_scope: list[str] = Field(default_factory=list)
+    forbidden_file_scope: list[str] = Field(default_factory=list)
+    evidence_required: list[str] = Field(default_factory=list)
+    acceptance_checks: list[str] = Field(default_factory=list)
+
+
+class McHarnessPromptExportRequest(BaseModel):
+    queue_item_id: str = Field(min_length=1)
+    mark_sent: bool = False
+
+
+class McHarnessManualResultRequest(BaseModel):
+    assignment_id: Optional[str] = None
+    summary: str = Field(min_length=1)
+    transcript: Optional[str] = None
+    source_ref: Optional[str] = None
+    verdict: Literal["passed", "unknown", "blocked", "failed"] = "passed"
+    complete_assignment: bool = False
+    git_status: Optional[str] = None
+    git_diff_summary: Optional[str] = None
+    test_output: Optional[str] = None
+
+
+class McHarnessGateDecisionRequest(BaseModel):
+    decision: Literal["approved", "rejected", "edit_requested"]
+    note: Optional[str] = None
+    continue_after: bool = False
+
+
+class McHarnessRunnerIntentRequest(BaseModel):
+    lane_id: str = Field(min_length=1)
+    repo_id: str = Field(min_length=1)
+    queue_item_id: Optional[str] = None
+    prompt_artifact_id: Optional[str] = None
+    mode: str = "dry_run"
+
+
+class McHarnessRunnerStartRequest(BaseModel):
+    lane_id: str = Field(min_length=1)
+    repo_id: str = Field(min_length=1)
+    queue_item_id: Optional[str] = None
+    prompt_artifact_id: Optional[str] = None
+    title: Optional[str] = None
+    prompt: Optional[str] = None
+    branch: Optional[str] = None
+    plan_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    created_by: Optional[str] = "operator"
+
+
+class McHarnessRunEvidenceCreateRequest(BaseModel):
+    type: str = Field(default="transcript", min_length=1)
+    title: str = Field(min_length=1)
+    summary: Optional[str] = None
+    content_excerpt: Optional[str] = None
+    content: Optional[str] = None
+    agent_id: Optional[str] = None
+    source: str = Field(default="operator", min_length=1)
+
+
+class McHarnessCaptainPlanRequest(BaseModel):
+    goal: str = Field(min_length=1)
+    repo_id: str = Field(min_length=1)
+    lane_id: str = Field(min_length=1)
+
+
+class McHarnessCaptainKeyRequest(BaseModel):
+    api_key: str = Field(min_length=1)
+    model: str = Field(default="openrouter/auto", min_length=1)
+
+
+class McHarnessCaptainPlanStep(BaseModel):
+    id: str
+    title: str
+    agent: str
+    prompt: str
+    status: Literal["queued"] = "queued"
+
+
+class McHarnessCaptainPlanResponse(BaseModel):
+    ok: bool = True
+    plan_id: str
+    title: str
+    summary: str
+    steps: list[McHarnessCaptainPlanStep]
+    notes: list[str] = Field(default_factory=list)
+    goal: Optional[str] = None
+    repo_id: Optional[str] = None
+    status: Optional[str] = None
+    current_step_id: Optional[str] = None
+    decision_log: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class McHarnessCaptainPlanPersistRequest(BaseModel):
+    goal: str = Field(min_length=1)
+    repo_id: Optional[str] = None
+    plan_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class McHarnessCaptainStepCompleteRequest(BaseModel):
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class McHarnessCaptainStepReviseRequest(BaseModel):
+    title: Optional[str] = None
+    prompt: Optional[str] = None
+    note: Optional[str] = None
+
+
+class McHarnessCaptainPlanStopRequest(BaseModel):
+    note: Optional[str] = None
+
+
+class McHarnessCaptainStatusResponse(BaseModel):
+    ok: bool = True
+    configured: bool
+    provider: Literal["openrouter"] = "openrouter"
+    model: str
+    planning_enabled: bool
+    key_source: Literal["env", "saved", "missing"]
+    private_key_setup_enabled: bool
+    notes: list[str] = Field(default_factory=list)
+
+
+class McHarnessCaptainKeyResponse(BaseModel):
+    ok: bool = True
+    configured: bool
+    provider: Literal["openrouter"] = "openrouter"
+    model: str
+    key_source: Literal["env", "saved", "missing"]
+    private_key_setup_enabled: bool
+    notes: list[str] = Field(default_factory=list)
+
+
+def _repo_entries() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for path in SAFE_REPO_PATHS:
+        base = {
+            "repo_id": path.name,
+            "label": path.name,
+            "path": str(path),
+            "exists": path.exists(),
+            "git_dir_present": (path / ".git").exists(),
+        }
+        if path.exists() and (path / ".git").exists():
+            git_info = _get_git_status(path)
+        else:
+            git_info = {
+                "current_branch": None,
+                "dirty": False,
+                "changed_files_count": 0,
+                "last_commit_short": None,
+                "status_summary": "unavailable",
+                "safety_notes": ["path does not exist or is not a git repo"] if not path.exists() else [],
+            }
+        base.update(git_info)
+        rows.append(base)
+    return rows
+
+
+def _captain_env_api_key() -> str:
+    return os.getenv("OPENROUTER_API_KEY", "").strip()
+
+
+def _captain_model_name() -> str:
+    value = os.getenv("MCHARNESS_CAPTAIN_MODEL", "openrouter/auto").strip()
+    return value or "openrouter/auto"
+
+
+def _captain_secret_path() -> Path:
+    return MCTABLE_ROOT / "secrets" / "captain_openrouter.json"
+
+
+def _captain_saved_config() -> dict[str, Any] | None:
+    path = _captain_secret_path()
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    api_key = str(data.get("api_key") or "").strip()
+    if not api_key:
+        return None
+    return {
+        "provider": "openrouter",
+        "api_key": api_key,
+        "model": str(data.get("model") or "").strip() or _captain_model_name(),
+        "updated_at": str(data.get("updated_at") or "").strip(),
+    }
+
+
+def _captain_key_source() -> str:
+    if _captain_env_api_key():
+        return "env"
+    if _captain_saved_config():
+        return "saved"
+    return "missing"
+
+
+def _captain_api_key() -> str:
+    env_key = _captain_env_api_key()
+    if env_key:
+        return env_key
+    saved = _captain_saved_config()
+    return str(saved["api_key"]).strip() if saved else ""
+
+
+def _captain_effective_model_name() -> str:
+    if _captain_env_api_key():
+        return _captain_model_name()
+    saved = _captain_saved_config()
+    if saved and str(saved.get("model") or "").strip():
+        return str(saved["model"]).strip()
+    return _captain_model_name()
+
+
+def _captain_private_key_setup_enabled() -> bool:
+    return _public_write_enabled() and _tmux_runner_enabled() and _codex_runner_enabled()
+
+
+def _codex_runner_ready() -> bool:
+    return _tmux_runner_enabled() and _codex_runner_enabled()
+
+
+def _service_mode_label() -> str:
+    return "private" if _codex_runner_ready() else "public"
+
+
+def _run_history_write_enabled() -> bool:
+    return _codex_runner_ready()
+
+
+def _run_history_read_enabled() -> bool:
+    return _codex_runner_ready()
+
+
+def _require_run_history_write(request: Request) -> None:
+    if _run_history_write_enabled():
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Run history writes require the private runner service.",
+    )
+
+
+def _agent_registry_write_enabled() -> bool:
+    return _captain_private_key_setup_enabled()
+
+
+def _agent_registry_private_only() -> bool:
+    return not _codex_runner_ready() or _agent_registry_write_enabled()
+
+
+def _codex_probe_payload() -> dict[str, Any]:
+    det = _detect_executable("codex")
+    return {
+        "installed": bool(det.get("installed")),
+        "executable_path": det.get("executable_path"),
+        "version": det.get("version"),
+    }
+
+
+def _resolve_captain_plan_agent(agent_id: str) -> dict[str, Any]:
+    agent = get_agent_by_id(
+        MCTABLE_ROOT,
+        agent_id,
+        codex_runner_ready=_codex_runner_ready(),
+        private_only=_agent_registry_private_only(),
+    )
+    if agent is None:
+        raise HTTPException(status_code=400, detail=f"Unknown agent lane: {agent_id}")
+    if agent.get("adapter") != "codex_cli":
+        raise HTTPException(status_code=400, detail="Captain Deck currently deploys to the Codex CLI lane only.")
+    return agent
+
+
+def _captain_status_payload() -> dict[str, Any]:
+    key_source = _captain_key_source()
+    configured = key_source in {"env", "saved"}
+    notes = []
+    if not configured:
+        notes.append("Captain is not configured. Set OPENROUTER_API_KEY on the private service.")
+    elif key_source == "env":
+        notes.append("Captain is configured via environment.")
+    else:
+        notes.append("Captain is configured via saved private key.")
+    return {
+        "ok": True,
+        "configured": configured,
+        "provider": "openrouter",
+        "model": _captain_effective_model_name(),
+        "planning_enabled": configured,
+        "key_source": key_source,
+        "private_key_setup_enabled": _captain_private_key_setup_enabled(),
+        "notes": notes,
+    }
+
+
+def _validate_captain_api_key_value(api_key: str) -> None:
+    key = (api_key or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="OpenRouter API key is required.")
+    if not re.match(r"^sk-or-[A-Za-z0-9._-]{8,}$", key):
+        raise HTTPException(status_code=400, detail="OpenRouter API key does not look valid.")
+
+
+def _write_captain_saved_config(api_key: str, model: str) -> None:
+    path = _captain_secret_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path.parent, 0o700)
+    except Exception:
+        pass
+    payload = {
+        "provider": "openrouter",
+        "api_key": api_key.strip(),
+        "model": (model or _captain_model_name()).strip() or "openrouter/auto",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)
+    except Exception:
+        pass
+
+
+def _delete_captain_saved_config() -> bool:
+    path = _captain_secret_path()
+    if not path.exists():
+        return False
+    try:
+        path.unlink()
+        return True
+    except Exception:
+        raise HTTPException(status_code=500, detail="Unable to remove saved Captain key.")
+
+
+def _resolve_allowlisted_repo(repo_id: str) -> tuple[Path, dict[str, Any]]:
+    repo = next((item for item in _repo_entries() if item["repo_id"] == repo_id or item["path"] == repo_id), None)
+    if repo is None:
+        raise HTTPException(status_code=400, detail=f"Unknown repo_id: {repo_id}")
+    path = Path(repo["path"])
+    if not path.exists():
+        raise HTTPException(status_code=400, detail=f"Allowlisted repo path does not exist: {repo_id}")
+    return path, repo
+
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    candidate_text = (text or "").strip()
+    if not candidate_text:
+        raise ValueError("OpenRouter returned an empty response.")
+
+    candidates = [candidate_text]
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", candidate_text, flags=re.DOTALL | re.IGNORECASE)
+    if fenced:
+        candidates.insert(0, fenced.group(1).strip())
+    first = candidate_text.find("{")
+    last = candidate_text.rfind("}")
+    if first != -1 and last != -1 and last > first:
+        candidates.append(candidate_text[first:last + 1].strip())
+
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    raise ValueError("OpenRouter response was not valid JSON.")
+
+
+def _captain_prompt_wrapper(*, goal: str, repo: dict[str, Any], lane_id: str, plan_title: str, plan_summary: str, step_index: int, step_total: int, step_title: str, step_prompt: str) -> str:
+    return "\n".join([
+        f"Captain Deck step {step_index}/{step_total}: {step_title}",
+        f"Exact goal: {goal}",
+        f"Plan title: {plan_title}",
+        f"Plan summary: {plan_summary}",
+        f"Repo: {repo['repo_id']} ({repo['path']})",
+        f"Agent lane: {lane_id}",
+        "",
+        f"Step focus from Captain: {step_prompt}",
+        "Inspect before edit.",
+        "Known files/areas to inspect: start with the repo surface, then narrow only to the files needed for this step.",
+        "Allowed files/areas: only the selected repo and the files needed for this step.",
+        "Forbidden actions: no push, merge, reset, rebase, no secrets, no public runner changes, no arbitrary shell input, no deploy commands unless the user explicitly asks later.",
+        "Acceptance checks: finish with a concise proof of files inspected, edits made, and verification performed.",
+        "Final proof format: branch, commit hash if any, files changed, tests run/output, and remaining unproven items.",
+    ])
+
+
+def _openrouter_chat_completion(*, messages: list[dict[str, str]], model: str, timeout: float = 30.0) -> dict[str, Any]:
+    api_key = _captain_api_key()
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Captain is not configured. Set OPENROUTER_API_KEY on the private service.",
+        )
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.2,
+        "stream": False,
+        "response_format": {"type": "json_object"},
+    }
+    request = URLRequest(
+        "https://openrouter.ai/api/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-Title": "McHarness Captain Deck",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            raw_body = response.read().decode("utf-8", errors="replace")
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
+        detail = body.strip() or f"OpenRouter request failed with HTTP {exc.code}."
+        raise HTTPException(status_code=502, detail=detail) from exc
+    except URLError as exc:
+        raise HTTPException(status_code=502, detail=f"OpenRouter request failed: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="OpenRouter request timed out.") from exc
+
+    try:
+        return json.loads(raw_body)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="OpenRouter returned invalid JSON.") from exc
+
+
+def _build_captain_plan(*, goal: str, repo: dict[str, Any], lane_id: str) -> tuple[dict[str, Any], list[str]]:
+    model = _captain_effective_model_name()
+    system_prompt = "\n".join([
+        "You are Captain Deck for McHarness.",
+        "Output strict JSON only.",
+        "Create a bounded plan with 3 to 7 ordered steps.",
+        "Each step must be suitable as a Codex dispatch prompt.",
+        "The JSON object must contain: title, summary, steps.",
+        "Each step object must contain: title and prompt.",
+        "Keep each step short, specific, and safe.",
+        "Each step prompt must mention the exact goal, files or areas to inspect if known, allowed files or areas if known, forbidden actions, acceptance checks, and a final proof format.",
+        "Do not include markdown fences, commentary, or extra keys unless needed for notes.",
+        "Do not propose deploy commands unless explicitly requested later.",
+        "Default to inspect before edit.",
+        "Default to no push, merge, reset, or rebase.",
+        "Default to no secrets and no public runner changes.",
+    ])
+    user_prompt = "\n".join([
+        f"Goal: {goal}",
+        f"Repo: {repo['repo_id']} ({repo['path']})",
+        f"Lane: {lane_id}",
+        "Return only JSON with title, summary, and 3-7 ordered steps.",
+    ])
+    payload = _openrouter_chat_completion(
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        model=model,
+        timeout=30.0,
+    )
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    if not choices:
+        raise HTTPException(status_code=502, detail="OpenRouter response did not include any choices.")
+    first_choice = choices[0] if isinstance(choices, list) and choices else {}
+    message = first_choice.get("message") if isinstance(first_choice, dict) else {}
+    content = ""
+    if isinstance(message, dict):
+        content = str(message.get("content") or "").strip()
+
+    try:
+        parsed = _extract_json_object(content)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    title = str(parsed.get("title") or f"Captain plan for {goal[:60]}").strip()
+    summary = str(parsed.get("summary") or goal).strip()
+    raw_steps = parsed.get("steps")
+    if not isinstance(raw_steps, list) or not (3 <= len(raw_steps) <= 7):
+        raise HTTPException(status_code=502, detail="Captain plan must contain 3 to 7 ordered steps.")
+
+    steps: list[dict[str, Any]] = []
+    notes: list[str] = []
+    for index, raw_step in enumerate(raw_steps, start=1):
+        if not isinstance(raw_step, dict):
+            raise HTTPException(status_code=502, detail="Captain plan steps must be JSON objects.")
+        step_title = str(raw_step.get("title") or f"Step {index}").strip()
+        step_prompt = str(raw_step.get("prompt") or "").strip()
+        if not step_prompt:
+            raise HTTPException(status_code=502, detail=f"Captain plan step {index} is missing a prompt.")
+        steps.append(
+            {
+                "id": f"step_{index}",
+                "title": step_title,
+                "agent": lane_id,
+                "prompt": _captain_prompt_wrapper(
+                    goal=goal,
+                    repo=repo,
+                    lane_id=lane_id,
+                    plan_title=title,
+                    plan_summary=summary,
+                    step_index=index,
+                    step_total=len(raw_steps),
+                    step_title=step_title,
+                    step_prompt=step_prompt,
+                ),
+                "status": "queued",
+            }
+        )
+
+    notes.append(f"OpenRouter model: {model}")
+    return {
+        "ok": True,
+        "plan_id": f"plan_{uuid.uuid4().hex[:8]}",
+        "title": title,
+        "summary": summary,
+        "steps": steps,
+        "notes": notes,
+    }, notes
+
+
+def _save_captain_plan_artifact(plan: dict[str, Any], *, goal: str, repo: dict[str, Any], lane_id: str) -> Optional[Path]:
+    try:
+        CAPTAIN_PLAN_ROOT.mkdir(parents=True, exist_ok=True)
+        plan_path = CAPTAIN_PLAN_ROOT / f"{plan['plan_id']}.json"
+        artifact = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "goal": goal,
+            "repo_id": repo["repo_id"],
+            "repo_path": repo["path"],
+            "lane_id": lane_id,
+            "plan": plan,
+        }
+        plan_path.write_text(json.dumps(artifact, indent=2), encoding="utf-8")
+        return plan_path
+    except Exception:
+        return None
+
+
+def _captain_plan_response(plan: dict[str, Any], *, notes: list[str] | None = None) -> dict[str, Any]:
+    steps: list[dict[str, Any]] = []
+    for step in plan.get("steps") or []:
+        steps.append(
+            {
+                "id": step.get("step_id") or step.get("id"),
+                "title": step.get("title"),
+                "agent": step.get("agent_id") or step.get("agent") or "codex_cli",
+                "prompt": step.get("prompt") or step.get("prompt_preview") or "",
+                "status": step.get("status"),
+                "run_id": step.get("run_id"),
+                "evidence_ids": list(step.get("evidence_ids") or []),
+            }
+        )
+    return {
+        "ok": True,
+        "plan_id": plan.get("plan_id"),
+        "title": plan.get("title"),
+        "summary": plan.get("summary"),
+        "goal": plan.get("goal"),
+        "repo_id": plan.get("repo_id"),
+        "status": plan.get("status"),
+        "current_step_id": plan.get("current_step_id"),
+        "steps": steps,
+        "decision_log": list(plan.get("decision_log") or []),
+        "notes": list(notes or []),
+    }
+
+
+def _execute_codex_dispatch_for_step(
+    *,
+    title: str,
+    prompt: str,
+    repo_id: str,
+    plan_id: str | None = None,
+    step_id: str | None = None,
+) -> dict[str, Any]:
+    if not _codex_runner_ready():
+        raise HTTPException(status_code=403, detail="Codex dispatch requires the private runner service.")
+    repo_path, _repo = _resolve_allowlisted_repo(repo_id)
+    session = create_mcharness_session(
+        McHarnessSessionCreateRequest(
+            title=title,
+            objective=title,
+            plan_instruction=prompt,
+            repo_path=str(repo_path),
+            agent_lane="codex_cli",
+        )
+    )
+    session_id = session["session_id"]
+    queue_result = queue_mcharness_prompt(
+        session_id,
+        McHarnessQueueRequest(title=title, prompt=prompt),
+    )
+    queue_item_id = queue_result.get("queue_item_id")
+    runner_state = post_mcharness_runner_start(
+        session_id,
+        McHarnessRunnerStartRequest(
+            lane_id="codex_cli",
+            repo_id=repo_id,
+            queue_item_id=queue_item_id,
+            title=title,
+            prompt=prompt,
+            plan_id=plan_id,
+            agent_id="codex_cli",
+            created_by="captain_loop",
+        ),
+    )
+    return {
+        "session_id": session_id,
+        "runner_id": runner_state.get("runner_id"),
+        "queue_item_id": queue_item_id,
+        "prompt": prompt,
+        "runner_state": runner_state,
+    }
+
+
+def _lane_entries() -> list[dict[str, Any]]:
+    """Return rich lane objects (new fields) + legacy keys for compat. Safe checks only."""
+    now = datetime.now(timezone.utc).isoformat()
+    tmux_enabled = _tmux_runner_enabled()
+    # base static for order + validation compat
+    base_map = {entry["lane_id"]: entry for entry in AGENT_LANES}
+
+    def _rich_for(lid: str, label: str, desc: str, is_manual: bool = False) -> dict[str, Any]:
+        if is_manual:
+            det = {"installed": True, "executable_path": None, "version": None}
+            auth = "not_checked"
+            rmode = "manual"
+            notes = ["Manual paste-back flow. Operator performs all CLI steps locally. No server-side execution."]
+        elif lid == "fake_test_lane":
+            det = {"installed": True, "executable_path": None, "version": "internal-fake-1.0"}
+            auth = "not_checked"
+            rmode = "controlled_run_ready"
+            notes = [
+                "FAKE TEST LANE: harmless python -c print only. No provider calls, no usage burn, no real CLI.",
+                "For automated tests and proof only. Gated behind MCHARNESS_TMUX_RUNNER_ENABLED or test override.",
+            ]
+        else:
+            det = _detect_executable(lid.split("_")[0])  # codex or agy
+            auth = "unknown" if det["installed"] else "not_detected"
+            rmode = "dry_run_ready" if det["installed"] else "controlled_run_disabled"
+            notes = []
+            if lid == "codex_cli":
+                # Improve auth for codex using safe non-int doctor (no secrets, no login)
+                if det["installed"]:
+                    exe = det["executable_path"]
+                    dres = _safe_cmd([exe, "doctor"], timeout=5.0)
+                    dout = ((dres.stdout or "") + (dres.stderr or "")).lower() if dres else ""
+                    if dres is not None and (dres.returncode == 0) and any(k in dout for k in ["authenticated", "logged in", "ready", "health"]):
+                        auth = "likely_ready"
+                    else:
+                        auth = "unknown"
+                    tmux_f = _tmux_runner_enabled()
+                    codex_f = _codex_runner_enabled()
+                    rmode = "controlled_run_ready" if (det["installed"] and tmux_f and codex_f) else "controlled_run_disabled"
+                    notes.append("Real Codex gated: requires BOTH MCHARNESS_TMUX_RUNNER_ENABLED=true AND MCHARNESS_CODEX_RUNNER_ENABLED=true for controlled start.")
+                    notes.append("Uses codex exec (non-int) + --cd + --output-last-message for transcript. Attach mode fallback via tmux if needed.")
+                    notes.append("Auth via safe non-interactive 'codex doctor' check only; no token files or login commands ever inspected.")
+                else:
+                    notes.append("Codex not found via command -v. Install via subscription to enable (preview still works).")
+            elif det["installed"]:
+                notes.append("Real execution disabled (public_manual + MCHARNESS_TMUX_RUNNER_ENABLED=false).")
+                notes.append("Dry-run intent preview supported. No auth files, cookies, or secrets are inspected.")
+            else:
+                notes.append("Executable not found via command -v. Install via your subscription to enable (preview still works).")
+        legacy = base_map.get(lid, {"implemented": False, "manual_only": True})
+        return {
+            "id": lid,
+            "label": label,
+            "description": desc,
+            "installed": det["installed"],
+            "executable_path": det["executable_path"],
+            "version": det["version"],
+            "auth_status": auth,
+            "runner_mode": rmode,
+            "safety_notes": notes,
+            "last_checked_at": now,
+            # legacy for existing UI/tests
+            "lane_id": lid,
+            "title": label,
+            "implemented": legacy.get("implemented", not is_manual),
+            "manual_only": True,
+        }
+
+    rich = [
+        _rich_for("codex_cli", "Codex CLI", "OpenAI Codex CLI for code generation/edits via subscription."),
+        _rich_for("agy_cli", "AGY / Antigravity CLI", "AGY/Antigravity CLI coding agent (subscription)."),
+        _rich_for("manual_paste", "Manual paste-back", "Copy prompt export and paste transcript/results back manually.", is_manual=True),
+        _rich_for("grok_placeholder", "Grok", "Grok CLI (placeholder, not wired for preview)."),
+        _rich_for("jules_placeholder", "Jules", "Jules (placeholder, not wired for preview)."),
+        _rich_for("opencode_placeholder", "OpenCode", "OpenCode (placeholder, not wired for preview)."),
+        _rich_for("fake_test_lane", "Fake Test Lane (internal/harmless for automated proof only)", "Internal fake lane for runner foundation tests/proof. Harmless python -c only."),
+    ]
+    # also surface tmux availability in notes for cli lanes if useful
+    tmux_note = f"tmux available: {bool(_safe_cmd(['bash', '-c', 'command -v tmux || true'], timeout=1.0))}"
+    for entry in rich:
+        if entry["id"] in ("codex_cli", "agy_cli") and entry["installed"]:
+            entry["safety_notes"].append(tmux_note)
+    return rich
+
+
+def _validate_repo_path(repo_path: str) -> Path:
+    for entry in SAFE_REPO_PATHS:
+        if str(entry) == repo_path:
+            if not entry.exists():
+                raise HTTPException(status_code=400, detail=f"Allowlisted repo path does not exist: {repo_path}")
+            return entry
+    raise HTTPException(status_code=400, detail=f"Repo path is not allowlisted: {repo_path}")
+
+
+def _validate_agent_lane(agent_lane: str) -> dict[str, Any]:
+    lane = next((entry for entry in AGENT_LANES if entry["lane_id"] == agent_lane), None)
+    if lane is None:
+        raise HTTPException(status_code=400, detail=f"Unknown agent lane: {agent_lane}")
+    if not lane["implemented"]:
+        raise HTTPException(status_code=400, detail=f"Agent lane is placeholder only: {agent_lane}")
+    return lane
+
+
+def _thread_for_session(session_id: str) -> dict[str, Any]:
+    try:
+        return WORKBENCH_STORE.get_thread(session_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}") from exc
+
+
+def _run_for_session(session_id: str) -> dict[str, Any]:
+    runs = WORKBENCH_STORE.list_runs_for_thread(session_id)
+    if not runs:
+        raise HTTPException(status_code=404, detail=f"No run found for session: {session_id}")
+    return runs[0]
+
+
+def _append_run_event(run_id: str, title: str, detail: str, severity: str = "info", event_type: str = "note") -> None:
+    WORKBENCH_STORE.append_run_event(
+        run_id,
+        WorkbenchRunEventCreateRequest(
+            event_type=event_type,
+            title=title,
+            detail=detail,
+            severity=severity,  # type: ignore[arg-type]
+        ),
+    )
+
+
+def _artifact_blob_path(thread_id: str, kind: str, extension: str) -> Path:
+    suffix = extension.lstrip(".") or "txt"
+    target_dir = ARTIFACT_BODY_ROOT / thread_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    return target_dir / f"{kind}-{uuid.uuid4().hex[:8]}.{suffix}"
+
+
+def _create_artifact(thread_id: str, kind: str, title: str, body: str, summary: Optional[str] = None, extension: str = "txt") -> dict[str, Any]:
+    path = _artifact_blob_path(thread_id, kind, extension)
+    path.write_text(body, encoding="utf-8")
+    artifact = WORKBENCH_STORE.create_artifact(
+        WorkbenchArtifactCreateRequest(
+            artifact_id=f"artifact_{uuid.uuid4().hex[:8]}",
+            kind=kind,
+            title=title,
+            path=str(path),
+            thread_id=thread_id,
+            summary=summary or title,
+            notes=None,
+        )
+    )
+    return artifact.model_dump(mode="json")
+
+
+def _create_run_summary_artifact(thread: dict[str, Any], run: dict[str, Any], note: str) -> dict[str, Any]:
+    metadata = thread.get("metadata") or {}
+    body = "\n".join(
+        [
+            "# McHarness Run Summary",
+            f"- Session: {thread.get('title')}",
+            f"- Session id: {thread.get('thread_id')}",
+            f"- Repo/worktree: {metadata.get('repo_path', '(unknown)')}",
+            f"- CLI lane: {metadata.get('agent_lane', '(unknown)')}",
+            f"- Thread status: {thread.get('status')}",
+            f"- Run id: {run.get('run_id')}",
+            f"- Run status: {run.get('status')}",
+            f"- Current step: {run.get('current_step')}",
+            f"- Note: {note}",
+        ]
+    )
+    return _create_artifact(thread["thread_id"], "run_summary", "Run summary", body, note, "md")
+
+
+def _capture_git_status_artifacts(thread: dict[str, Any]) -> dict[str, Any]:
+    metadata = thread.get("metadata") or {}
+    repo_path = _validate_repo_path(metadata.get("repo_path", ""))
+    status_proc = subprocess.run(
+        ["git", "-C", str(repo_path), "status", "--short"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    diff_proc = subprocess.run(
+        ["git", "-C", str(repo_path), "diff", "--stat"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    status_text = status_proc.stdout.strip() or "(clean)"
+    diff_text = diff_proc.stdout.strip() or "(no diff summary)"
+    status_artifact = _create_artifact(
+        thread["thread_id"],
+        "git_status",
+        "Git status",
+        status_text + "\n",
+        f"git status for {repo_path}",
+        "txt",
+    )
+    diff_artifact = _create_artifact(
+        thread["thread_id"],
+        "git_diff_summary",
+        "Git diff summary",
+        diff_text + "\n",
+        f"git diff summary for {repo_path}",
+        "txt",
+    )
+    return {
+        "repo_path": str(repo_path),
+        "git_status": status_text,
+        "git_diff_summary": diff_text,
+        "artifacts": [status_artifact, diff_artifact],
+    }
+
+
+# --- Gated tmux runner foundation (fake_test_lane + controlled when enabled) ---
+
+RUNNER_STATE_ROOT = MCTABLE_ROOT / "mcharness" / "runners"
+
+
+def _runner_state_path(session_id: str) -> Path:
+    RUNNER_STATE_ROOT.mkdir(parents=True, exist_ok=True)
+    return RUNNER_STATE_ROOT / f"{session_id}.json"
+
+
+def _load_runner_state(session_id: str) -> Optional[dict[str, Any]]:
+    p = _runner_state_path(session_id)
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+    return None
+
+
+def _save_runner_state(state: dict[str, Any]) -> None:
+    p = _runner_state_path(state["session_id"])
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    tmp.replace(p)
+
+
+def _tmux_session_name(session_id: str, runner_id: str) -> str:
+    # safe, short, alnum + _ only
+    base = (session_id.replace("-", "") + runner_id.replace("-", ""))[-12:]
+    return "mch_" + "".join(c if c.isalnum() else "_" for c in base)
+
+
+def _get_tmux_transcript(name: str) -> str:
+    """Prefer live pane capture for running sessions (so monitor shows actual Codex output).
+    Fall back to previous file contents on exit.
+    """
+    if not name:
+        return ""
+    # Always try capture first if the session exists (live view)
+    has = _safe_cmd(["tmux", "has-session", "-t", name], timeout=1.0)
+    if has is not None and has.returncode == 0:
+        res = _safe_cmd(["tmux", "capture-pane", "-p", "-t", name], timeout=3.0)
+        if res is not None and res.returncode == 0:
+            return res.stdout or ""
+    # session gone or capture failed: use whatever is in the transcript file (final or previous captures)
+    # (the file may have been appended to by send or prior captures)
+    return ""
+
+
+def _stop_tmux(name: str) -> None:
+    _safe_cmd(["tmux", "kill-session", "-t", name], timeout=2.0)
+
+
+def _start_fake_runner(state: dict[str, Any]) -> dict[str, Any]:
+    """Harmless fake only. Uses pure long-running process in tmux so monitor can capture live + injected prompt text.
+    No providers, no usage burn. For automated proof of interactive send/capture/stop.
+    """
+    name = state["tmux_session_name"]
+    # Long-running harmless process (stays alive for send-keys and capture).
+    # The typed prompt from send will appear in the tmux pane buffer (visible in capture).
+    inner = "python -c \"import time,sys; print('FAKE_STARTED'); sys.stdout.flush(); time.sleep(300)\" "
+    tmux_cmd = ["tmux", "new-session", "-d", "-s", name, "--", "bash", "-c", inner]
+    res = _safe_cmd(tmux_cmd, timeout=5.0)
+    if res is not None and res.returncode == 0:
+        state["status"] = "running"
+        state["notes"].append("tmux session started for fake_test_lane (long-running for live capture)")
+    else:
+        state["status"] = "failed"
+        state["notes"].append(f"tmux start failed: {getattr(res, 'stderr', 'err') if res else 'subprocess err'}")
+    return state
+
+
+def _skip_codex_update_prompt(name: str) -> bool:
+    """Auto-dismiss Codex's update screen if it appears on startup.
+    This keeps the private runner on the actual input screen where prompt submission works.
+    """
+    if not name:
+        return False
+    pane = _get_tmux_transcript(name)
+    if "Update available" not in pane and "Skip until next version" not in pane and "Update now" not in pane:
+        return False
+    _safe_cmd(["tmux", "send-keys", "-t", name, "2"], timeout=1.0)
+    _safe_cmd(["tmux", "send-keys", "-t", name, "Enter"], timeout=1.0)
+    time.sleep(1.0)
+    return True
+
+
+def _start_codex_runner(state: dict[str, Any], cwd: str) -> dict[str, Any]:
+    """Launch Codex interactively in tmux (pure, no wrapper that forces exit).
+    Keeps the tmux session + Codex TUI alive for live monitoring and later prompt injection.
+    """
+    name = state["tmux_session_name"]
+    # Pure interactive launch in the allowlisted cwd. Codex will run its TUI and wait.
+    # Use the binary name (resolvable in PATH for the service user).
+    tmux_cmd = ["tmux", "new-session", "-d", "-s", name, "-c", cwd, "codex"]
+    res = _safe_cmd(tmux_cmd, timeout=5.0)
+    if res is not None and res.returncode == 0:
+        state["status"] = "waiting_for_codex"
+        state["notes"].append("codex interactive tmux session started; will inject prompt after ~10s delay")
+        state["attach_command"] = f"tmux attach -t {name}"
+        if _skip_codex_update_prompt(name):
+            state["notes"].append("codex update prompt auto-skipped on startup")
+    else:
+        state["status"] = "failed"
+        state["notes"].append(f"codex tmux start failed: {getattr(res, 'stderr', 'err') if res else 'subprocess err'}")
+        state["attach_command"] = f"tmux attach -t {name}  # (may have failed to start)"
+    return state
+
+
+class McHarnessRunnerSendPrompt(BaseModel):
+    prompt: str = Field(min_length=1)
+
+
+class McHarnessRunnerSendKey(BaseModel):
+    key: Literal["1", "2", "3", "Enter", "Esc", "Ctrl+C", "Submit / Continue"]
+
+
+ALLOWED_QUICK_REPLY_KEYS: dict[str, str] = {
+    "1": "1",
+    "2": "2",
+    "3": "3",
+    "Enter": "Enter",
+    "Esc": "Escape",
+    "Ctrl+C": "C-c",
+}
+
+ACTIVE_RUNNER_STATUSES = {"running", "waiting_for_codex", "prompt_sent", "awaiting_response"}
+
+
+def _runner_transcript_excerpt(state: dict[str, Any], limit: int = 1200) -> str:
+    text = _runner_transcript_text(state)
+    text = text or ""
+    if len(text) > limit:
+        return text[-limit:]
+    return text
+
+
+def _resolve_dispatch_prompt(session_id: str, payload: McHarnessRunnerStartRequest) -> tuple[str, str]:
+    thread = _thread_for_session(session_id)
+    title = (payload.title or thread.get("title") or "Codex run").strip()
+    prompt = (payload.prompt or "").strip()
+    if not prompt and payload.queue_item_id:
+        try:
+            prompt = export_captain_queue_item(payload.queue_item_id).strip()
+        except Exception:
+            prompt = ""
+    if not prompt:
+        prompt = title
+    return title, prompt
+
+
+def _create_warden_run_on_dispatch(
+    session_id: str,
+    payload: McHarnessRunnerStartRequest,
+    *,
+    runner_id: str,
+    transcript_path: str,
+    status: str = "dispatched",
+) -> dict[str, Any] | None:
+    if payload.lane_id != "codex_cli" or not _run_history_write_enabled():
+        return None
+    title, prompt = _resolve_dispatch_prompt(session_id, payload)
+    return create_run_record(
+        MCTABLE_ROOT,
+        run_id=runner_id,
+        title=title,
+        agent_id=payload.agent_id or "codex_cli",
+        agent_adapter="codex_cli",
+        repo_id=payload.repo_id,
+        branch=payload.branch,
+        prompt=prompt,
+        status=status,
+        session_id=session_id,
+        plan_id=payload.plan_id,
+        transcript_path=transcript_path,
+        created_by=payload.created_by or "operator",
+        service_mode=_service_mode_label(),
+    )
+
+
+def _sync_warden_run_from_runner_state(state: dict[str, Any], *, status: str | None = None, completed: bool = False) -> None:
+    if not _run_history_write_enabled():
+        return
+    runner_id = state.get("runner_id")
+    if not runner_id:
+        return
+    patch: dict[str, Any] = {
+        "transcript_excerpt": _runner_transcript_excerpt(state),
+        "transcript_path": state.get("transcript_file_path"),
+    }
+    if status:
+        patch["status"] = status
+    if completed:
+        patch["completed_at"] = datetime.now(timezone.utc).isoformat()
+    update_run_record(MCTABLE_ROOT, str(runner_id), **patch)
+
+
+def _runner_transcript_text(state: dict[str, Any]) -> str:
+    name = state.get("tmux_session_name", "")
+    if name:
+        live = _get_tmux_transcript(name)
+        if live:
+            return live
+    transcript_path = state.get("transcript_file_path")
+    if transcript_path:
+        p = Path(transcript_path)
+        if p.exists():
+            try:
+                return p.read_text(encoding="utf-8")
+            except Exception:
+                return ""
+    return ""
+
+
+def _send_key_to_codex_runner(session_id: str, key: str) -> dict[str, Any]:
+    state = _load_runner_state(session_id)
+    if not state or state.get("lane_id") != "codex_cli":
+        raise HTTPException(status_code=400, detail="Quick reply only supported for active codex_cli runner")
+    if state.get("session_id") != session_id:
+        raise HTTPException(status_code=400, detail="Runner state/session mismatch")
+
+    status = state.get("status")
+    if status not in ACTIVE_RUNNER_STATUSES:
+        raise HTTPException(status_code=409, detail=f"Runner not active (status={status or 'unknown'})")
+
+    name = state.get("tmux_session_name")
+    if not name:
+        raise HTTPException(status_code=400, detail="No tmux session for runner")
+    expected_name = _tmux_session_name(session_id, str(state.get("runner_id", "")))
+    if name != expected_name:
+        raise HTTPException(status_code=400, detail="Runner tmux session mismatch")
+
+    has = _safe_cmd(["tmux", "has-session", "-t", name], timeout=1.0)
+    if has is None or has.returncode != 0:
+        raise HTTPException(status_code=409, detail="No active tmux session for runner")
+
+    status_note = None
+    if key == "Submit / Continue":
+        res_tab = _safe_cmd(["tmux", "send-keys", "-t", name, "Tab"], timeout=2.5)
+        res_enter = _safe_cmd(["tmux", "send-keys", "-t", name, "Enter"], timeout=2.5)
+        if res_tab is None or res_tab.returncode != 0 or res_enter is None or res_enter.returncode != 0:
+            raise HTTPException(status_code=502, detail="Failed to submit prompt to tmux runner")
+        status_note = "Prompt sent to Codex."
+    else:
+        tmux_key = ALLOWED_QUICK_REPLY_KEYS.get(key)
+        if tmux_key is None:
+            raise HTTPException(status_code=400, detail="Unsupported quick reply key")
+
+        res = _safe_cmd(["tmux", "send-keys", "-t", name, tmux_key], timeout=2.5)
+        if res is None or res.returncode != 0:
+            raise HTTPException(status_code=502, detail="Failed to send quick reply to tmux runner")
+
+    try:
+        run = _run_for_session(session_id)
+        if key == "Submit / Continue":
+            _append_run_event(run.get("run_id", ""), "Prompt sent to Codex", "Prompt sent to Codex via tmux Tab + Enter", "info", "runner")
+        else:
+            _append_run_event(run.get("run_id", ""), "Quick reply sent", f"Sent quick reply key {key!r} to Codex via tmux", "info", "runner")
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "session_id": session_id,
+        "runner_id": state.get("runner_id"),
+        "lane_id": state.get("lane_id"),
+        "tmux_session_name": name,
+        "sent_key": key,
+        "status": state.get("status"),
+        "status_note": status_note,
+        "transcript_excerpt": _runner_transcript_excerpt(state),
+    }
+
+
+def _send_prompt_to_codex_runner(session_id: str, prompt_text: str):
+    """Safe, allowlisted only: send the (controlled) prompt text to the codex tmux runner via send-keys -l (literal).
+    No arbitrary shell. Only called for codex lane after start + delay.
+    """
+    state = _load_runner_state(session_id)
+    if not state or state.get("lane_id") != "codex_cli":
+        raise HTTPException(status_code=400, detail="Send prompt only supported for active codex_cli runner")
+    name = state.get("tmux_session_name")
+    if not name:
+        raise HTTPException(status_code=400, detail="No tmux session for runner")
+    # Use -l for literal text (safe, no shell interp of user prompt).
+    # Codex CLI queues the message, then Tab + Enter submits it.
+    _safe_cmd(["tmux", "send-keys", "-t", name, "-l", prompt_text], timeout=5.0)
+    _safe_cmd(["tmux", "send-keys", "-t", name, "Tab"], timeout=2.0)
+    _safe_cmd(["tmux", "send-keys", "-t", name, "Enter"], timeout=2.0)
+    # append note to transcript file (for final evidence)
+    try:
+        p = Path(state["transcript_file_path"])
+        with p.open("a", encoding="utf-8") as f:
+            f.write(f"\n# [McHarness injected prompt @ {datetime.now(timezone.utc).isoformat()}]\n{prompt_text}\n")
+    except Exception:
+        pass
+    state["status"] = "awaiting_response"
+    state["notes"].append("prompt text injected via tmux send-keys -l + Tab + Enter; waiting for Codex response")
+    _save_runner_state(state)
+    _sync_warden_run_from_runner_state(state, status="running")
+    try:
+        run = _run_for_session(session_id)
+        _append_run_event(run.get("run_id", ""), "Prompt sent to Codex", "User task prompt injected via safe tmux send-keys", "info", "runner")
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "session_id": session_id,
+        "runner_id": state.get("runner_id"),
+        "lane_id": state.get("lane_id"),
+        "tmux_session_name": name,
+        "status": state.get("status"),
+        "transcript_excerpt": _runner_transcript_excerpt(state),
+    }
+
+
+@mcharness_router.post("/sessions/{session_id}/runner/send-prompt")
+def post_mcharness_runner_send_prompt(session_id: str, payload: McHarnessRunnerSendPrompt):
+    """Smallest safe endpoint to inject the modal prompt into the running codex tmux (after startup delay)."""
+    result = _send_prompt_to_codex_runner(session_id, payload.prompt)
+    return {**result, "ok": True, "injected": True}
+
+
+@mcharness_router.post("/sessions/{session_id}/runner/send-key")
+def post_mcharness_runner_send_key(session_id: str, payload: McHarnessRunnerSendKey):
+    return _send_key_to_codex_runner(session_id, payload.key)
+
+
+@router.get("/capabilities", response_model=List[CapabilityStatus])
+def get_capabilities():
+    return get_runtime_capabilities()
+
+@router.get("/status")
+def get_status():
+    return {
+        "service": "marius-desktop-api",
+        "status": "online",
+        "langgraph_available": LANGGRAPH_AVAILABLE,
+        "sqlite_checkpointing_available": LANGGRAPH_AVAILABLE,
+        "checkpoint_db_path": str(CHECKPOINT_DB_PATH.resolve()),
+        "checkpoint_exists": checkpoint_file_exists(),
+        "mctable_root": str(MCTABLE_ROOT.resolve())
+    }
+
+
+@mcharness_router.get("/health")
+def get_mcharness_health():
+    repos = _repo_entries()
+    lanes = _lane_entries()
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "commit": _git_commit(),
+        "mode": "public_manual",
+        "real_agent_launch_enabled": False,
+        "arbitrary_command_execution_enabled": False,
+        "public_write_enabled": _public_write_enabled(),
+        "tmux_runner_enabled": _tmux_runner_enabled(),
+        "codex_runner_enabled": _codex_runner_enabled(),
+        "available_lanes_count": len(lanes),
+        "repo_count": len(repos),
+        "manual_mode": True,
+    }
+
+
+@mcharness_router.get("/captain/status", response_model=McHarnessCaptainStatusResponse)
+def get_mcharness_captain_status():
+    return _captain_status_payload()
+
+
+@mcharness_router.post("/captain/key", response_model=McHarnessCaptainKeyResponse, dependencies=[Depends(_require_public_write_access)])
+def set_mcharness_captain_key(payload: McHarnessCaptainKeyRequest):
+    if _captain_env_api_key():
+        raise HTTPException(
+            status_code=409,
+            detail="Captain is already configured via environment on this service.",
+        )
+    _validate_captain_api_key_value(payload.api_key)
+    _write_captain_saved_config(payload.api_key, payload.model)
+    status = _captain_status_payload()
+    return {
+        "ok": True,
+        "configured": status["configured"],
+        "provider": "openrouter",
+        "model": status["model"],
+        "key_source": status["key_source"],
+        "private_key_setup_enabled": status["private_key_setup_enabled"],
+        "notes": status["notes"],
+    }
+
+
+@mcharness_router.delete("/captain/key", response_model=McHarnessCaptainKeyResponse, dependencies=[Depends(_require_public_write_access)])
+def delete_mcharness_captain_key():
+    removed = _delete_captain_saved_config()
+    status = _captain_status_payload()
+    notes = list(status.get("notes") or [])
+    if removed:
+        notes.append("Saved Captain key removed.")
+    else:
+        notes.append("No saved Captain key to remove.")
+    return {
+        "ok": True,
+        "configured": status["configured"],
+        "provider": "openrouter",
+        "model": status["model"],
+        "key_source": status["key_source"],
+        "private_key_setup_enabled": status["private_key_setup_enabled"],
+        "notes": notes,
+    }
+
+
+@mcharness_router.post("/captain/plan", response_model=McHarnessCaptainPlanResponse)
+def create_mcharness_captain_plan(payload: McHarnessCaptainPlanRequest):
+    if not _captain_api_key():
+        raise HTTPException(
+            status_code=503,
+            detail="Captain is not configured. Set OPENROUTER_API_KEY on the private service.",
+        )
+    repo_path, repo = _resolve_allowlisted_repo(payload.repo_id)
+    agent = _resolve_captain_plan_agent(payload.lane_id)
+
+    lane_id = str(agent.get("lane_id") or BUILTIN_CODEX_ID)
+    _validate_agent_lane(lane_id)
+
+    plan, notes = _build_captain_plan(goal=payload.goal, repo=repo, lane_id=lane_id)
+    artifact_path = _save_captain_plan_artifact(plan, goal=payload.goal, repo=repo, lane_id=lane_id)
+    persisted = persist_plan(MCTABLE_ROOT, goal=payload.goal, repo_id=repo["repo_id"], plan_data=plan)
+    response = _captain_plan_response(persisted, notes=notes)
+    if artifact_path is not None:
+        response["notes"] = list(response.get("notes") or []) + [f"Plan saved to {artifact_path}"]
+    return response
+
+
+@mcharness_router.get("/captain/plans/recent")
+def get_mcharness_captain_plans_recent():
+    if not _run_history_read_enabled():
+        return {
+            "service": "mcharness-control-plane",
+            "service_mode": _service_mode_label(),
+            "plans": [],
+            "notes": ["Captain plans are available on the private runner service."],
+        }
+    plans = list_recent_plans(MCTABLE_ROOT)
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "plans": [_captain_plan_response(plan) for plan in plans],
+    }
+
+
+@mcharness_router.get("/captain/plans/{plan_id}")
+def get_mcharness_captain_plan_detail(plan_id: str):
+    if not _run_history_read_enabled():
+        plan = get_plan_record(MCTABLE_ROOT, plan_id)
+        if plan is None:
+            raise HTTPException(status_code=404, detail=f"Captain plan not found: {plan_id}")
+        return {
+            "service": "mcharness-control-plane",
+            "service_mode": _service_mode_label(),
+            "plan": _captain_plan_response(sanitize_plan_public(plan)),
+        }
+    plan = get_plan_detail(MCTABLE_ROOT, plan_id, include_prompts=True)
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Captain plan not found: {plan_id}")
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "plan": _captain_plan_response(plan),
+    }
+
+
+@mcharness_router.post("/captain/plans")
+def post_mcharness_captain_plan_persist(payload: McHarnessCaptainPlanPersistRequest):
+    if not _run_history_write_enabled():
+        raise HTTPException(status_code=403, detail="Captain plan writes require the private runner service.")
+    plan_data = {
+        "plan_id": payload.plan_id,
+        "title": payload.title,
+        "summary": payload.summary,
+        "steps": payload.steps,
+    }
+    persisted = persist_plan(MCTABLE_ROOT, goal=payload.goal, repo_id=payload.repo_id, plan_data=plan_data)
+    return {
+        "ok": True,
+        "plan": _captain_plan_response(persisted),
+    }
+
+
+@mcharness_router.post("/captain/plans/{plan_id}/steps/{step_id}/dispatch", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_captain_plan_step_dispatch(plan_id: str, step_id: str):
+    plan = get_plan_record(MCTABLE_ROOT, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Captain plan not found: {plan_id}")
+    if plan.get("current_step_id") != step_id:
+        raise HTTPException(status_code=409, detail="Only the current Captain step can be dispatched.")
+    step = next((item for item in plan.get("steps") or [] if item.get("step_id") == step_id), None)
+    if step is None:
+        raise HTTPException(status_code=404, detail=f"Captain plan step not found: {step_id}")
+    repo_id = plan.get("repo_id")
+    if not repo_id:
+        raise HTTPException(status_code=400, detail="Captain plan is missing repo_id.")
+    dispatch = _execute_codex_dispatch_for_step(
+        title=step.get("title") or plan.get("title") or "Captain step",
+        prompt=str(step.get("prompt") or ""),
+        repo_id=str(repo_id),
+        plan_id=plan_id,
+        step_id=step_id,
+    )
+    updated = mark_step_dispatched(
+        MCTABLE_ROOT,
+        plan_id,
+        step_id,
+        run_id=str(dispatch.get("runner_id") or ""),
+        status="dispatched",
+    )
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "plan": _captain_plan_response(updated),
+        "dispatch": dispatch,
+    }
+
+
+@mcharness_router.post("/captain/plans/{plan_id}/steps/{step_id}/complete", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_captain_plan_step_complete(plan_id: str, step_id: str, payload: McHarnessCaptainStepCompleteRequest):
+    updated = complete_captain_plan_step(
+        MCTABLE_ROOT,
+        plan_id,
+        step_id,
+        evidence_ids=list(payload.evidence_ids or []),
+    )
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "plan": _captain_plan_response(updated),
+    }
+
+
+@mcharness_router.post("/captain/plans/{plan_id}/steps/{step_id}/revise", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_captain_plan_step_revise(plan_id: str, step_id: str, payload: McHarnessCaptainStepReviseRequest):
+    updated = revise_captain_plan_step(
+        MCTABLE_ROOT,
+        plan_id,
+        step_id,
+        title=payload.title,
+        prompt=payload.prompt,
+        note=payload.note,
+    )
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "plan": _captain_plan_response(updated),
+    }
+
+
+@mcharness_router.post("/captain/plans/{plan_id}/stop", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_captain_plan_stop(plan_id: str, payload: McHarnessCaptainPlanStopRequest):
+    updated = stop_captain_plan(MCTABLE_ROOT, plan_id, note=payload.note)
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "plan": _captain_plan_response(updated),
+    }
+
+@router.get("/tasks", response_model=List[TaskState])
+def get_tasks():
+    tasks = []
+    if TASKS_DIR.exists():
+        graph = McTableTaskGraph()
+        for p in TASKS_DIR.glob("*.json"):
+            try:
+                task_id = p.stem
+                tasks.append(graph.load_state(task_id))
+            except Exception:
+                pass
+    return tasks
+
+@router.post("/tasks", response_model=TaskState, dependencies=[Depends(_require_public_write_access)])
+def create_task(req: TaskCreateRequest):
+    if req.command not in ALLOWED_COMMANDS:
+        raise HTTPException(status_code=400, detail=f"Command '{req.command}' is not allowlisted.")
+
+    # Check if task already exists
+    if (TASKS_DIR / f"{req.task_id}.json").exists():
+        raise HTTPException(status_code=400, detail=f"Task {req.task_id} already exists.")
+
+    graph = McTableTaskGraph()
+    graph.create_task(req.task_id, req.title, req.description, req.command, req.args)
+    return graph.drive_task_to_review(req.task_id)
+
+@router.get("/tasks/{task_id}", response_model=TaskState)
+def get_task(task_id: str):
+    graph = McTableTaskGraph()
+    try:
+        return graph.load_state(task_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found.")
+
+@router.get("/tasks/{task_id}/events")
+def get_task_events(task_id: str):
+    graph = McTableTaskGraph()
+    try:
+        state = graph.load_state(task_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found.")
+
+    # Return a simple list of events based on the task state
+    return [
+        {"event": "task_created", "timestamp": state.created_at.isoformat()},
+        {"event": "step_executed", "step": state.current_step, "timestamp": state.updated_at.isoformat()}
+    ]
+
+@router.post("/tasks/{task_id}/decision", response_model=TaskState, dependencies=[Depends(_require_public_write_access)])
+def post_task_decision(task_id: str, req: DecisionRequest):
+    graph = McTableTaskGraph()
+    try:
+        graph.load_state(task_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found.")
+    return graph.resume_task(
+        task_id=task_id,
+        decision=req.decision,
+        actor=req.actor,
+        reviewer_note=req.reviewer_note,
+        state_patch=req.state_patch,
+    )
+
+@router.get("/worker-runs/{run_id}", response_model=WorkerRun)
+def get_worker_run(run_id: str):
+    try:
+        return WorkerStub.get_status(run_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Worker run {run_id} not found.")
+
+@router.get("/worker-runs/{run_id}/logs")
+def get_worker_run_logs(run_id: str):
+    try:
+        logs_iterator = WorkerStub.stream_logs(run_id)
+        return {"logs": "".join(list(logs_iterator))}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Worker run {run_id} not found.")
+
+@router.post("/worker-runs/{run_id}/cancel", dependencies=[Depends(_require_public_write_access)])
+def cancel_worker_run(run_id: str):
+    try:
+        WorkerStub.cancel_run(run_id)
+        return {"status": "cancelled", "run_id": run_id}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Worker run {run_id} not found.")
+
+@router.get("/agents")
+def get_agents():
+    return [
+        {
+            "agent_id": "fake-agent",
+            "name": "Fake Agent stub",
+            "capabilities": list(ALLOWED_COMMANDS)
+        }
+    ]
+
+
+@mcharness_router.get("/repos")
+def get_mcharness_repos():
+    return {
+        "service": "mcharness-control-plane",
+        "mode": "server_control_plane",
+        "repos": _repo_entries(),
+    }
+
+
+@mcharness_router.get("/agent-lanes")
+def get_mcharness_agent_lanes():
+    return {
+        "service": "mcharness-control-plane",
+        "manual_mode": True,
+        "lanes": _lane_entries(),
+    }
+
+
+@mcharness_router.get("/agents")
+def get_mcharness_agents():
+    agents = list_all_agents(
+        MCTABLE_ROOT,
+        codex_runner_ready=_codex_runner_ready(),
+        private_only=_agent_registry_private_only(),
+    )
+    return {
+        "service": "mcharness-control-plane",
+        "registry_write_enabled": _agent_registry_write_enabled(),
+        "agents": [sanitize_agent_profile(agent) for agent in agents],
+    }
+
+
+@mcharness_router.get("/agents/templates")
+def get_mcharness_agent_templates():
+    return {
+        "service": "mcharness-control-plane",
+        "templates": agent_templates(),
+    }
+
+
+@mcharness_router.post("/agents/test-config", dependencies=[Depends(_require_public_write_access)])
+def test_mcharness_agent_config(payload: McHarnessAgentTestConfigRequest):
+    if not _agent_registry_write_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Agent configuration is available only on the private runner service.",
+        )
+    return test_agent_config(payload)
+
+
+@mcharness_router.post("/agents", dependencies=[Depends(_require_public_write_access)])
+def create_mcharness_agent(payload: McHarnessAgentCreateRequest):
+    if not _agent_registry_write_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Agent registration is available only on the private runner service.",
+        )
+    agent = create_registered_agent(MCTABLE_ROOT, payload)
+    return {
+        "ok": True,
+        "agent": sanitize_agent_profile(
+            get_agent_by_id(
+                MCTABLE_ROOT,
+                agent["id"],
+                codex_runner_ready=_codex_runner_ready(),
+                private_only=_agent_registry_private_only(),
+            )
+            or agent
+        ),
+    }
+
+
+@mcharness_router.patch("/agents/{agent_id}/config", dependencies=[Depends(_require_public_write_access)])
+def patch_mcharness_agent_config(agent_id: str, payload: McHarnessAgentConfigPatchRequest):
+    if not _agent_registry_write_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Agent configuration is available only on the private runner service.",
+        )
+    agent = update_registered_agent_config(MCTABLE_ROOT, agent_id, payload)
+    return {
+        "ok": True,
+        "agent": sanitize_agent_profile(
+            get_agent_by_id(
+                MCTABLE_ROOT,
+                agent_id,
+                codex_runner_ready=_codex_runner_ready(),
+                private_only=_agent_registry_private_only(),
+            )
+            or agent
+        ),
+    }
+
+
+@mcharness_router.patch("/agents/{agent_id}", dependencies=[Depends(_require_public_write_access)])
+def patch_mcharness_agent(agent_id: str, payload: McHarnessAgentPatchRequest):
+    if not _agent_registry_write_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Agent registration is available only on the private runner service.",
+        )
+    agent = update_registered_agent(MCTABLE_ROOT, agent_id, payload)
+    return {
+        "ok": True,
+        "agent": sanitize_agent_profile(
+            get_agent_by_id(
+                MCTABLE_ROOT,
+                agent_id,
+                codex_runner_ready=_codex_runner_ready(),
+                private_only=_agent_registry_private_only(),
+            )
+            or agent
+        ),
+    }
+
+
+@mcharness_router.delete("/agents/{agent_id}", dependencies=[Depends(_require_public_write_access)])
+def delete_mcharness_agent(agent_id: str):
+    if not _agent_registry_write_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Agent registration is available only on the private runner service.",
+        )
+    return delete_registered_agent(MCTABLE_ROOT, agent_id)
+
+
+@mcharness_router.get("/agents/{agent_id}/status")
+def get_mcharness_agent_status(agent_id: str):
+    agent = get_agent_by_id(
+        MCTABLE_ROOT,
+        agent_id,
+        codex_runner_ready=_codex_runner_ready(),
+        private_only=_agent_registry_private_only(),
+    )
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
+    return agent_status_payload(
+        agent,
+        codex_runner_ready=_codex_runner_ready(),
+        root=MCTABLE_ROOT,
+        probe_codex=_codex_probe_payload if agent.get("adapter") == "codex_cli" else None,
+    )
+
+
+@mcharness_router.post("/agents/{agent_id}/probe")
+def probe_mcharness_agent(agent_id: str):
+    agent = get_agent_by_id(
+        MCTABLE_ROOT,
+        agent_id,
+        codex_runner_ready=_codex_runner_ready(),
+        private_only=_agent_registry_private_only(),
+    )
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
+    return probe_agent(
+        agent,
+        codex_runner_ready=_codex_runner_ready(),
+        root=MCTABLE_ROOT,
+        probe_codex=_codex_probe_payload if agent.get("adapter") == "codex_cli" else None,
+    )
+
+
+@mcharness_router.post("/sessions")
+def create_mcharness_session(payload: McHarnessSessionCreateRequest):
+    repo_path = _validate_repo_path(payload.repo_path)
+    lane = _validate_agent_lane(payload.agent_lane)
+    thread = WORKBENCH_STORE.create_thread(
+        WorkbenchThreadCreateRequest(
+            title=payload.title,
+            goal=payload.objective,
+            metadata={
+                "repo_path": str(repo_path),
+                "agent_lane": lane["lane_id"],
+                "server_host_mode": True,
+                "fake_or_manual_mode": True,
+            },
+        )
+    )
+    captain = create_captain_state_machine_run(thread["thread_id"], payload.objective).model_dump(mode="json")
+    _append_run_event(captain["run_id"], "Session created", f"Server control plane created session for {repo_path}.", "info", "note")
+    plan_captain_run(captain["captain_run_id"], CaptainPlanRequest(instruction=payload.plan_instruction))
+    queue_captain_run(captain["captain_run_id"])
+    assign_captain_minions(captain["captain_run_id"])
+    thread = WORKBENCH_STORE.get_thread(thread["thread_id"])
+    run = _run_for_session(thread["thread_id"])
+    git_snapshot = _capture_git_status_artifacts(thread)
+    run_summary = _create_run_summary_artifact(thread, run, "Session initialized in server control-plane mode.")
+    return {
+        "session_id": thread["thread_id"],
+        "thread": thread,
+        "run": run,
+        "captain_run_id": captain["captain_run_id"],
+        "repo_path": str(repo_path),
+        "agent_lane": lane["lane_id"],
+        "git_snapshot": git_snapshot,
+        "run_summary_artifact": run_summary,
+    }
+
+
+@mcharness_router.post("/sessions/{session_id}/queue")
+def queue_mcharness_prompt(session_id: str, payload: McHarnessQueueRequest):
+    run = _run_for_session(session_id)
+    state = add_captain_queue_item(
+        run["run_id"],
+        CaptainQueueItemCreateRequest(
+            title=payload.title,
+            prompt=payload.prompt,
+            target_role=payload.target_role,
+            file_scope=list(payload.file_scope),
+            forbidden_file_scope=list(payload.forbidden_file_scope),
+            evidence_required=list(payload.evidence_required),
+            acceptance_checks=list(payload.acceptance_checks),
+            export_format="generic_markdown",
+        ),
+    ).model_dump(mode="json")
+    _append_run_event(run["run_id"], "Prompt queued", f"Queued prompt {payload.title}.", "info", "instruction")
+    queue_item_id = None
+    prompt_queue = state.get("prompt_queue") if isinstance(state, dict) else getattr(state, "prompt_queue", None)
+    if prompt_queue:
+        latest = prompt_queue[-1]
+        queue_item_id = latest.get("queue_item_id") if isinstance(latest, dict) else getattr(latest, "queue_item_id", None)
+    return {
+        "session_id": session_id,
+        "run_id": run["run_id"],
+        "queue_item_id": queue_item_id,
+        "state": state,
+    }
+
+
+@mcharness_router.post("/sessions/{session_id}/prompt-export")
+def export_mcharness_prompt(session_id: str, payload: McHarnessPromptExportRequest):
+    run = _run_for_session(session_id)
+    thread = _thread_for_session(session_id)
+    prompt_text = export_captain_queue_item(payload.queue_item_id)
+    artifact = _create_artifact(
+        thread["thread_id"],
+        "prompt_export",
+        f"Prompt export {payload.queue_item_id}",
+        prompt_text,
+        f"Prompt export for {payload.queue_item_id}",
+        "md",
+    )
+    if payload.mark_sent:
+        _append_run_event(run["run_id"], "Prompt marked sent", f"Marked {payload.queue_item_id} as sent to the selected CLI lane.", "info", "artifact")
+    return {
+        "session_id": session_id,
+        "run_id": run["run_id"],
+        "queue_item_id": payload.queue_item_id,
+        "prompt_text": prompt_text,
+        "artifact": artifact,
+    }
+
+
+@mcharness_router.post("/sessions/{session_id}/runner-intent")
+def post_mcharness_runner_intent(session_id: str, payload: McHarnessRunnerIntentRequest):
+    """Dry-run only preview. Computes would-be command, prompt/transcript paths, safety policy.
+    Never executes any CLI, never starts tmux, never touches secrets. Rejects non-dry and unknown ids.
+    """
+    if payload.mode != "dry_run":
+        raise HTTPException(status_code=400, detail="Only dry_run mode is supported. Real execution is disabled by policy.")
+
+    # Validate lane (known only; allow manual + implemented; reject unknown. Placeholders will show disabled.)
+    lane = next((entry for entry in AGENT_LANES if entry["lane_id"] == payload.lane_id), None)
+    if lane is None:
+        raise HTTPException(status_code=400, detail=f"Unknown agent lane: {payload.lane_id}")
+
+    # Validate repo by id (name or full path match on allowlist only)
+    repo_path: Optional[Path] = None
+    for p in SAFE_REPO_PATHS:
+        if p.name == payload.repo_id or str(p) == payload.repo_id:
+            repo_path = p
+            break
+    if repo_path is None:
+        raise HTTPException(status_code=400, detail=f"Unknown repo_id (must be allowlisted): {payload.repo_id}")
+
+    # Validate session exists (rejects missing/invalid)
+    _ = _thread_for_session(session_id)
+
+    cwd = str(repo_path)
+    pid = payload.prompt_artifact_id or payload.queue_item_id or "head"
+    prompt_file_path = str(ARTIFACT_BODY_ROOT / session_id / f"prompt-{pid}.md")
+    transcript_file_path = str(ARTIFACT_BODY_ROOT / session_id / "transcript.txt")
+
+    if payload.lane_id == "manual_paste":
+        command_preview = (
+            f"MANUAL: cd {cwd} && cat {prompt_file_path}  # run your local CLI in cwd, then POST transcript to /sessions/{session_id}/manual-result"
+        )
+    elif payload.lane_id == "codex_cli":
+        command_preview = f"codex exec --cd {cwd} --output-last-message {transcript_file_path} < {prompt_file_path}  # (gated real; requires MCHARNESS_*_RUNNER_ENABLED=true for both tmux+codex; non-int or tmux attach)"
+    elif payload.lane_id == "agy_cli":
+        command_preview = f"agy --prompt {prompt_file_path}  # (dry-run preview only; cwd={cwd}; real launch disabled)"
+    else:
+        command_preview = f"# {payload.lane_id} would read {prompt_file_path} (placeholder lane; controlled_run_disabled)"
+
+    safety_policy = {
+        "allowlisted_lane": True,
+        "allowlisted_repo": True,
+        "arbitrary_shell_disabled": True,
+        "public_real_agent_launch_disabled": True,
+        "tmux_runner_enabled": _tmux_runner_enabled(),
+    }
+    notes = [
+        "dry_run preview only. No CLI subprocess, no tmux session, no secret inspection, no network to providers.",
+        "Controlled runner (real execution) is disabled in this public cockpit.",
+    ]
+
+    resp = {
+        "ok": True,
+        "real_execution_enabled": False,
+        "lane_id": payload.lane_id,
+        "repo_id": payload.repo_id,
+        "session_id": session_id,
+        "cwd": cwd,
+        "prompt_file_path": prompt_file_path,
+        "transcript_file_path": transcript_file_path,
+        "command_preview": command_preview,
+        "safety_policy": safety_policy,
+        "notes": notes,
+    }
+
+    # May persist a runner_intent artifact (safe, read-oriented preview)
+    try:
+        _create_artifact(
+            session_id,
+            "runner_intent",
+            f"runner-intent-{payload.lane_id}",
+            json.dumps(resp, indent=2),
+            "Dry-run runner intent preview (no execution performed)",
+            "json",
+        )
+    except Exception:
+        # preview response still valid even if artifact registration skipped
+        pass
+
+    return resp
+
+
+@mcharness_router.post("/sessions/{session_id}/runner/start")
+def post_mcharness_runner_start(session_id: str, payload: McHarnessRunnerStartRequest):
+    """Start controlled runner for allowlisted lane (only fake_test_lane by default; real disabled).
+    Validates session, lane (known), repo (allowlist), uses backend generated paths/names/cmd only.
+    """
+    thread = _thread_for_session(session_id)
+    lane = next((entry for entry in AGENT_LANES if entry["lane_id"] == payload.lane_id), None)
+    if lane is None:
+        raise HTTPException(status_code=400, detail=f"Unknown agent lane: {payload.lane_id}")
+
+    if payload.lane_id == "codex_cli":
+        if not (_tmux_runner_enabled() and _codex_runner_enabled()):
+            raise HTTPException(
+                status_code=403,
+                detail="Controlled Codex runner disabled (requires BOTH MCHARNESS_TMUX_RUNNER_ENABLED=true AND MCHARNESS_CODEX_RUNNER_ENABLED=true). For personal manual smoke only; no automated real Codex.",
+            )
+    elif payload.lane_id != "fake_test_lane" and not _tmux_runner_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Controlled runner disabled (MCHARNESS_TMUX_RUNNER_ENABLED=false). Only fake_test_lane supported for tests/proof.",
+        )
+    if payload.lane_id != "fake_test_lane" and payload.lane_id != "codex_cli":
+        raise HTTPException(status_code=400, detail="Controlled run for this lane not implemented yet (only codex_cli + fake_test_lane).")
+
+    # map repo_id to allowlisted path (id or full)
+    repo_path: Optional[Path] = None
+    for p in SAFE_REPO_PATHS:
+        if p.name == payload.repo_id or str(p) == payload.repo_id:
+            repo_path = p
+            break
+    if repo_path is None:
+        raise HTTPException(status_code=400, detail=f"Unknown repo_id (must be allowlisted): {payload.repo_id}")
+
+    runner_id = f"run_{uuid.uuid4().hex[:8]}"
+    safe_name = _tmux_session_name(session_id, runner_id)
+    pid = payload.prompt_artifact_id or payload.queue_item_id or "head"
+    prompt_path = str(ARTIFACT_BODY_ROOT / session_id / f"prompt-{pid}.md")
+    trans_path = str(ARTIFACT_BODY_ROOT / session_id / f"transcript-runner-{runner_id}.txt")
+
+    state: dict[str, Any] = {
+        "session_id": session_id,
+        "runner_id": runner_id,
+        "lane_id": payload.lane_id,
+        "repo_id": payload.repo_id,
+        "queue_item_id": payload.queue_item_id,
+        "prompt_artifact_id": payload.prompt_artifact_id,
+        "status": "starting",
+        "tmux_session_name": safe_name,
+        "prompt_file_path": prompt_path,
+        "transcript_file_path": trans_path,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "stopped_at": None,
+        "exit_code": None,
+        "safety_policy": {
+            "allowlisted_lane": True,
+            "allowlisted_repo": True,
+            "tmux_runner_enabled": _tmux_runner_enabled(),
+            "codex_runner_enabled": _codex_runner_enabled() if payload.lane_id == "codex_cli" else False,
+            "real_provider": payload.lane_id == "codex_cli",
+            "arbitrary_shell_disabled": True,
+            "public_real_agent_launch_disabled": True,
+        },
+        "notes": [f"gated tmux runner; lane={payload.lane_id} (codex real only with both flags; fake for tests)"],
+    }
+    _save_runner_state(state)
+
+    if payload.lane_id == "codex_cli":
+        state = _start_codex_runner(state, str(repo_path))
+    else:
+        # fake
+        state = _start_fake_runner(state)
+    _save_runner_state(state)
+
+    warden_run = _create_warden_run_on_dispatch(
+        session_id,
+        payload,
+        runner_id=runner_id,
+        transcript_path=trans_path,
+        status="dispatched",
+    )
+
+    # event for audit/proof
+    try:
+        run = _run_for_session(session_id)
+        _append_run_event(run["run_id"], "Runner started", f"Started {runner_id} lane={payload.lane_id}", "info", "runner")
+    except Exception:
+        pass
+
+    if warden_run:
+        state["warden_run"] = warden_run
+    return state
+
+
+@mcharness_router.get("/sessions/{session_id}/runner/status")
+def get_mcharness_runner_status(session_id: str):
+    state = _load_runner_state(session_id)
+    if not state:
+        return {"status": "disabled", "notes": ["no runner for this session (or never started)"]}
+    name = state.get("tmux_session_name")
+    if name and state.get("status") in ("running", "starting"):
+        has = _safe_cmd(["tmux", "has-session", "-t", name], timeout=1.0)
+        if has is None or has.returncode != 0:
+            state["status"] = "exited"
+            # capture final transcript if not already
+            final = _get_tmux_transcript(name)
+            if final:
+                try:
+                    Path(state["transcript_file_path"]).write_text(final, encoding="utf-8")
+                except Exception:
+                    pass
+            _save_runner_state(state)
+    return state
+
+
+@mcharness_router.post("/sessions/{session_id}/runner/stop")
+def post_mcharness_runner_stop(session_id: str):
+    state = _load_runner_state(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="No runner state for session")
+    name = state.get("tmux_session_name")
+    if name:
+        _stop_tmux(name)
+    state["status"] = "stopped"
+    state["stopped_at"] = datetime.now(timezone.utc).isoformat()
+    state["notes"].append("stopped by operator")
+    _save_runner_state(state)
+    _sync_warden_run_from_runner_state(state, status="stopped", completed=True)
+    try:
+        run = _run_for_session(session_id)
+        _append_run_event(run.get("run_id", ""), "Runner stopped", f"Stopped runner {state.get('runner_id')}", "info", "runner")
+    except Exception:
+        pass
+    return state
+
+
+@mcharness_router.get("/sessions/{session_id}/runner/transcript")
+def get_mcharness_runner_transcript(session_id: str):
+    state = _load_runner_state(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="No runner for session")
+    text = _runner_transcript_text(state)
+    return {
+        "session_id": session_id,
+        "runner_id": state.get("runner_id"),
+        "lane_id": state.get("lane_id"),
+        "status": state.get("status"),
+        "transcript_path": str(state.get("transcript_file_path", "")),
+        "transcript": text,
+    }
+
+
+@mcharness_router.post("/sessions/{session_id}/runner/transcript-to-evidence")
+def post_mcharness_runner_transcript_to_evidence(session_id: str):
+    """Save current runner transcript as evidence artifact (usable with proof gates)."""
+    state = _load_runner_state(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="No runner for session")
+    p = Path(state["transcript_file_path"])
+    text = p.read_text(encoding="utf-8") if p.exists() else _get_tmux_transcript(state.get("tmux_session_name", ""))
+    if not text:
+        text = "(no transcript captured yet)"
+
+    artifact = _create_artifact(
+        session_id,
+        "runner_transcript",
+        f"runner-transcript-{state.get('runner_id')}",
+        text,
+        "transcript from gated tmux runner",
+        "txt",
+    )
+    # also as evidence for gate flow (consistent with manual-result)
+    ev = _create_artifact(
+        session_id,
+        "evidence",
+        "Runner transcript evidence",
+        text[:2000] + ("\n... (truncated)" if len(text) > 2000 else ""),
+        "Saved runner transcript as evidence",
+        "md",
+    )
+    warden_evidence = None
+    if _run_history_write_enabled():
+        run_id = state.get("runner_id")
+        if not run_id:
+            existing = find_run_by_session(MCTABLE_ROOT, session_id)
+            run_id = existing.get("run_id") if existing else None
+        warden_evidence = create_evidence_record(
+            MCTABLE_ROOT,
+            run_id=str(run_id) if run_id else None,
+            evidence_type="transcript",
+            title="Codex transcript snapshot",
+            summary="Saved runner transcript as evidence",
+            content=text,
+            agent_id="codex_cli",
+            source="live_monitor" if run_id else "live_monitor_unlinked",
+        )
+    try:
+        run = _run_for_session(session_id)
+        _append_run_event(run["run_id"], "Runner transcript to evidence", f"Saved transcript for {state.get('runner_id')} as evidence", "info", "evidence")
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "artifact": artifact,
+        "evidence_artifact": ev,
+        "session_id": session_id,
+        "warden_evidence": warden_evidence,
+    }
+
+
+@mcharness_router.post("/sessions/{session_id}/manual-result")
+def post_mcharness_manual_result(session_id: str, payload: McHarnessManualResultRequest):
+    thread = _thread_for_session(session_id)
+    run = _run_for_session(session_id)
+    metadata = thread.get("metadata") or {}
+    artifacts: list[dict[str, Any]] = []
+    transcript_text = payload.transcript or payload.summary
+    result_kind = "manual_result" if metadata.get("agent_lane") == "manual_paste" else "cli_transcript"
+    artifacts.append(
+        _create_artifact(
+            thread["thread_id"],
+            result_kind,
+            "CLI transcript" if result_kind == "cli_transcript" else "Manual result",
+            transcript_text,
+            payload.summary,
+            "md",
+        )
+    )
+    artifacts.append(
+        _create_artifact(
+            thread["thread_id"],
+            "evidence",
+            "Evidence record",
+            payload.summary + "\n",
+            payload.summary,
+            "md",
+        )
+    )
+    if payload.git_status:
+        artifacts.append(
+            _create_artifact(
+                thread["thread_id"],
+                "git_status",
+                "Git status",
+                payload.git_status,
+                "Manual git status capture",
+                "txt",
+            )
+        )
+    if payload.git_diff_summary:
+        artifacts.append(
+            _create_artifact(
+                thread["thread_id"],
+                "git_diff_summary",
+                "Git diff summary",
+                payload.git_diff_summary,
+                "Manual git diff summary capture",
+                "txt",
+            )
+        )
+    if payload.test_output:
+        artifacts.append(
+            _create_artifact(
+                thread["thread_id"],
+                "test_output",
+                "Test output",
+                payload.test_output,
+                "Manual test output capture",
+                "txt",
+            )
+        )
+    if payload.assignment_id:
+        record_captain_assignment_evidence(
+            run["run_id"],
+            payload.assignment_id,
+            CaptainAssignmentEvidenceRequest(
+                evidence_summary=payload.summary if not payload.transcript else f"{payload.summary}\n\nTranscript:\n{payload.transcript}",
+                source_ref=payload.source_ref,
+                artifact_refs=[artifact["path"] for artifact in artifacts],
+                verdict=payload.verdict,
+            ),
+        )
+        if payload.complete_assignment:
+            complete_captain_assignment(
+                run["run_id"],
+                payload.assignment_id,
+                CaptainAssignmentCompleteRequest(
+                    evidence_summary=payload.summary,
+                    output_summary=transcript_text,
+                ),
+            )
+    else:
+        WORKBENCH_STORE.add_run_evidence(
+            run["run_id"],
+            WorkbenchEvidenceRecordCreateRequest(
+                title="Manual result evidence",
+                summary=payload.summary,
+                source_type="manual",
+                source_ref=payload.source_ref,
+                verdict=payload.verdict,
+            ),
+        )
+    _append_run_event(run["run_id"], "Manual result captured", f"Captured {result_kind} for lane {metadata.get('agent_lane', 'unknown')}.", "success", "evidence")
+    return {
+        "session_id": session_id,
+        "run_id": run["run_id"],
+        "artifacts": artifacts,
+        "evidence_summary": payload.summary,
+    }
+
+
+@mcharness_router.post("/sessions/{session_id}/gate-decision")
+def post_mcharness_gate_decision(session_id: str, payload: McHarnessGateDecisionRequest):
+    thread = _thread_for_session(session_id)
+    run = _run_for_session(session_id)
+    gates = WORKBENCH_STORE.list_proof_gates(run["run_id"])
+    gate = next((item for item in gates if item.status == "open"), gates[0] if gates else None)
+    if gate is None:
+        raise HTTPException(status_code=404, detail=f"No proof gate found for session: {session_id}")
+    updated_run = WORKBENCH_STORE.decide_run_proof_gate(
+        gate.gate_id,
+        WorkbenchRunProofGateDecisionRequest(
+            decision=payload.decision,
+            actor="operator",
+            note=payload.note,
+        ),
+    )
+    artifact = _create_artifact(
+        thread["thread_id"],
+        "gate_decision",
+        "Gate decision",
+        "\n".join(
+            [
+                f"Gate id: {gate.gate_id}",
+                f"Decision: {payload.decision}",
+                f"Note: {payload.note or '(none)'}",
+            ]
+        ),
+        payload.note or payload.decision,
+        "md",
+    )
+    continuation = None
+    if payload.continue_after:
+        continuation = continue_captain_run(run["run_id"])
+    run_summary = _create_run_summary_artifact(thread, updated_run, f"Gate {payload.decision} recorded.")
+    return {
+        "session_id": session_id,
+        "run": updated_run,
+        "gate_id": gate.gate_id,
+        "decision": payload.decision,
+        "artifact": artifact,
+        "continuation": continuation,
+        "run_summary_artifact": run_summary,
+    }
+
+
+@mcharness_router.get("/sessions/{session_id}/artifacts")
+def get_mcharness_session_artifacts(session_id: str):
+    _thread_for_session(session_id)
+    artifacts = [
+        artifact.model_dump(mode="json")
+        for artifact in WORKBENCH_STORE.list_artifacts()
+        if artifact.thread_id == session_id
+    ]
+    artifacts.sort(key=lambda item: item.get("updated_at") or "", reverse=True)
+    return {
+        "session_id": session_id,
+        "artifacts": artifacts,
+    }
+
+
+@mcharness_router.get("/sessions/{session_id}/git-status")
+def get_mcharness_session_git_status(session_id: str):
+    thread = _thread_for_session(session_id)
+    return _capture_git_status_artifacts(thread)
+
+
+@mcharness_router.get("/runs/recent")
+def get_mcharness_runs_recent():
+    if not _run_history_read_enabled():
+        return {
+            "service": "mcharness-control-plane",
+            "service_mode": _service_mode_label(),
+            "runs": [],
+            "notes": ["Run history is available on the private runner service."],
+        }
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "runs": list_recent_runs(MCTABLE_ROOT),
+    }
+
+
+@mcharness_router.get("/runs/{run_id}")
+def get_mcharness_run_detail(run_id: str):
+    if not _run_history_read_enabled():
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    run = get_run_record(MCTABLE_ROOT, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    evidence = evidence_summaries_for_run(MCTABLE_ROOT, list(run.get("evidence_ids") or []))
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "run": run,
+        "evidence": evidence,
+    }
+
+
+@mcharness_router.post("/runs/{run_id}/evidence", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_run_evidence(run_id: str, payload: McHarnessRunEvidenceCreateRequest):
+    run = get_run_record(MCTABLE_ROOT, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    content = payload.content or payload.content_excerpt or payload.summary or ""
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="Evidence content is required.")
+    evidence = create_evidence_record(
+        MCTABLE_ROOT,
+        run_id=run_id,
+        evidence_type=payload.type,
+        title=payload.title,
+        summary=payload.summary,
+        content=content,
+        content_excerpt=payload.content_excerpt,
+        agent_id=payload.agent_id or run.get("agent_id"),
+        source=payload.source,
+    )
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "evidence": evidence,
+    }
+
+
+@mcharness_router.get("/evidence/recent")
+def get_mcharness_evidence_recent():
+    if not _run_history_read_enabled():
+        return {
+            "service": "mcharness-control-plane",
+            "service_mode": _service_mode_label(),
+            "evidence": [],
+            "notes": ["Evidence history is available on the private runner service."],
+        }
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "evidence": list_recent_evidence(MCTABLE_ROOT),
+    }
+
+
+@mcharness_router.get("/evidence/{evidence_id}")
+def get_mcharness_evidence_detail(evidence_id: str):
+    if not _run_history_read_enabled():
+        raise HTTPException(status_code=404, detail=f"Evidence not found: {evidence_id}")
+    evidence = get_evidence_record(MCTABLE_ROOT, evidence_id)
+    if evidence is None:
+        raise HTTPException(status_code=404, detail=f"Evidence not found: {evidence_id}")
+    linked_run = None
+    run_id = evidence.get("run_id")
+    if run_id:
+        linked_run = get_run_record(MCTABLE_ROOT, str(run_id))
+        if linked_run:
+            linked_run = {
+                "run_id": linked_run.get("run_id"),
+                "title": linked_run.get("title"),
+                "status": linked_run.get("status"),
+            }
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "evidence": evidence,
+        "linked_run": linked_run,
+    }
+
+
+@legacy_router.post("/api/mctable/local/dispatch-launch")
+def disabled_legacy_launch_route():
+    raise HTTPException(status_code=400, detail="deprecated/disabled legacy launch route")

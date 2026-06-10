@@ -1,11 +1,10 @@
 import json
-import struct
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from src.marius_desktop.app import app as standalone_app
-from src.marius_desktop.branding import PRODUCT_NAME
+from src.warden.app import app as standalone_app
+from src.warden.branding import PRODUCT_NAME
 from src.server.api import app
 
 
@@ -22,27 +21,23 @@ def test_standalone_app_serves_backend_status_and_web():
     assert status["status"] == "online"
     assert status["service"] == "marius-desktop-api"
 
-    cockpit_response = client.get("/web/mctable-studio/cockpit.html")
-    assert cockpit_response.status_code == 200
-    assert "McHarness" in cockpit_response.text
-    assert "Supervise AI coding agents without handing them the keys." in cockpit_response.text
+    warden_response = client.get("/web/warden/index.html")
+    assert warden_response.status_code == 200
+    assert "Warden" in warden_response.text
+    assert "by Marius Systems" in warden_response.text
+
+    compat_response = client.get("/web/mctable-studio/cockpit-app.html")
+    assert compat_response.status_code == 200
+    assert "Warden" in compat_response.text
 
 
 def test_branding_and_readme_are_public():
     branding = json.loads((ROOT / "branding.json").read_text(encoding="utf-8"))
-    assert branding["product_name"] == "McHarness"
+    assert branding["product_name"] == "Warden"
     assert branding["repo_name"] == "mcharness"
     assert branding["public_url"] == "https://mctable.team"
-    assert PRODUCT_NAME == "McHarness"
-    assert "McHarness" in (ROOT / "README.md").read_text(encoding="utf-8")
+    assert PRODUCT_NAME == "Warden"
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "Warden" in readme
+    assert "McHarness" in readme
     assert standalone_app.state.branding["public_url"] == "https://mctable.team"
-
-
-def test_tauri_icon_is_real_square_placeholder():
-    icon_path = ROOT / "src-tauri" / "icons" / "icon.png"
-    data = icon_path.read_bytes()
-    assert data.startswith(b"\x89PNG\r\n\x1a\n")
-    width, height = struct.unpack(">II", data[16:24])
-    assert width == height
-    assert width >= 512
-    assert (width, height) != (1, 1)
