@@ -501,8 +501,8 @@
       title: deck.plan.title || deck.goal || "Captain plan",
       prompt: firstStep.prompt || deck.goal || "Implement the first Captain step.",
       noteId: "captain-deploy-note",
+      closeCurrentModal: closeCaptainDeckModal,
     });
-    closeCaptainDeckModal();
   }
 
   async function loadAgents() {
@@ -1093,6 +1093,12 @@
     if (modal) modal.style.display = "none";
   }
 
+  function closeSetupModals() {
+    closeUseAgentModal();
+    closeCaptainDeckModal();
+    closeAddAgentModal();
+  }
+
   async function deployRunnerPrompt({ title, prompt, repoPath, repoId, closeCurrentModal = null, noteId = "deploy-disabled-note" }) {
     const note = noteId ? document.getElementById(noteId) : null;
     const health = state.health || {};
@@ -1135,6 +1141,7 @@
       });
 
       if (typeof closeCurrentModal === "function") closeCurrentModal();
+      closeSetupModals();
       openLiveCLIMonitor();
 
       setTimeout(async () => {
@@ -1194,6 +1201,7 @@
   let liveAutoRefresh = true;
 
   function openLiveCLIMonitor() {
+    closeSetupModals();
     const modal = document.getElementById("live-cli-modal");
     if (!modal) return;
     modal.style.display = "flex";

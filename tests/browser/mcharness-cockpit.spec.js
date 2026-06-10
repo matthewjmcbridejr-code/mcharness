@@ -137,20 +137,14 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await expect(useModal.locator("#deploy-disabled-note")).toBeVisible({ timeout: 5000 });
   await expect(useModal.locator("#deploy-disabled-note")).toContainText("Codex runner is disabled");
 
-  // Close use modal if still open
-  if (await useModal.isVisible()) {
-    await useModal.locator("#cancel-use-agent").click();
-    await expect(useModal).not.toBeVisible();
-  }
-
-  // Live monitor should have been opened by the deploy flow; verify it shows disabled/read-only
+  // Deploy opens Live Monitor and should close setup modals underneath
   const mon = page.locator("#live-cli-modal").or(page.getByTestId("live-cli-modal"));
-  await expect(mon).toBeVisible({ timeout: 5000 });
+  await expect(mon).toBeVisible({ timeout: 10000 });
   await expect(mon).toContainText("Live read-only view. Use the buttons below for safe replies.");
 
-  // Close
   await mon.locator("#modal-close").or(page.getByTestId("modal-close")).click();
   await expect(mon).not.toBeVisible();
+  await expect(useModal).not.toBeVisible();
 
   // Legacy link exists for advanced
   await expect(page.locator("#legacy-link")).toBeVisible();
