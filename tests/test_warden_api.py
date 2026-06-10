@@ -1677,3 +1677,37 @@ def test_proof_gate_decision_requires_reason_and_does_not_auto_dispatch(monkeypa
     assert step2["status"] in {"queued", "revised"}
     assert not step2.get("run_id")
     assert "sk-or-" not in approved.text
+
+
+def test_run_report_includes_evidence_gates_and_redacts_secrets(monkeypatch, tmp_path):
+    _enable_private_run_history(monkeypatch, tmp_path)
+    client = TestClient(app)
+    run_id = _create_private_run(client)
+    client.post(
+        f"/api/mcharness/runs/{run_id}/evidence",
+        json={
+            "type": "transcript",
+            "title": "Secret transcript",
+            "content": "OPENROUTER_API_KEY=sk-or-report-secret\nOutput ok.",
+        },
+    )
+    gate = client.post(
+        f"/api/mcharness/runs/{run_id}/gates",
+        json={"title": "Review gate", "summary": "Check output."},
+    )
+    gate_id = gate.json()["gate"]["gate_id"]
+    client.post(
+        f"/api/mcharness/gates/{gate_id}/decision",
+        json={"decision": "approve", "decided_by": "operator"},
+    )
+    report = client.get(f"/api/mcharness/runs/{run_id}/report")
+    assert report.status_code == 200, report.text
+    body = report.json()
+    assert body["format"] == "markdown"
+    assert "Secret transcript" in body["markdown"]
+    assert "Review gate" in body["markdown"]
+    assert "approved" in body["markdown"].lower()
+    assert len(body["evidence"]) == 1
+    assert len(body["gates"]) == 1
+    assert "sk-or-report-secret" not in report.text
+    assert "[REDACTED]" in report.text

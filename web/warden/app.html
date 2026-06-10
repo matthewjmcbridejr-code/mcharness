@@ -153,6 +153,12 @@
           <h2 class="workspace-title">Evidence</h2>
           <p class="workspace-subhead">Proof artifacts from supervised agent work.</p>
         </header>
+        <div id="evidence-type-filter" data-testid="evidence-type-filter" class="evidence-type-filter" style="display:none;">
+          <button type="button" class="btn active" data-evidence-filter="all">All</button>
+          <button type="button" class="btn" data-evidence-filter="transcript">Transcript</button>
+          <button type="button" class="btn" data-evidence-filter="manual">Manual</button>
+          <button type="button" class="btn" data-evidence-filter="test">Test</button>
+        </div>
         <div id="evidence-list" data-testid="evidence-list" class="history-card-list" style="display:none;"></div>
         <div class="empty-state-card" data-testid="evidence-empty-state">
           <h3>Saved outputs, transcripts, proof reports, diffs, screenshots, and PR links will appear here.</h3>
@@ -434,7 +440,10 @@
         <div id="run-detail-gates" data-testid="run-detail-gates" class="proof-gate-list"></div>
         <button type="button" id="run-detail-create-gate" data-testid="run-detail-create-gate" class="btn" style="display:none;">Create Proof Gate</button>
       </div>
-      <button type="button" id="run-detail-close" data-testid="run-detail-close" class="btn">Close</button>
+      <div class="history-modal-actions">
+        <button type="button" id="run-detail-export" data-testid="run-detail-export" class="btn">Export Report</button>
+        <button type="button" id="run-detail-close" data-testid="run-detail-close" class="btn">Close</button>
+      </div>
     </div>
   </div>
 

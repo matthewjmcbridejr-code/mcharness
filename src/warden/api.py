@@ -79,6 +79,7 @@ from .proof_gates import (
     list_gates_for_run,
     list_recent_gates,
 )
+from .run_reports import build_run_report_payload
 from .agent_registry import (
     BUILTIN_CODEX_ID,
     McHarnessAgentConfigPatchRequest,
@@ -2550,10 +2551,18 @@ def get_mcharness_runs_recent():
             "runs": [],
             "notes": ["Run history is available on the private runner service."],
         }
+    runs = list_recent_runs(MCTABLE_ROOT)
+    enriched = []
+    for run in runs:
+        row = dict(run)
+        run_id = str(run.get("run_id") or "")
+        if run_id:
+            row["gate_status"] = gate_status_summary_for_run(MCTABLE_ROOT, run_id)
+        enriched.append(row)
     return {
         "service": "mcharness-control-plane",
         "service_mode": _service_mode_label(),
-        "runs": list_recent_runs(MCTABLE_ROOT),
+        "runs": enriched,
     }
 
 
@@ -2565,12 +2574,24 @@ def get_mcharness_run_detail(run_id: str):
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
     evidence = evidence_summaries_for_run(MCTABLE_ROOT, list(run.get("evidence_ids") or []))
+    gates = list_gates_for_run(MCTABLE_ROOT, run_id)
     return {
         "service": "mcharness-control-plane",
         "service_mode": _service_mode_label(),
-        "run": run,
+        "run": {
+            **run,
+            "gate_status": gate_status_summary_for_run(MCTABLE_ROOT, run_id),
+        },
         "evidence": evidence,
+        "gates": gates,
     }
+
+
+@mcharness_router.get("/runs/{run_id}/report")
+def get_mcharness_run_report(run_id: str):
+    if not _run_history_read_enabled():
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    return build_run_report_payload(MCTABLE_ROOT, run_id)
 
 
 @mcharness_router.post("/runs/{run_id}/evidence", dependencies=[Depends(_require_run_history_write)])
@@ -2600,7 +2621,7 @@ def post_mcharness_run_evidence(run_id: str, payload: McHarnessRunEvidenceCreate
 
 
 @mcharness_router.get("/evidence/recent")
-def get_mcharness_evidence_recent():
+def get_mcharness_evidence_recent(type: Optional[str] = None):
     if not _run_history_read_enabled():
         return {
             "service": "mcharness-control-plane",
@@ -2608,10 +2629,14 @@ def get_mcharness_evidence_recent():
             "evidence": [],
             "notes": ["Evidence history is available on the private runner service."],
         }
+    evidence = list_recent_evidence(MCTABLE_ROOT)
+    if type:
+        evidence = [item for item in evidence if str(item.get("type") or "") == type]
     return {
         "service": "mcharness-control-plane",
         "service_mode": _service_mode_label(),
-        "evidence": list_recent_evidence(MCTABLE_ROOT),
+        "evidence": evidence,
+        "filter_type": type,
     }
 
 

@@ -693,9 +693,9 @@
           <h3 class="history-card-title">${escapeHtml(run.title || run.run_id)}</h3>
           <span class="status-pill ${run.status === "running" || run.status === "dispatched" ? "status-ready" : "status-connected"}">${escapeHtml((run.status || "unknown").toUpperCase())}</span>
         </div>
-        <p class="history-card-meta">${escapeHtml(run.agent_id || "agent")} · ${escapeHtml(run.repo_id || "repo")} · ${escapeHtml(formatHistoryTimestamp(run.started_at))}</p>
+        <p class="history-card-meta">${escapeHtml(run.agent_id || "agent")} · ${escapeHtml(run.repo_id || "repo")} · ${escapeHtml(formatHistoryTimestamp(run.started_at))}${run.plan_id ? ` · Plan ${escapeHtml(run.plan_id)}` : ""}</p>
         <p class="history-card-copy">${escapeHtml(run.prompt_excerpt || "No prompt excerpt saved.")}</p>
-        <p class="history-card-meta">Evidence: ${Number(run.evidence_count || 0)}</p>
+        <p class="history-card-meta">Evidence: ${Number(run.evidence_count || 0)}${run.gate_status ? ` · Gate: ${escapeHtml(run.gate_status)}` : ""}</p>
         <button type="button" class="btn" data-view-run-id="${escapeHtml(run.run_id)}">View Run</button>
       </div>
     `).join("");
@@ -707,15 +707,38 @@
     });
   }
 
+  function filteredEvidenceItems() {
+    const evidence = state.recentEvidence || [];
+    const filter = state.evidenceTypeFilter || "all";
+    if (filter === "all") return evidence;
+    return evidence.filter((item) => String(item.type || "") === filter);
+  }
+
+  function renderEvidenceTypeFilter() {
+    const bar = document.getElementById("evidence-type-filter");
+    if (!bar) return;
+    const hasEvidence = (state.recentEvidence || []).length > 0;
+    bar.style.display = hasEvidence ? "flex" : "none";
+    bar.querySelectorAll("[data-evidence-filter]").forEach((button) => {
+      const value = button.getAttribute("data-evidence-filter") || "all";
+      button.classList.toggle("active", value === (state.evidenceTypeFilter || "all"));
+    });
+  }
+
   function renderEvidencePanel() {
     const list = document.getElementById("evidence-list");
     const empty = document.querySelector("[data-testid='evidence-empty-state']");
-    const evidence = state.recentEvidence || [];
+    const evidence = filteredEvidenceItems();
     if (!list || !empty) return;
+    renderEvidenceTypeFilter();
     if (!evidence.length) {
       list.style.display = "none";
       list.innerHTML = "";
-      empty.style.display = "";
+      empty.style.display = (state.recentEvidence || []).length ? "none" : "";
+      if ((state.recentEvidence || []).length) {
+        list.style.display = "grid";
+        list.innerHTML = "<p class=\"history-card-copy\">No evidence matches this filter.</p>";
+      }
       return;
     }
     empty.style.display = "none";
@@ -726,7 +749,7 @@
           <h3 class="history-card-title">${escapeHtml(item.title || item.evidence_id)}</h3>
           <span class="status-pill status-connected">${escapeHtml((item.type || "evidence").toUpperCase())}</span>
         </div>
-        <p class="history-card-meta">${escapeHtml(formatHistoryTimestamp(item.created_at))}${item.run_id ? ` · Run ${escapeHtml(item.run_id)}` : ""}</p>
+        <p class="history-card-meta">${escapeHtml(formatHistoryTimestamp(item.created_at))}${item.agent_id ? ` · ${escapeHtml(item.agent_id)}` : ""}${item.run_id ? ` · Run ${escapeHtml(item.run_id)}` : ""}</p>
         <p class="history-card-copy">${escapeHtml(item.summary || item.content_excerpt || "Saved evidence excerpt.")}</p>
         <button type="button" class="btn" data-view-evidence-id="${escapeHtml(item.evidence_id)}">View Evidence</button>
       </div>
@@ -762,6 +785,25 @@
       state.recentEvidence = [];
       renderEvidencePanel();
       return null;
+    }
+  }
+
+  async function exportRunReport(runId) {
+    const data = await requestJson(`${MCH}/runs/${encodeURIComponent(runId)}/report`);
+    const markdown = data.markdown || "";
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `warden-run-${runId}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(markdown);
+      } catch (e) {
+        /* clipboard optional */
+      }
     }
   }
 
@@ -925,6 +967,10 @@
         const evidenceIds = evidenceItems.map((item) => item.evidence_id).filter(Boolean);
         createProofGateForRun(runId, evidenceIds).catch((e) => console.error(e));
       };
+    }
+    const exportBtn = document.getElementById("run-detail-export");
+    if (exportBtn) {
+      exportBtn.onclick = () => exportRunReport(runId).catch((e) => console.error(e));
     }
     modal.style.display = "flex";
   }
@@ -2179,6 +2225,12 @@
     }
     const runDetailClose = document.getElementById("run-detail-close");
     if (runDetailClose) runDetailClose.addEventListener("click", closeRunDetailModal);
+    document.querySelectorAll("[data-evidence-filter]").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.evidenceTypeFilter = button.getAttribute("data-evidence-filter") || "all";
+        renderEvidencePanel();
+      });
+    });
     const evidenceDetailClose = document.getElementById("evidence-detail-close");
     if (evidenceDetailClose) evidenceDetailClose.addEventListener("click", closeEvidenceDetailModal);
     const runDetailModal = document.getElementById("run-detail-modal");
