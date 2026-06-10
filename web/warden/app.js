@@ -690,12 +690,22 @@
     });
   }
 
+  function controlRoomHandlesMissionTimeline() {
+    return !!document.getElementById("cr-command-center");
+  }
+
   function renderMissionWorklog() {
     const list = document.getElementById("mission-worklog-list");
     const empty = document.getElementById("mission-worklog-empty");
+    if (!list || !empty) return;
+    if (controlRoomHandlesMissionTimeline()) {
+      list.innerHTML = "";
+      list.style.display = "none";
+      empty.style.display = "none";
+      return;
+    }
     const allItems = state.missionWorklog || [];
     const items = filteredMissionTimelineItems();
-    if (!list || !empty) return;
     renderMissionTimelineFilter();
     if (!allItems.length) {
       list.innerHTML = "";

@@ -360,6 +360,17 @@
     });
   }
 
+  function setTabEmptyState(emptyEl, visible, message) {
+    if (!emptyEl) return;
+    if (!visible) {
+      emptyEl.style.display = "none";
+      emptyEl.textContent = "";
+      return;
+    }
+    emptyEl.style.display = "";
+    emptyEl.textContent = message;
+  }
+
   function renderTimelineTab() {
     const list = document.getElementById("cr-tab-timeline-content");
     const empty = document.getElementById("cr-tab-timeline-empty");
@@ -371,15 +382,15 @@
     });
     if (!all.length) {
       list.innerHTML = "";
-      if (empty) { empty.style.display = ""; empty.textContent = "No mission activity yet. Create a Captain plan to start the timeline."; }
+      setTabEmptyState(empty, true, "No mission activity yet. Create a Captain plan to start the timeline.");
       return;
     }
     if (!items.length) {
       list.innerHTML = "";
-      if (empty) { empty.style.display = ""; empty.textContent = "No timeline events match this filter."; }
+      setTabEmptyState(empty, true, "No timeline events match this filter.");
       return;
     }
-    if (empty) empty.style.display = "none";
+    setTabEmptyState(empty, false);
     list.innerHTML = items.map((item) => `
       <div class="timeline-rail-item" data-testid="cr-timeline-item">
         <div class="timeline-rail-dot"></div>
@@ -432,10 +443,10 @@
     const items = (crState.snapshot && crState.snapshot.worklog && crState.snapshot.worklog.items) || [];
     if (!items.length) {
       host.innerHTML = "";
-      if (empty) { empty.style.display = ""; empty.textContent = "No worklog entries yet."; }
+      setTabEmptyState(empty, true, "No worklog entries yet.");
       return;
     }
-    if (empty) empty.style.display = "none";
+    setTabEmptyState(empty, false);
     host.innerHTML = items.map((item) => `
       <div class="worklog-line" data-testid="cr-worklog-line">
         <span class="worklog-line-time">${escapeHtml(formatTs(item.created_at))}</span>

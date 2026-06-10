@@ -497,10 +497,10 @@ textarea {
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 28px 36px 40px;
+  padding: 22px 24px 36px;
   background:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(56, 100, 180, 0.12), transparent 55%),
-    linear-gradient(180deg, rgba(8, 14, 24, 0.75) 0%, rgba(10, 18, 32, 0.95) 100%);
+    radial-gradient(ellipse 90% 55% at 42% -8%, rgba(56, 100, 180, 0.14), transparent 58%),
+    linear-gradient(180deg, rgba(8, 14, 24, 0.82) 0%, rgba(10, 18, 32, 0.98) 100%);
 }
 
 .workspace-section {
@@ -817,14 +817,15 @@ textarea {
 
 .warden-stage {
   display: flex;
-  gap: 24px;
+  gap: 20px;
   align-items: flex-start;
-  max-width: 1680px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
 }
 
 .warden-stage-main {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
 }
 
@@ -839,11 +840,11 @@ textarea {
 }
 
 .operator-inspector {
-  width: 320px;
-  flex-shrink: 0;
+  width: 360px;
+  flex: 0 0 360px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   position: sticky;
   top: 28px;
 }
@@ -851,7 +852,7 @@ textarea {
 .inspector-card {
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 16px 18px;
+  padding: 18px 20px;
   background: rgba(15, 26, 45, 0.88);
 }
 
@@ -1769,8 +1770,8 @@ textarea {
 }
 
 .rail-stat {
-  font-size: 0.72rem;
-  padding: 4px 8px;
+  font-size: 0.76rem;
+  padding: 5px 9px;
   border-radius: 999px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.03);
@@ -1790,19 +1791,40 @@ textarea {
 .rail-mini-item {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
-  font-size: 0.82rem;
+  gap: 10px;
+  align-items: center;
+  font-size: 0.86rem;
+}
+
+.rail-mini-item > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rail-agent-row,
 .rail-safety-row {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
-  font-size: 0.84rem;
-  padding: 6px 0;
+  font-size: 0.88rem;
+  padding: 7px 0;
   border-bottom: 1px solid rgba(36, 56, 84, 0.5);
+}
+
+.operator-inspector .status-pill {
+  font-size: 0.74rem;
+  padding: 4px 10px;
+  flex-shrink: 0;
+}
+
+.rail-agent-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rail-agent-row:last-child,
@@ -1995,12 +2017,34 @@ textarea {
   }
 }
 
-@media (min-width: 1920px) {
-  .warden-stage {
-    max-width: 1760px;
+@media (min-width: 1600px) {
+  .warden-workspace {
+    padding: 24px 28px 40px;
   }
 
   .operator-inspector {
-    width: 340px;
+    width: 380px;
+    flex-basis: 380px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .warden-stage {
+    gap: 24px;
+  }
+
+  .warden-workspace {
+    padding: 24px 32px 40px;
+  }
+
+  .operator-inspector {
+    width: 400px;
+    flex-basis: 400px;
+  }
+
+  .mission-command-panel,
+  .cr-command-center,
+  .cr-mission-card {
+    width: 100%;
   }
 }
