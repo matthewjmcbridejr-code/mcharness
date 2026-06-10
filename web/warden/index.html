@@ -12,82 +12,157 @@
   <link rel="stylesheet" href="./app.css" />
 </head>
 <body>
+  <div id="demo-mode-banner" class="demo-mode-banner" style="display:none;" data-testid="demo-mode-banner">
+    Demo data — simulated for product preview
+  </div>
+  <div id="warden-toast-host" class="warden-toast-host"></div>
+
   <div class="warden-shell" data-testid="warden-shell">
     <aside class="warden-sidebar" data-testid="warden-sidebar">
       <div class="sidebar-brand">
         <div class="warden-brand">
-          <h1 class="warden-title">Warden</h1>
-          <span class="warden-byline" data-testid="warden-byline">by Marius Systems</span>
+          <div class="warden-logo-mark" aria-hidden="true">W</div>
+          <div>
+            <h1 class="warden-title">Warden</h1>
+            <span class="warden-byline" data-testid="warden-byline">by Marius Systems</span>
+          </div>
         </div>
-        <p class="sidebar-tagline">Supervised agent ops</p>
+        <p class="sidebar-tagline">Supervised control room</p>
       </div>
 
       <button id="develop-plan-primary" data-testid="develop-plan-primary" data-action="develop-plan" class="btn primary sidebar-primary" type="button">Develop Plan</button>
 
       <nav class="sidebar-nav" data-testid="warden-nav" aria-label="Warden sections">
-        <button type="button" class="nav-item active" data-section="mission" data-testid="nav-mission">Mission</button>
+        <button type="button" class="nav-item active" data-section="mission" data-testid="nav-mission">Control Room</button>
+        <button type="button" class="nav-item" data-section="tasks" data-testid="nav-tasks">Missions</button>
         <button type="button" class="nav-item" data-section="agents" data-testid="nav-agents">Agents</button>
-        <button type="button" class="nav-item" data-section="tasks" data-testid="nav-tasks">Tasks</button>
         <button type="button" class="nav-item" data-section="runs" data-testid="nav-runs">Runs</button>
         <button type="button" class="nav-item" data-section="evidence" data-testid="nav-evidence">Evidence</button>
+        <button type="button" class="nav-item" data-section="proof-gates" data-testid="nav-proof-gates">Proof Gates</button>
+        <button type="button" class="nav-item" data-section="runner-sessions" data-testid="nav-runner-sessions">Runner Sessions</button>
         <button type="button" class="nav-item" data-section="settings" data-testid="nav-settings">Settings</button>
       </nav>
 
       <footer class="sidebar-footer">
+        <div class="sidebar-mode-card">
+          <span id="sidebar-service-mode" class="sidebar-mode-label">Service: loading</span>
+          <span id="sidebar-mode-pill" class="mode-pill mode-public">Public</span>
+        </div>
         <span class="warden-powered" data-testid="warden-powered">Powered by McHarness</span>
+        <span class="sidebar-build-label">Warden Control Room v1.5</span>
       </footer>
     </aside>
 
+    <div class="warden-main">
+      <header class="warden-topbar" data-testid="warden-topbar">
+        <div class="topbar-left">
+          <h2 id="topbar-page-title" class="topbar-title">Control Room</h2>
+          <span id="topbar-live-indicator" class="live-indicator">Live</span>
+          <span id="topbar-last-refresh" class="topbar-refresh-time">Not refreshed yet</span>
+        </div>
+        <div class="topbar-actions">
+          <button type="button" id="topbar-refresh" class="btn" data-testid="topbar-refresh">Refresh</button>
+          <button type="button" id="topbar-command" class="btn" data-testid="topbar-command">Command</button>
+        </div>
+      </header>
+
     <main class="warden-workspace" data-testid="warden-workspace">
-      <div class="warden-stage">
+      <div class="warden-stage inspector-visible">
         <div class="warden-stage-main">
       <section id="warden-section-mission" class="workspace-section active" data-section="mission" data-testid="warden-section-mission">
-        <header class="workspace-header">
-          <h2 class="workspace-title">Mission Command</h2>
-        </header>
-
-        <div class="mission-command-panel" data-testid="mission-command">
-          <h3 class="hero-title">What do you want Warden to build?</h3>
-          <p class="hero-subtitle">Captain breaks goals into bounded agent steps. You approve what runs.</p>
+        <div class="mission-command-panel cr-hero-panel" data-testid="mission-command">
+          <p class="cr-product-eyebrow" data-testid="cr-product-headline">Use your AI coding subscriptions like a real engineering control room.</p>
+          <h3 class="hero-title" data-testid="cr-hero-title">Supervised control room for AI coding agents</h3>
+          <p class="hero-subtitle">Track missions, agent runs, transcripts, diffs, tests, evidence, and proof gates before anything moves forward.</p>
+          <p class="hero-subline">Warden wraps Codex and other CLI coding agents with missions, prompt queues, transcripts, artifacts, and proof gates — designed for additional agents when configured.</p>
           <div class="mission-command-actions">
             <button type="button" class="btn primary hero-cta" data-action="develop-plan" data-testid="develop-plan-hero">Develop Plan</button>
+            <button type="button" class="btn" id="cr-pause-mission" data-testid="cr-pause-mission" disabled>Pause Mission</button>
+            <button type="button" class="btn" id="cr-adjust-plan" data-testid="cr-adjust-plan" disabled>Adjust Plan</button>
             <button type="button" class="btn" id="use-codex-directly" data-testid="use-codex-directly" style="display:none;">Use Codex Directly</button>
           </div>
           <div class="hero-status-row" data-testid="hero-status-row">
+            <span class="status-pill" id="cr-mission-status-pill" data-testid="cr-mission-status-pill">idle</span>
+            <span class="hero-status-chip" id="cr-chip-public-runner">Public runner: Disabled</span>
+            <span class="hero-status-chip" id="cr-chip-private-runner">Private runner: Off</span>
             <span class="hero-status-chip" id="hero-captain-status" data-testid="hero-captain-status">Captain: Not configured</span>
             <span class="hero-status-chip" id="hero-codex-status" data-testid="hero-codex-status">Codex: Disabled</span>
             <span class="hero-status-chip" id="hero-jules-status" data-testid="hero-jules-status">Jules: Planning only</span>
+            <span class="hero-status-chip" id="cr-chip-runner-health">Runner sessions: —</span>
           </div>
         </div>
 
-        <div class="mission-cards-grid">
-          <div class="mission-card mission-card-wide" data-testid="current-mission-card">
-            <div id="current-mission-empty" data-testid="current-mission-empty">
-              <h3 class="mission-card-title">Current Mission</h3>
-              <p id="current-mission-status" data-testid="current-mission-status" class="mission-card-lead">No active mission yet.</p>
-              <p class="mission-card-copy">Create a plan to start a supervised Warden run.</p>
-              <button type="button" class="btn primary" data-action="develop-plan" data-testid="develop-plan-mission">Develop Plan</button>
+        <div class="cr-mission-progress-grid">
+          <div class="cr-mission-card" data-testid="current-mission-card">
+            <div id="cr-mission-empty" data-testid="cr-mission-empty">
+              <h3 class="mission-card-title">No active mission</h3>
+              <p id="current-mission-status" data-testid="current-mission-status" class="mission-card-lead">No active mission. Create or load a Captain plan to begin supervised work.</p>
+              <div class="cr-empty-actions">
+                <button type="button" class="btn primary" data-action="develop-plan" data-testid="develop-plan-mission">Open Captain</button>
+                <button type="button" class="btn" data-section-jump="agents">Configure agents</button>
+                <button type="button" class="btn" data-section-jump="runner-sessions">View runner sessions</button>
+              </div>
             </div>
+            <div id="cr-mission-active" data-testid="cr-mission-active" style="display:none;">
+              <h3 class="mission-card-title" id="cr-mission-title">Mission</h3>
+              <p class="mission-card-meta">ID: <span id="cr-mission-id">—</span></p>
+              <p class="mission-card-meta">Step: <span id="cr-mission-step">—</span> · Agent: <span id="cr-mission-agent">—</span></p>
+              <div class="cr-progress-wrap">
+                <div class="cr-progress-bar"><div id="cr-mission-progress-bar" class="cr-progress-fill"></div></div>
+                <span id="cr-mission-progress-label">0%</span>
+              </div>
+              <p class="mission-card-meta">ETA: <span id="cr-mission-eta">ETA unavailable</span></p>
+              <p class="mission-card-meta">Started: <span id="cr-mission-started">—</span> · Updated: <span id="cr-mission-updated">—</span></p>
+            </div>
+            <div id="current-mission-empty" data-testid="current-mission-empty" style="display:none;"></div>
             <div id="current-mission-plan" data-testid="current-mission-plan" style="display:none;">
-              <h3 class="mission-card-title">Current Mission</h3>
               <div id="current-plan-header" data-testid="current-plan-header" class="mission-card-meta"></div>
               <div id="captain-plan-steps" data-testid="captain-plan-steps" class="captain-plan-steps-list"></div>
               <div id="captain-plan-controls" data-testid="captain-plan-controls" class="captain-plan-controls"></div>
             </div>
           </div>
-          <div class="mission-card mission-card-timeline" data-testid="mission-timeline-card">
-            <div class="mission-timeline-header">
-              <h3 class="mission-card-title">Mission Timeline</h3>
-              <div id="mission-timeline-filter" data-testid="mission-timeline-filter" class="mission-timeline-filter">
-                <button type="button" class="btn active" data-timeline-filter="all">All</button>
-                <button type="button" class="btn" data-timeline-filter="plans">Plans</button>
-                <button type="button" class="btn" data-timeline-filter="runs">Runs</button>
-                <button type="button" class="btn" data-timeline-filter="evidence">Evidence</button>
-                <button type="button" class="btn" data-timeline-filter="gates">Gates</button>
+        </div>
+
+        <div class="cr-command-center" data-testid="cr-command-center">
+          <div class="cr-tab-bar">
+            <button type="button" class="btn active" data-cr-tab="timeline" data-testid="cr-tab-timeline">Mission Timeline</button>
+            <button type="button" class="btn" data-cr-tab="plan" data-testid="cr-tab-plan">Captain Plan</button>
+            <button type="button" class="btn" data-cr-tab="worklog" data-testid="cr-tab-worklog">Worklog</button>
+            <button type="button" class="btn" data-cr-tab="evidence" data-testid="cr-tab-evidence">Evidence</button>
+            <button type="button" class="btn" data-cr-tab="gates" data-testid="cr-tab-gates">Proof Gates</button>
+          </div>
+          <div class="cr-tab-panels">
+            <div class="cr-tab-panel active" data-cr-panel="timeline" data-testid="cr-panel-timeline">
+              <div class="cr-timeline-filters">
+                <button type="button" class="btn active" data-cr-timeline-filter="all">All</button>
+                <button type="button" class="btn" data-cr-timeline-filter="plans">Plans</button>
+                <button type="button" class="btn" data-cr-timeline-filter="runs">Runs</button>
+                <button type="button" class="btn" data-cr-timeline-filter="evidence">Evidence</button>
+                <button type="button" class="btn" data-cr-timeline-filter="gates">Gates</button>
+                <button type="button" class="btn" data-cr-timeline-filter="safety">Safety/Runner</button>
               </div>
+              <div id="cr-tab-timeline-content" class="cr-timeline-list"></div>
+              <p id="cr-tab-timeline-empty" class="mission-card-copy">No mission activity yet.</p>
+              <div id="mission-timeline-filter" data-testid="mission-timeline-filter" style="display:none;"></div>
+              <div id="mission-worklog-list" data-testid="mission-timeline-list" style="display:none;"></div>
+              <p id="mission-worklog-empty" data-testid="mission-timeline-empty" style="display:none;"></p>
             </div>
-            <div id="mission-worklog-list" data-testid="mission-timeline-list" class="mission-timeline-list"></div>
-            <p id="mission-worklog-empty" data-testid="mission-timeline-empty" class="mission-card-copy">No mission activity yet. Create a plan to start the timeline.</p>
+            <div class="cr-tab-panel" data-cr-panel="plan" data-testid="cr-panel-plan">
+              <div id="cr-tab-plan-content" class="cr-plan-list"></div>
+              <p id="cr-tab-plan-empty" class="mission-card-copy">No Captain plan loaded.</p>
+            </div>
+            <div class="cr-tab-panel" data-cr-panel="worklog" data-testid="cr-panel-worklog">
+              <div id="cr-tab-worklog-content" class="cr-worklog-list"></div>
+              <p id="cr-tab-worklog-empty" class="mission-card-copy">No worklog entries yet.</p>
+            </div>
+            <div class="cr-tab-panel" data-cr-panel="evidence" data-testid="cr-panel-evidence">
+              <div id="cr-tab-evidence-content"></div>
+              <p id="cr-tab-evidence-empty" class="mission-card-copy">No evidence captured yet.</p>
+            </div>
+            <div class="cr-tab-panel" data-cr-panel="gates" data-testid="cr-panel-gates">
+              <div id="cr-tab-gates-content"></div>
+              <p id="cr-tab-gates-empty" class="mission-card-copy">No proof gates yet.</p>
+            </div>
           </div>
         </div>
       </section>
@@ -162,10 +237,33 @@
         </div>
       </section>
 
+      <section id="warden-section-proof-gates" class="workspace-section" data-section="proof-gates" data-testid="warden-section-proof-gates">
+        <header class="workspace-header">
+          <h2 class="workspace-title">Proof Gates</h2>
+          <p class="workspace-subhead">Human approval gates that control mission progress. No auto-dispatch after approval.</p>
+        </header>
+        <div id="proof-gates-view-content" data-testid="proof-gates-view-content"></div>
+      </section>
+
+      <section id="warden-section-runner-sessions" class="workspace-section" data-section="runner-sessions" data-testid="warden-section-runner-sessions">
+        <header class="workspace-header">
+          <h2 class="workspace-title">Runner Sessions</h2>
+          <p class="workspace-subhead">Safe inventory of mch_run_* tmux sessions. Cleanup defaults to dry-run.</p>
+        </header>
+        <div id="runner-sessions-summary" class="runner-sessions-summary" data-testid="runner-sessions-summary"></div>
+        <p id="runner-sessions-disabled-note" class="mission-card-copy" style="display:none;">Runner cleanup is disabled on the public service. Use private 8125 for dry-run and confirmed cleanup.</p>
+        <div class="runner-sessions-actions">
+          <button type="button" id="runner-view-dry-run" class="btn" data-testid="runner-view-dry-run">Dry-run cleanup</button>
+          <button type="button" id="runner-view-confirm" class="btn bad" data-testid="runner-view-confirm" disabled>Confirm cleanup</button>
+        </div>
+        <div id="runner-sessions-table" data-testid="runner-sessions-table"></div>
+        <div id="runner-sessions-result" data-testid="runner-sessions-result" class="runner-sessions-result"></div>
+      </section>
+
       <section id="warden-section-evidence" class="workspace-section" data-section="evidence" data-testid="warden-section-evidence">
         <header class="workspace-header">
           <h2 class="workspace-title">Evidence</h2>
-          <p class="workspace-subhead">Proof artifacts from supervised agent work.</p>
+          <p id="evidence-section-lead" class="workspace-subhead">Proof artifacts from supervised agent work.</p>
         </header>
         <div id="evidence-type-filter" data-testid="evidence-type-filter" class="evidence-type-filter" style="display:none;">
           <button type="button" class="btn active" data-evidence-filter="all">All</button>
@@ -219,40 +317,106 @@
       </section>
         </div>
 
-        <aside id="operator-inspector" class="operator-inspector" data-testid="operator-inspector">
-          <div class="inspector-card" data-testid="inspector-next-move">
-            <h3 class="inspector-title">Next Move</h3>
-            <p id="inspector-next-move-copy" data-testid="inspector-next-move-copy" class="inspector-copy">Loading operator guidance...</p>
-            <div class="inspector-actions">
-              <button type="button" class="btn primary" id="inspector-develop-plan" data-action="develop-plan" data-testid="inspector-develop-plan">Develop Plan</button>
-              <button type="button" class="btn" id="inspector-view-codex" data-testid="inspector-view-codex">View Codex</button>
+        <aside id="operator-inspector" class="operator-inspector right-rail" data-testid="operator-inspector">
+          <div class="inspector-card rail-card" data-testid="rail-proof-gates-card">
+            <h3 class="inspector-title">Proof Gates</h3>
+            <div id="rail-proof-gates" data-testid="rail-proof-gates"></div>
+            <button type="button" id="rail-review-gates" class="btn" data-testid="rail-review-gates">Review gates</button>
+            <div id="inspector-gates-summary" data-testid="inspector-gates-summary" style="display:none;"></div>
+          </div>
+          <div class="inspector-card rail-card" data-testid="rail-connected-agents-card">
+            <h3 class="inspector-title">Connected Agents</h3>
+            <div id="rail-connected-agents" data-testid="rail-connected-agents"></div>
+            <ul class="control-room-list" style="display:none;">
+              <li id="inspector-captain-agent" data-testid="inspector-captain-agent"></li>
+              <li id="inspector-codex-agent" data-testid="inspector-codex-agent"></li>
+              <li id="inspector-jules-agent" data-testid="inspector-jules-agent"></li>
+            </ul>
+            <button type="button" id="inspector-refresh-agents" data-testid="inspector-refresh-agents" class="btn">Refresh Status</button>
+          </div>
+          <div class="inspector-card rail-card" data-testid="rail-runner-sessions-card">
+            <h3 class="inspector-title">Runner Sessions</h3>
+            <div id="rail-runner-sessions" data-testid="rail-runner-sessions"></div>
+            <div class="rail-card-actions">
+              <button type="button" id="rail-runner-dry-run" class="btn" data-testid="rail-runner-dry-run">Dry-run cleanup</button>
+              <button type="button" id="rail-runner-confirm" class="btn bad" data-testid="rail-runner-confirm" disabled>Confirm cleanup</button>
             </div>
           </div>
-          <div class="inspector-card" data-testid="control-room-status">
-            <h3 class="inspector-title">Control Room Status</h3>
-            <ul class="control-room-list">
+          <div class="inspector-card rail-card" data-testid="rail-safety-card">
+            <h3 class="inspector-title">Safety Status</h3>
+            <div id="rail-safety-status" data-testid="rail-safety-status"></div>
+            <ul class="control-room-list" style="display:none;" data-testid="control-room-status">
               <li id="cr-public-runner" data-testid="cr-public-runner">Public runner: Disabled</li>
               <li id="cr-private-runner" data-testid="cr-private-runner">Private runner: Available on private service</li>
               <li id="cr-shell-input" data-testid="cr-shell-input">Arbitrary shell input: Disabled</li>
               <li id="cr-agent-registration" data-testid="cr-agent-registration">Agent registration: Private only</li>
             </ul>
           </div>
-          <div class="inspector-card" data-testid="inspector-connected-agents">
-            <h3 class="inspector-title">Connected Agents</h3>
-            <ul class="control-room-list">
-              <li id="inspector-captain-agent" data-testid="inspector-captain-agent">Captain — Not configured</li>
-              <li id="inspector-codex-agent" data-testid="inspector-codex-agent">Codex CLI — Disabled</li>
-              <li id="inspector-jules-agent" data-testid="inspector-jules-agent">Jules Remote — Planning only</li>
-            </ul>
-            <button type="button" id="inspector-refresh-agents" data-testid="inspector-refresh-agents" class="btn" style="margin-top:8px;">Refresh Status</button>
-          </div>
-          <div class="inspector-card" data-testid="inspector-proof-gates">
-            <h3 class="inspector-title">Proof Gates</h3>
-            <div id="inspector-gates-summary" data-testid="inspector-gates-summary" class="inspector-copy">No proof gates yet.</div>
+          <div class="inspector-card rail-card" data-testid="inspector-next-move">
+            <h3 class="inspector-title">Next Move</h3>
+            <div id="rail-next-move" data-testid="rail-next-move"></div>
+            <p id="inspector-next-move-copy" data-testid="inspector-next-move-copy" style="display:none;"></p>
+            <div class="inspector-actions">
+              <button type="button" class="btn primary" id="inspector-develop-plan" data-action="develop-plan" data-testid="inspector-develop-plan">Develop Plan</button>
+              <button type="button" class="btn" id="inspector-view-codex" data-testid="inspector-view-codex">View Codex</button>
+            </div>
           </div>
         </aside>
       </div>
     </main>
+    </div>
+  </div>
+
+  <div id="command-palette" class="warden-modal" data-testid="command-palette" style="display:none;">
+    <div class="warden-modal-content command-palette-content">
+      <h3>Command Palette</h3>
+      <input id="command-palette-input" type="text" placeholder="Type a command..." data-testid="command-palette-input" />
+      <div id="command-palette-list" class="command-palette-list" data-testid="command-palette-list"></div>
+      <button type="button" id="command-palette-close" class="btn">Close</button>
+    </div>
+  </div>
+
+  <div id="pause-mission-modal" class="warden-modal" data-testid="pause-mission-modal" style="display:none;">
+    <div class="warden-modal-content">
+      <h3>Pause Mission</h3>
+      <p>Pause the active mission? This logs the pause and does not kill runner processes automatically.</p>
+      <div class="modal-actions">
+        <button type="button" id="pause-mission-confirm" class="btn bad" data-testid="pause-mission-confirm">Pause Mission</button>
+        <button type="button" id="pause-mission-cancel" class="btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="adjust-plan-modal" class="warden-modal" data-testid="adjust-plan-modal" style="display:none;">
+    <div class="warden-modal-content">
+      <h3>Adjust Plan</h3>
+      <p>Request a plan adjustment. Human review is required — no auto rewrite or dispatch.</p>
+      <textarea id="adjust-plan-note" rows="4" placeholder="Describe what should change..." data-testid="adjust-plan-note"></textarea>
+      <div class="modal-actions">
+        <button type="button" id="adjust-plan-submit" class="btn primary" data-testid="adjust-plan-submit">Submit Request</button>
+        <button type="button" id="adjust-plan-cancel" class="btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="cleanup-dryrun-modal" class="warden-modal" data-testid="cleanup-dryrun-modal" style="display:none;">
+    <div class="warden-modal-content">
+      <h3>Dry-run Cleanup Result</h3>
+      <p>No sessions were killed. Review candidates before confirming cleanup.</p>
+      <div id="cleanup-dryrun-body" data-testid="cleanup-dryrun-body"></div>
+      <button type="button" id="cleanup-dryrun-close" class="btn">Close</button>
+    </div>
+  </div>
+
+  <div id="cleanup-confirm-modal" class="warden-modal" data-testid="cleanup-confirm-modal" style="display:none;">
+    <div class="warden-modal-content">
+      <h3>Confirm Runner Cleanup</h3>
+      <p class="modal-warning">This will kill stale mch_run_* sessions only. Normal tmux sessions are never targeted.</p>
+      <div class="modal-actions">
+        <button type="button" id="cleanup-confirm-submit" class="btn bad" data-testid="cleanup-confirm-submit">Confirm cleanup</button>
+        <button type="button" id="cleanup-confirm-cancel" class="btn">Cancel</button>
+      </div>
+    </div>
   </div>
 
   <!-- Add Agent Modal -->
@@ -489,5 +653,6 @@
   </div>
 
   <script src="./app.js"></script>
+  <script src="./control-room.js"></script>
 </body>
 </html>
