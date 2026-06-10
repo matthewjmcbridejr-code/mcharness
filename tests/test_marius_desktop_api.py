@@ -1209,6 +1209,39 @@ def test_mcharness_agents_templates_lists_safe_templates():
     assert "Custom Remote Coming Later" in labels
 
 
+def _enable_private_agent_registry(monkeypatch, tmp_path):
+    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
+    import src.marius_desktop.api as api_mod
+
+    monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
+    return api_mod
+
+
+def _mock_jules_connected(monkeypatch):
+    import src.marius_desktop.agent_registry as registry_mod
+
+    def fake_test(*, api_key, default_repo_id=None, default_branch=None):
+        if api_key == "bad-jules-key":
+            return {
+                "ok": True,
+                "adapter": "jules_remote",
+                "status": "invalid_key",
+                "message": "Jules API rejected the API key.",
+                "safe_details": {},
+            }
+        return {
+            "ok": True,
+            "adapter": "jules_remote",
+            "status": "connected",
+            "message": "Jules API key verified via sources list.",
+            "safe_details": {"sources_count": 1},
+        }
+
+    monkeypatch.setattr(registry_mod, "test_jules_remote_config", fake_test)
+
+
 def test_mcharness_agents_post_rejected_on_public_service(monkeypatch):
     monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "false")
     monkeypatch.delenv("MCHARNESS_ADMIN_TOKEN", raising=False)
@@ -1219,20 +1252,66 @@ def test_mcharness_agents_post_rejected_on_public_service(monkeypatch):
             "name": "Jules Remote",
             "kind": "remote",
             "adapter": "jules_remote",
+            "api_key": "test-jules-key",
         },
     )
     assert response.status_code == 403
     assert "disabled" in response.json()["detail"].lower()
 
 
+def test_mcharness_agents_test_config_rejected_on_public_service(monkeypatch):
+    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "false")
+    monkeypatch.delenv("MCHARNESS_ADMIN_TOKEN", raising=False)
+    client = TestClient(app)
+    response = client.post(
+        "/api/mcharness/agents/test-config",
+        json={
+            "adapter": "jules_remote",
+            "api_key": "test-jules-key",
+        },
+    )
+    assert response.status_code == 403
+    assert "disabled" in response.json()["detail"].lower()
+
+
+def test_mcharness_agents_test_config_never_returns_key(monkeypatch, tmp_path):
+    _enable_private_agent_registry(monkeypatch, tmp_path)
+    _mock_jules_connected(monkeypatch)
+    client = TestClient(app)
+    response = client.post(
+        "/api/mcharness/agents/test-config",
+        json={
+            "adapter": "jules_remote",
+            "api_key": "test-jules-key",
+            "default_repo_id": "mcharness-public-export",
+            "default_branch": "feat/mcharness-functional-cockpit",
+        },
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["status"] == "connected"
+    assert "test-jules-key" not in response.text
+    assert "api_key" not in response.text
+
+
+def test_mcharness_agents_test_config_invalid_key(monkeypatch, tmp_path):
+    _enable_private_agent_registry(monkeypatch, tmp_path)
+    _mock_jules_connected(monkeypatch)
+    client = TestClient(app)
+    response = client.post(
+        "/api/mcharness/agents/test-config",
+        json={
+            "adapter": "jules_remote",
+            "api_key": "bad-jules-key",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "invalid_key"
+
+
 def test_mcharness_agents_private_can_register_jules_remote(monkeypatch, tmp_path):
-    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "true")
-    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
-    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
-
-    import src.marius_desktop.api as api_mod
-
-    monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
+    api_mod = _enable_private_agent_registry(monkeypatch, tmp_path)
+    _mock_jules_connected(monkeypatch)
     client = TestClient(app)
 
     created = client.post(
@@ -1242,28 +1321,35 @@ def test_mcharness_agents_private_can_register_jules_remote(monkeypatch, tmp_pat
             "kind": "remote",
             "adapter": "jules_remote",
             "default_repo_id": "mcharness-public-export",
+            "default_branch": "feat/mcharness-functional-cockpit",
+            "require_plan_approval": True,
             "enabled": True,
+            "api_key": "test-jules-key",
         },
     )
     assert created.status_code == 200, created.text
     agent = created.json()["agent"]
     assert agent["adapter"] == "jules_remote"
-    assert agent["status"] == "not_configured"
+    assert agent["status"] == "ready"
+    assert agent["connection_status"] == "connected"
+    assert agent["configured"] is True
     assert agent["runnable"] is False
     assert agent["user_created"] is True
+    assert "test-jules-key" not in created.text
     assert "api_key" not in created.text
 
-    listed = client.get("/api/mcharness/agents")
-    assert listed.status_code == 200
-    ids = [item["id"] for item in listed.json()["agents"]]
-    assert agent["id"] in ids
+    secret_path = tmp_path / "secrets" / f"agent_{agent['id']}.json"
+    assert secret_path.exists()
+    secret_data = json.loads(secret_path.read_text(encoding="utf-8"))
+    assert secret_data["api_key"] == "test-jules-key"
+    assert "test-jules-key" not in client.get("/api/mcharness/agents").text
 
     status = client.get(f"/api/mcharness/agents/{agent['id']}/status")
     assert status.status_code == 200
     status_data = status.json()
-    assert status_data["status"] == "not_configured"
+    assert status_data["connection_status"] == "connected"
     assert status_data["runnable"] is False
-    assert "api_key" not in status.text
+    assert "test-jules-key" not in status.text
 
 
 def test_mcharness_agents_rejects_custom_cli_and_duplicate_codex(monkeypatch, tmp_path):
@@ -1300,13 +1386,8 @@ def test_mcharness_agents_rejects_custom_cli_and_duplicate_codex(monkeypatch, tm
 
 
 def test_mcharness_agents_delete_rules(monkeypatch, tmp_path):
-    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "true")
-    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
-    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
-
-    import src.marius_desktop.api as api_mod
-
-    monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
+    _enable_private_agent_registry(monkeypatch, tmp_path)
+    _mock_jules_connected(monkeypatch)
     client = TestClient(app)
 
     builtin_delete = client.delete("/api/mcharness/agents/codex_cli")
@@ -1319,25 +1400,26 @@ def test_mcharness_agents_delete_rules(monkeypatch, tmp_path):
             "name": "Jules Remote",
             "kind": "remote",
             "adapter": "jules_remote",
+            "api_key": "test-jules-key",
         },
     )
+    assert created.status_code == 200, created.text
     agent_id = created.json()["agent"]["id"]
+    secret_path = tmp_path / "secrets" / f"agent_{agent_id}.json"
+    assert secret_path.exists()
+
     deleted = client.delete(f"/api/mcharness/agents/{agent_id}")
     assert deleted.status_code == 200, deleted.text
     assert deleted.json()["deleted_id"] == agent_id
+    assert not secret_path.exists()
 
     listed = client.get("/api/mcharness/agents")
     assert all(item["id"] != agent_id for item in listed.json()["agents"])
 
 
 def test_mcharness_agents_probe_codex_and_jules(monkeypatch, tmp_path):
-    monkeypatch.setenv("MCHARNESS_PUBLIC_WRITE_ENABLED", "true")
-    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
-    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
-
-    import src.marius_desktop.api as api_mod
-
-    monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
+    _enable_private_agent_registry(monkeypatch, tmp_path)
+    _mock_jules_connected(monkeypatch)
     client = TestClient(app)
 
     codex_probe = client.post("/api/mcharness/agents/codex_cli/probe")
@@ -1351,9 +1433,12 @@ def test_mcharness_agents_probe_codex_and_jules(monkeypatch, tmp_path):
             "name": "Jules Remote",
             "kind": "remote",
             "adapter": "jules_remote",
+            "api_key": "test-jules-key",
         },
     )
+    assert created.status_code == 200, created.text
     agent_id = created.json()["agent"]["id"]
     jules_probe = client.post(f"/api/mcharness/agents/{agent_id}/probe")
     assert jules_probe.status_code == 200, jules_probe.text
-    assert jules_probe.json()["status"] == "not_configured"
+    assert jules_probe.json()["status"] == "connected"
+    assert "test-jules-key" not in jules_probe.text

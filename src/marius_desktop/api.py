@@ -50,8 +50,10 @@ from .workbench import (
 from .worker import WorkerStub, ALLOWED_COMMANDS
 from .agent_registry import (
     BUILTIN_CODEX_ID,
+    McHarnessAgentConfigPatchRequest,
     McHarnessAgentCreateRequest,
     McHarnessAgentPatchRequest,
+    McHarnessAgentTestConfigRequest,
     agent_status_payload,
     agent_templates,
     create_registered_agent,
@@ -60,7 +62,9 @@ from .agent_registry import (
     list_all_agents,
     probe_agent,
     sanitize_agent_profile,
+    test_agent_config,
     update_registered_agent,
+    update_registered_agent_config,
 )
 
 router = APIRouter(prefix="/api/marius", tags=["marius-desktop"])
@@ -1482,6 +1486,16 @@ def get_mcharness_agent_templates():
     }
 
 
+@mcharness_router.post("/agents/test-config", dependencies=[Depends(_require_public_write_access)])
+def test_mcharness_agent_config(payload: McHarnessAgentTestConfigRequest):
+    if not _agent_registry_write_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Agent configuration is available only on the private runner service.",
+        )
+    return test_agent_config(payload)
+
+
 @mcharness_router.post("/agents", dependencies=[Depends(_require_public_write_access)])
 def create_mcharness_agent(payload: McHarnessAgentCreateRequest):
     if not _agent_registry_write_enabled():
@@ -1496,6 +1510,28 @@ def create_mcharness_agent(payload: McHarnessAgentCreateRequest):
             get_agent_by_id(
                 MCTABLE_ROOT,
                 agent["id"],
+                codex_runner_ready=_codex_runner_ready(),
+                private_only=_agent_registry_private_only(),
+            )
+            or agent
+        ),
+    }
+
+
+@mcharness_router.patch("/agents/{agent_id}/config", dependencies=[Depends(_require_public_write_access)])
+def patch_mcharness_agent_config(agent_id: str, payload: McHarnessAgentConfigPatchRequest):
+    if not _agent_registry_write_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Agent configuration is available only on the private runner service.",
+        )
+    agent = update_registered_agent_config(MCTABLE_ROOT, agent_id, payload)
+    return {
+        "ok": True,
+        "agent": sanitize_agent_profile(
+            get_agent_by_id(
+                MCTABLE_ROOT,
+                agent_id,
                 codex_runner_ready=_codex_runner_ready(),
                 private_only=_agent_registry_private_only(),
             )
@@ -1549,6 +1585,7 @@ def get_mcharness_agent_status(agent_id: str):
     return agent_status_payload(
         agent,
         codex_runner_ready=_codex_runner_ready(),
+        root=MCTABLE_ROOT,
         probe_codex=_codex_probe_payload if agent.get("adapter") == "codex_cli" else None,
     )
 
@@ -1566,6 +1603,7 @@ def probe_mcharness_agent(agent_id: str):
     return probe_agent(
         agent,
         codex_runner_ready=_codex_runner_ready(),
+        root=MCTABLE_ROOT,
         probe_codex=_codex_probe_payload if agent.get("adapter") == "codex_cli" else None,
     )
 

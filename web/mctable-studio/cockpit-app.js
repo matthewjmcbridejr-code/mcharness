@@ -8,9 +8,13 @@
     agentTemplates: [],
     registryWriteEnabled: false,
     addAgent: {
-      kind: "cli",
-      templateAdapter: "codex_cli",
+      step: "choose",
+      mode: "create",
+      editingAgentId: "",
+      templateAdapter: "",
       saving: false,
+      testing: false,
+      lastTestStatus: "",
       error: "",
     },
     health: {},
@@ -278,7 +282,10 @@
     const captainAgentNote = document.getElementById("captain-agent-note");
     if (captainAgentNote) {
       const selectedAgent = (state.agents || []).find((agent) => agent.id === deck.laneId) || {};
-      if (selectedAgent.id && !selectedAgent.runnable) {
+      if (selectedAgent.adapter === "jules_remote") {
+        captainAgentNote.textContent = "Jules Remote is configured for planning/status only. Execution comes next.";
+        captainAgentNote.style.display = "block";
+      } else if (selectedAgent.id && !selectedAgent.runnable) {
         captainAgentNote.textContent = "This agent is registered but not runnable yet.";
         captainAgentNote.style.display = "block";
       } else {
@@ -530,6 +537,13 @@
     return agent.kind === "remote" ? "Remote" : "CLI";
   }
 
+  function agentStatusLabel(agent) {
+    if (!agent) return "unknown";
+    if (agent.connection_status === "connected" && agent.status === "ready") return "connected";
+    if (agent.status === "unverified" || agent.connection_status === "unverified") return "unverified";
+    return agent.status || agent.connection_status || "unknown";
+  }
+
   function renderRegisteredAgentCards() {
     const container = document.getElementById("registered-agent-cards");
     if (!container) return;
@@ -540,8 +554,9 @@
     }
     container.innerHTML = registered.map((agent) => {
       const caps = (agent.capabilities || []).join(", ") || "—";
-      const status = agent.status || "unknown";
+      const status = agentStatusLabel(agent);
       const runnable = !!agent.runnable;
+      const showEdit = agent.adapter === "jules_remote";
       return `
         <div class="agent-card registered-agent-card" data-agent-id="${escapeHtml(agent.id)}" style="border:1px solid var(--line); padding:14px; border-radius:6px; background:var(--bg-2);">
           <h3 style="margin:0 0 4px; font-size:1.1rem;">${escapeHtml(agent.name || agent.id)}</h3>
@@ -550,6 +565,7 @@
           <div class="muted" style="font-size:0.78em; margin-bottom:8px;">Capabilities: ${escapeHtml(caps)}</div>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             ${runnable ? `<button class="btn" type="button" data-use-agent-id="${escapeHtml(agent.id)}">Use Agent</button>` : ""}
+            ${showEdit ? `<button class="btn" type="button" data-edit-agent-id="${escapeHtml(agent.id)}">Edit Config</button>` : ""}
             <button class="btn bad" type="button" data-remove-agent-id="${escapeHtml(agent.id)}">Remove</button>
           </div>
         </div>
@@ -559,6 +575,12 @@
       button.addEventListener("click", () => {
         const agentId = button.getAttribute("data-remove-agent-id");
         if (agentId) removeRegisteredAgent(agentId).catch((e) => console.error(e));
+      });
+    });
+    container.querySelectorAll("[data-edit-agent-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const agentId = button.getAttribute("data-edit-agent-id");
+        if (agentId) openEditAgentModal(agentId).catch((e) => console.error(e));
       });
     });
     container.querySelectorAll("[data-use-agent-id]").forEach((button) => {
@@ -574,7 +596,14 @@
     agents.forEach((agent) => {
       const opt = document.createElement("option");
       opt.value = agent.id;
-      const suffix = agent.runnable ? "" : " (not runnable)";
+      let suffix = "";
+      if (!agent.runnable) {
+        if (agent.adapter === "jules_remote") {
+          suffix = agent.connection_status === "connected" ? " (connected, not runnable)" : " (not runnable)";
+        } else {
+          suffix = " (not runnable)";
+        }
+      }
       opt.textContent = `${agent.name || agent.id}${suffix}`;
       opt.dataset.runnable = agent.runnable ? "1" : "0";
       sel.appendChild(opt);
@@ -586,41 +615,125 @@
     }
   }
 
-  function populateAddAgentTemplates() {
-    const sel = document.getElementById("add-agent-template");
-    if (!sel) return;
-    const kind = state.addAgent.kind;
-    const templates = (state.agentTemplates || []).filter((template) => template.kind === kind);
-    sel.innerHTML = "";
-    templates.forEach((template) => {
-      const opt = document.createElement("option");
-      opt.value = template.adapter;
-      opt.textContent = template.label;
-      opt.dataset.registerable = template.registerable ? "1" : "0";
-      sel.appendChild(opt);
-    });
-    if (templates.length) {
-      const current = templates.find((template) => template.adapter === state.addAgent.templateAdapter) || templates[0];
-      sel.value = current.adapter;
-      state.addAgent.templateAdapter = current.adapter;
+  function resetAddAgentFormFields({ keepName = false, keepRepo = false } = {}) {
+    const nameEl = document.getElementById("add-agent-name");
+    const keyEl = document.getElementById("add-agent-api-key");
+    const branchEl = document.getElementById("add-agent-branch");
+    const approvalEl = document.getElementById("add-agent-require-plan-approval");
+    const unverifiedEl = document.getElementById("add-agent-allow-unverified");
+    if (nameEl && !keepName) nameEl.value = "";
+    if (keyEl) keyEl.value = "";
+    if (branchEl && !keepRepo) branchEl.value = "";
+    if (approvalEl) approvalEl.checked = true;
+    if (unverifiedEl) unverifiedEl.checked = false;
+    state.addAgent.lastTestStatus = "";
+    const testStatus = document.getElementById("add-agent-test-status");
+    if (testStatus) {
+      testStatus.style.display = "none";
+      testStatus.textContent = "";
     }
-    updateAddAgentKindUI();
   }
 
-  function updateAddAgentKindUI() {
-    const cliBtn = document.getElementById("add-agent-kind-cli");
-    const remoteBtn = document.getElementById("add-agent-kind-remote");
-    const julesNote = document.getElementById("add-agent-jules-note");
+  function renderAddAgentTemplateList() {
+    const list = document.getElementById("add-agent-template-list");
+    if (!list) return;
+    const templates = state.agentTemplates || [];
+    list.innerHTML = templates.map((template) => {
+      const suffix = template.builtin ? " — Installed" : (template.registerable ? " — Configure" : " — Coming later");
+      const disabled = !template.registerable && !template.builtin;
+      return `
+        <button
+          class="btn ${template.registerable ? "primary" : ""}"
+          type="button"
+          data-template-adapter="${escapeHtml(template.adapter)}"
+          data-template-registerable="${template.registerable ? "1" : "0"}"
+          data-template-builtin="${template.builtin ? "1" : "0"}"
+          ${disabled ? "disabled" : ""}
+          style="justify-content:flex-start; text-align:left; width:100%;"
+        >
+          ${escapeHtml(template.label || template.adapter)}${escapeHtml(suffix)}
+        </button>
+      `;
+    }).join("");
+    list.querySelectorAll("[data-template-adapter]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const adapter = button.getAttribute("data-template-adapter") || "";
+        const registerable = button.getAttribute("data-template-registerable") === "1";
+        const builtin = button.getAttribute("data-template-builtin") === "1";
+        if (builtin) {
+          const err = document.getElementById("add-agent-error");
+          if (err) {
+            err.textContent = "Codex CLI is built-in and already installed.";
+            err.style.display = "block";
+          }
+          return;
+        }
+        if (!registerable) return;
+        state.addAgent.templateAdapter = adapter;
+        showAddAgentConfigStep();
+      });
+    });
+  }
+
+  function showAddAgentChooseStep() {
+    state.addAgent.step = "choose";
+    const choose = document.getElementById("add-agent-step-choose");
+    const config = document.getElementById("add-agent-step-config");
+    const backBtn = document.getElementById("add-agent-back");
+    const testBtn = document.getElementById("add-agent-test");
     const saveBtn = document.getElementById("add-agent-save");
-    const templateSel = document.getElementById("add-agent-template");
-    const selectedTemplate = (templateSel && templateSel.selectedOptions[0]) || null;
-    const registerable = selectedTemplate ? selectedTemplate.dataset.registerable === "1" : false;
-    if (cliBtn) cliBtn.classList.toggle("primary", state.addAgent.kind === "cli");
-    if (remoteBtn) remoteBtn.classList.toggle("primary", state.addAgent.kind === "remote");
-    if (julesNote) {
-      julesNote.style.display = state.addAgent.templateAdapter === "jules_remote" ? "block" : "none";
+    const title = document.getElementById("add-agent-title");
+    if (choose) choose.style.display = "block";
+    if (config) config.style.display = "none";
+    if (backBtn) backBtn.style.display = "none";
+    if (testBtn) testBtn.style.display = "none";
+    if (saveBtn) saveBtn.style.display = "none";
+    if (title) title.textContent = state.addAgent.mode === "edit" ? "Edit Agent Config" : "Add Agent";
+    renderAddAgentTemplateList();
+    updateAddAgentActions();
+  }
+
+  function showAddAgentConfigStep() {
+    state.addAgent.step = "config";
+    const choose = document.getElementById("add-agent-step-choose");
+    const config = document.getElementById("add-agent-step-config");
+    const backBtn = document.getElementById("add-agent-back");
+    const testBtn = document.getElementById("add-agent-test");
+    const saveBtn = document.getElementById("add-agent-save");
+    const title = document.getElementById("add-agent-title");
+    if (choose) choose.style.display = "none";
+    if (config) config.style.display = "block";
+    if (backBtn) backBtn.style.display = state.addAgent.mode === "create" ? "inline-flex" : "none";
+    if (testBtn) testBtn.style.display = "inline-flex";
+    if (saveBtn) saveBtn.style.display = "inline-flex";
+    if (title) title.textContent = state.addAgent.templateAdapter === "jules_remote" ? "Configure Jules Remote" : "Configure Agent";
+    updateAddAgentActions();
+  }
+
+  function updateAddAgentActions() {
+    const saveBtn = document.getElementById("add-agent-save");
+    const testBtn = document.getElementById("add-agent-test");
+    const allowUnverified = document.getElementById("add-agent-allow-unverified");
+    const keyEl = document.getElementById("add-agent-api-key");
+    const editingMetadataOnly = state.addAgent.mode === "edit" && !(keyEl && keyEl.value ? keyEl.value : "").trim();
+    const canSave = editingMetadataOnly
+      || state.addAgent.lastTestStatus === "connected"
+      || (allowUnverified && allowUnverified.checked && ["not_verified", "error"].includes(state.addAgent.lastTestStatus));
+    if (saveBtn) {
+      saveBtn.disabled = state.addAgent.step !== "config"
+        || !state.registryWriteEnabled
+        || !!state.addAgent.saving
+        || !!state.addAgent.testing
+        || !canSave;
     }
-    if (saveBtn) saveBtn.disabled = !registerable || !!state.addAgent.saving || !state.registryWriteEnabled;
+    if (testBtn) {
+      testBtn.disabled = state.addAgent.step !== "config"
+        || !state.registryWriteEnabled
+        || !!state.addAgent.saving
+        || !!state.addAgent.testing;
+      testBtn.textContent = state.addAgent.testing ? "Testing..." : "Test Connection";
+    }
+    if (saveBtn) saveBtn.textContent = state.addAgent.saving ? "Saving..." : "Save Agent";
   }
 
   async function populateAddAgentRepos() {
@@ -644,53 +757,145 @@
     });
   }
 
+  function collectJulesConfigPayload() {
+    const nameEl = document.getElementById("add-agent-name");
+    const keyEl = document.getElementById("add-agent-api-key");
+    const repoEl = document.getElementById("add-agent-repo");
+    const branchEl = document.getElementById("add-agent-branch");
+    const approvalEl = document.getElementById("add-agent-require-plan-approval");
+    const unverifiedEl = document.getElementById("add-agent-allow-unverified");
+    return {
+      name: (nameEl && nameEl.value ? nameEl.value : "").trim(),
+      api_key: (keyEl && keyEl.value ? keyEl.value : "").trim(),
+      default_repo_id: repoEl && repoEl.value ? repoEl.value : null,
+      default_branch: (branchEl && branchEl.value ? branchEl.value : "").trim() || null,
+      require_plan_approval: !!(approvalEl && approvalEl.checked),
+      allow_unverified: !!(unverifiedEl && unverifiedEl.checked),
+    };
+  }
+
   async function openAddAgentModal() {
     const modal = document.getElementById("add-agent-modal");
     if (!modal) return;
+    state.addAgent.mode = "create";
+    state.addAgent.editingAgentId = "";
     state.addAgent.error = "";
     state.addAgent.saving = false;
-    state.addAgent.kind = "cli";
-    state.addAgent.templateAdapter = "codex_cli";
+    state.addAgent.testing = false;
+    state.addAgent.templateAdapter = "";
+    resetAddAgentFormFields();
     modal.style.display = "flex";
     await Promise.all([loadAgentTemplates(), loadAgents(), populateAddAgentRepos()]);
-    populateAddAgentTemplates();
     const err = document.getElementById("add-agent-error");
     if (err) {
       err.style.display = "none";
       err.textContent = "";
     }
-    if (!state.registryWriteEnabled) {
-      if (err) {
-        err.textContent = "Agent registration is available only on the private runner service.";
-        err.style.display = "block";
-      }
+    if (!state.registryWriteEnabled && err) {
+      err.textContent = "Agent configuration is available only on the private runner service.";
+      err.style.display = "block";
     }
-    updateAddAgentKindUI();
+    showAddAgentChooseStep();
+  }
+
+  async function openEditAgentModal(agentId) {
+    const agent = (state.agents || []).find((item) => item.id === agentId);
+    if (!agent) return;
+    const modal = document.getElementById("add-agent-modal");
+    if (!modal) return;
+    state.addAgent.mode = "edit";
+    state.addAgent.editingAgentId = agentId;
+    state.addAgent.templateAdapter = agent.adapter || "jules_remote";
+    state.addAgent.error = "";
+    state.addAgent.saving = false;
+    state.addAgent.testing = false;
+    state.addAgent.lastTestStatus = "";
+    resetAddAgentFormFields({ keepName: true, keepRepo: true });
+    const nameEl = document.getElementById("add-agent-name");
+    const branchEl = document.getElementById("add-agent-branch");
+    const approvalEl = document.getElementById("add-agent-require-plan-approval");
+    if (nameEl) nameEl.value = agent.name || "";
+    if (branchEl) branchEl.value = agent.default_branch || "";
+    if (approvalEl) approvalEl.checked = agent.require_plan_approval !== false;
+    await populateAddAgentRepos();
+    const repoEl = document.getElementById("add-agent-repo");
+    if (repoEl && agent.default_repo_id) repoEl.value = agent.default_repo_id;
+    modal.style.display = "flex";
+    const err = document.getElementById("add-agent-error");
+    if (err) {
+      err.style.display = "none";
+      err.textContent = "";
+    }
+    showAddAgentConfigStep();
   }
 
   function closeAddAgentModal() {
     const modal = document.getElementById("add-agent-modal");
     if (modal) modal.style.display = "none";
+    resetAddAgentFormFields();
+    state.addAgent.step = "choose";
+    state.addAgent.mode = "create";
+    state.addAgent.editingAgentId = "";
+    state.addAgent.templateAdapter = "";
+    state.addAgent.lastTestStatus = "";
   }
 
-  async function saveAddAgent() {
-    const nameEl = document.getElementById("add-agent-name");
-    const repoEl = document.getElementById("add-agent-repo");
-    const enabledEl = document.getElementById("add-agent-enabled");
-    const templateEl = document.getElementById("add-agent-template");
+  async function testAddAgentConnection() {
     const err = document.getElementById("add-agent-error");
-    const templateOpt = templateEl && templateEl.selectedOptions[0];
-    const adapter = (templateEl && templateEl.value) || state.addAgent.templateAdapter;
-    const registerable = templateOpt ? templateOpt.dataset.registerable === "1" : false;
-    const name = (nameEl && nameEl.value ? nameEl.value : "").trim();
-    if (!registerable) {
+    const testStatus = document.getElementById("add-agent-test-status");
+    const payload = collectJulesConfigPayload();
+    if (!payload.api_key) {
       if (err) {
-        err.textContent = "This template cannot be saved as a runnable agent in this version.";
+        err.textContent = "Enter a Jules API key before testing the connection.";
         err.style.display = "block";
       }
       return;
     }
-    if (!name) {
+    if (!state.registryWriteEnabled) {
+      if (err) {
+        err.textContent = "Agent configuration is available only on the private runner service.";
+        err.style.display = "block";
+      }
+      return;
+    }
+    state.addAgent.testing = true;
+    if (err) err.style.display = "none";
+    updateAddAgentActions();
+    try {
+      const result = await requestJson(`${MCH}/agents/test-config`, {
+        method: "POST",
+        body: {
+          adapter: "jules_remote",
+          api_key: payload.api_key,
+          default_repo_id: payload.default_repo_id,
+          default_branch: payload.default_branch,
+        },
+      });
+      state.addAgent.lastTestStatus = result.status || "";
+      if (testStatus) {
+        testStatus.textContent = result.message || `Connection status: ${result.status || "unknown"}`;
+        testStatus.style.display = "block";
+        testStatus.style.color = result.status === "connected"
+          ? "var(--good, #63db9d)"
+          : (result.status === "invalid_key" ? "var(--bad, #ff7e91)" : "var(--warn, #f0c66a)");
+      }
+    } catch (e) {
+      state.addAgent.lastTestStatus = "";
+      if (err) {
+        err.textContent = e.message || String(e);
+        err.style.display = "block";
+      }
+    } finally {
+      state.addAgent.testing = false;
+      updateAddAgentActions();
+    }
+  }
+
+  async function saveAddAgent() {
+    const err = document.getElementById("add-agent-error");
+    const payload = collectJulesConfigPayload();
+    const template = (state.agentTemplates || []).find((item) => item.adapter === state.addAgent.templateAdapter);
+    if (!payload.name) {
       if (err) {
         err.textContent = "Display name is required.";
         err.style.display = "block";
@@ -699,27 +904,86 @@
     }
     if (!state.registryWriteEnabled) {
       if (err) {
-        err.textContent = "Agent registration is available only on the private runner service.";
+        err.textContent = "Agent configuration is available only on the private runner service.";
         err.style.display = "block";
       }
       return;
     }
-    const template = (state.agentTemplates || []).find((item) => item.adapter === adapter);
+    if (state.addAgent.mode === "edit" && state.addAgent.editingAgentId && !payload.api_key) {
+      state.addAgent.saving = true;
+      updateAddAgentActions();
+      try {
+        await requestJson(`${MCH}/agents/${encodeURIComponent(state.addAgent.editingAgentId)}/config`, {
+          method: "PATCH",
+          body: {
+            default_repo_id: payload.default_repo_id,
+            default_branch: payload.default_branch,
+            require_plan_approval: payload.require_plan_approval,
+          },
+        });
+        resetAddAgentFormFields();
+        if (err) err.style.display = "none";
+        await loadAgents();
+        closeAddAgentModal();
+      } catch (e) {
+        if (err) {
+          err.textContent = e.message || String(e);
+          err.style.display = "block";
+        }
+      } finally {
+        state.addAgent.saving = false;
+        updateAddAgentActions();
+      }
+      return;
+    }
+    if (!payload.api_key) {
+      if (err) {
+        err.textContent = "Jules API key is required to save this agent.";
+        err.style.display = "block";
+      }
+      return;
+    }
+    const canSave = state.addAgent.lastTestStatus === "connected"
+      || (payload.allow_unverified && ["not_verified", "error"].includes(state.addAgent.lastTestStatus));
+    if (!canSave) {
+      if (err) {
+        err.textContent = "Test the Jules connection first, or allow saving as an unverified profile.";
+        err.style.display = "block";
+      }
+      return;
+    }
     state.addAgent.saving = true;
-    updateAddAgentKindUI();
+    updateAddAgentActions();
     try {
-      await requestJson(`${MCH}/agents`, {
-        method: "POST",
-        body: {
-          name,
-          kind: template ? template.kind : state.addAgent.kind,
-          adapter,
-          default_repo_id: repoEl && repoEl.value ? repoEl.value : null,
-          enabled: !!(enabledEl && enabledEl.checked),
-          description: template ? template.description : "",
-        },
-      });
-      if (nameEl) nameEl.value = "";
+      if (state.addAgent.mode === "edit" && state.addAgent.editingAgentId) {
+        await requestJson(`${MCH}/agents/${encodeURIComponent(state.addAgent.editingAgentId)}/config`, {
+          method: "PATCH",
+          body: {
+            api_key: payload.api_key,
+            default_repo_id: payload.default_repo_id,
+            default_branch: payload.default_branch,
+            require_plan_approval: payload.require_plan_approval,
+            allow_unverified: payload.allow_unverified,
+          },
+        });
+      } else {
+        await requestJson(`${MCH}/agents`, {
+          method: "POST",
+          body: {
+            name: payload.name,
+            kind: template ? template.kind : "remote",
+            adapter: "jules_remote",
+            default_repo_id: payload.default_repo_id,
+            default_branch: payload.default_branch,
+            require_plan_approval: payload.require_plan_approval,
+            enabled: true,
+            description: template ? template.description : "",
+            api_key: payload.api_key,
+            allow_unverified: payload.allow_unverified,
+          },
+        });
+      }
+      resetAddAgentFormFields();
       if (err) err.style.display = "none";
       await loadAgents();
       closeAddAgentModal();
@@ -730,7 +994,7 @@
       }
     } finally {
       state.addAgent.saving = false;
-      updateAddAgentKindUI();
+      updateAddAgentActions();
     }
   }
 
@@ -1167,22 +1431,20 @@
     if (addAgentSave) addAgentSave.addEventListener("click", () => {
       saveAddAgent().catch((e) => console.error(e));
     });
-    const addAgentKindCli = document.getElementById("add-agent-kind-cli");
-    if (addAgentKindCli) addAgentKindCli.addEventListener("click", () => {
-      state.addAgent.kind = "cli";
-      state.addAgent.templateAdapter = "codex_cli";
-      populateAddAgentTemplates();
+    const addAgentTest = document.getElementById("add-agent-test");
+    if (addAgentTest) addAgentTest.addEventListener("click", () => {
+      testAddAgentConnection().catch((e) => console.error(e));
     });
-    const addAgentKindRemote = document.getElementById("add-agent-kind-remote");
-    if (addAgentKindRemote) addAgentKindRemote.addEventListener("click", () => {
-      state.addAgent.kind = "remote";
-      state.addAgent.templateAdapter = "jules_remote";
-      populateAddAgentTemplates();
+    const addAgentBack = document.getElementById("add-agent-back");
+    if (addAgentBack) addAgentBack.addEventListener("click", () => {
+      showAddAgentChooseStep();
     });
-    const addAgentTemplate = document.getElementById("add-agent-template");
-    if (addAgentTemplate) addAgentTemplate.addEventListener("change", () => {
-      state.addAgent.templateAdapter = addAgentTemplate.value;
-      updateAddAgentKindUI();
+    const addAgentAllowUnverified = document.getElementById("add-agent-allow-unverified");
+    if (addAgentAllowUnverified) addAgentAllowUnverified.addEventListener("change", updateAddAgentActions);
+    const addAgentApiKey = document.getElementById("add-agent-api-key");
+    if (addAgentApiKey) addAgentApiKey.addEventListener("input", () => {
+      state.addAgent.lastTestStatus = "";
+      updateAddAgentActions();
     });
     const addAgentModal = document.getElementById("add-agent-modal");
     if (addAgentModal) addAgentModal.addEventListener("click", (e) => {

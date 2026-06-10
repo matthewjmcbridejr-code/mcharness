@@ -32,6 +32,8 @@ def test_functional_cockpit_page_is_served_with_control_plane_labels():
         "Use Agent",
         "Add Agent",
         "add-agent-modal",
+        "add-agent-step-choose",
+        "Test Connection",
         "Advanced / Legacy Cockpit",
         "Captain Deck",
     ]:

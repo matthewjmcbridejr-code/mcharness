@@ -38,11 +38,11 @@ function agentRegistryTemplatesPayload() {
   return {
     service: "mcharness-control-plane",
     templates: [
-      { id: "codex_cli", label: "Codex CLI", kind: "cli", adapter: "codex_cli", registerable: false, runnable: true, builtin: true },
-      { id: "jules_remote", label: "Jules Remote", kind: "remote", adapter: "jules_remote", registerable: true, runnable: false, builtin: false },
-      { id: "agy_cli", label: "AGY CLI Coming Later", kind: "cli", adapter: "agy_cli", registerable: false, runnable: false, builtin: false },
-      { id: "custom_cli", label: "Custom CLI Coming Later", kind: "cli", adapter: "custom_cli", registerable: false, runnable: false, builtin: false },
-      { id: "custom_remote", label: "Custom Remote Coming Later", kind: "remote", adapter: "custom_remote", registerable: false, runnable: false, builtin: false },
+      { id: "codex_cli", label: "Codex CLI", kind: "cli", adapter: "codex_cli", registerable: false, runnable: true, builtin: true, requires_config: false },
+      { id: "jules_remote", label: "Jules Remote", kind: "remote", adapter: "jules_remote", registerable: true, runnable: false, builtin: false, requires_config: true },
+      { id: "agy_cli", label: "AGY CLI Coming Later", kind: "cli", adapter: "agy_cli", registerable: false, runnable: false, builtin: false, requires_config: false },
+      { id: "custom_cli", label: "Custom CLI Coming Later", kind: "cli", adapter: "custom_cli", registerable: false, runnable: false, builtin: false, requires_config: false },
+      { id: "custom_remote", label: "Custom Remote Coming Later", kind: "remote", adapter: "custom_remote", registerable: false, runnable: false, builtin: false, requires_config: false },
     ],
   };
 }
@@ -1064,9 +1064,19 @@ test("Captain Deck creates a plan and deploys the first prompt", async ({ page }
   await expect.poll(() => runnerStatus.status).toBe("stopped");
 });
 
-test("Agent Registry add flow and Captain dropdown use registered agents", async ({ page }) => {
+test("Agent Registry configure flow and Captain dropdown use registered agents", async ({ page }) => {
   let registeredAgents = [];
   const agentPostCalls = [];
+  const testConfigCalls = [];
+
+  await page.addInitScript(() => {
+    window.__storageWrites = [];
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      window.__storageWrites.push([key, value]);
+      return originalSetItem.call(this, key, value);
+    };
+  });
 
   await page.route("**/api/mcharness/**", async (route) => {
     const url = new URL(route.request().url());
@@ -1125,6 +1135,22 @@ test("Agent Registry add flow and Captain dropdown use registered agents", async
       return;
     }
 
+    if (pathname.endsWith("/agents/test-config") && method === "POST") {
+      testConfigCalls.push(body);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          adapter: "jules_remote",
+          status: "connected",
+          message: "Jules API key verified via sources list.",
+          safe_details: { sources_count: 1 },
+        }),
+      });
+      return;
+    }
+
     if (pathname.endsWith("/agents") && method === "POST") {
       agentPostCalls.push(body);
       const created = {
@@ -1135,7 +1161,9 @@ test("Agent Registry add flow and Captain dropdown use registered agents", async
         enabled: body.enabled,
         builtin: false,
         user_created: true,
-        status: "not_configured",
+        status: "ready",
+        connection_status: "connected",
+        configured: true,
         runnable: false,
         description: "Jules profile only.",
         capabilities: ["remote_planning", "status_tracking"],
@@ -1201,32 +1229,43 @@ test("Agent Registry add flow and Captain dropdown use registered agents", async
   await page.getByRole("button", { name: "Add Agent" }).click();
   const addModal = page.locator("#add-agent-modal");
   await expect(addModal).toBeVisible();
-  await expect(addModal.locator("[data-testid='add-agent-kind-cli']")).toBeVisible();
-  await expect(addModal.locator("[data-testid='add-agent-kind-remote']")).toBeVisible();
+  await expect(addModal.locator("[data-testid='add-agent-step-choose']")).toBeVisible();
+  await expect(addModal.locator("button[data-template-adapter='jules_remote']")).toBeVisible();
+  await expect(addModal.locator("button[data-template-adapter='custom_cli']")).toBeDisabled();
 
-  await addModal.locator("[data-testid='add-agent-kind-remote']").click();
-  await expect(addModal.locator("[data-testid='add-agent-jules-note']")).toContainText("Jules Remote registration is for planning/status only");
+  await addModal.locator("button[data-template-adapter='jules_remote']").click();
+  await expect(addModal.locator("[data-testid='add-agent-step-config']")).toBeVisible();
+  await expect(addModal.locator("[data-testid='add-agent-api-key']")).toHaveAttribute("type", "password");
+  await expect(addModal.locator("[data-testid='add-agent-test']")).toBeVisible();
+  await expect(addModal.locator("[data-testid='add-agent-save']")).toBeDisabled();
+
   await addModal.locator("[data-testid='add-agent-name']").fill("Jules Remote Worker");
+  await addModal.locator("[data-testid='add-agent-api-key']").fill("test-jules-key");
+  await addModal.locator("[data-testid='add-agent-test']").click();
+  await expect.poll(() => testConfigCalls.length).toBe(1);
+  await expect(testConfigCalls[0].adapter).toBe("jules_remote");
+  await expect(testConfigCalls[0].api_key).toBe("test-jules-key");
+  await expect(addModal.locator("[data-testid='add-agent-test-status']")).toContainText("Jules API key verified");
+  await expect(addModal.locator("[data-testid='add-agent-save']")).toBeEnabled();
+
   await addModal.locator("[data-testid='add-agent-save']").click();
   await expect.poll(() => agentPostCalls.length).toBe(1);
   await expect(agentPostCalls[0].adapter).toBe("jules_remote");
+  await expect(agentPostCalls[0].api_key).toBe("test-jules-key");
+  await expect(addModal.locator("[data-testid='add-agent-api-key']")).toHaveValue("");
   await expect(page.locator(".registered-agent-card")).toContainText("Jules Remote Worker");
-  await expect(page.locator(".registered-agent-card")).toContainText("not_configured");
-
-  await page.getByRole("button", { name: "Add Agent" }).click();
-  await addModal.locator("[data-testid='add-agent-kind-cli']").click();
-  await addModal.locator("[data-testid='add-agent-template']").selectOption("custom_cli");
-  await expect(addModal.locator("[data-testid='add-agent-save']")).toBeDisabled();
-  await addModal.locator("[data-testid='add-agent-close']").click();
-  await expect(addModal).not.toBeVisible();
+  await expect(page.locator(".registered-agent-card")).toContainText("connected");
+  await expect(page.locator(".registered-agent-card button", { hasText: "Use Agent" })).toHaveCount(0);
+  await expect(page.locator(".registered-agent-card button", { hasText: "Edit Config" })).toBeVisible();
+  await expect(page.evaluate(() => window.__storageWrites || [])).resolves.toEqual([]);
 
   await page.getByRole("button", { name: "Develop Plan" }).click();
   const captainModal = page.locator("#captain-deck-modal");
   await expect(captainModal).toBeVisible();
   await expect(captainModal.locator("[data-testid='captain-agent-select']")).toContainText("Codex CLI");
-  await expect(captainModal.locator("[data-testid='captain-agent-select']")).toContainText("Jules Remote Worker (not runnable)");
+  await expect(captainModal.locator("[data-testid='captain-agent-select']")).toContainText("Jules Remote Worker (connected, not runnable)");
   await captainModal.locator("[data-testid='captain-agent-select']").selectOption("jules_remote_test01");
-  await expect(captainModal.locator("[data-testid='captain-agent-note']")).toContainText("This agent is registered but not runnable yet.");
+  await expect(captainModal.locator("[data-testid='captain-agent-note']")).toContainText("Jules Remote is configured for planning/status only. Execution comes next.");
   await expect(captainModal.locator("[data-testid='captain-create-plan']")).toBeDisabled();
   await expect(captainModal.locator("[data-testid='captain-deploy-first']")).toBeDisabled();
   await captainModal.locator("[data-testid='captain-agent-select']").selectOption("codex_cli");

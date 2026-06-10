@@ -1,14 +1,22 @@
 # McHarness Agent Registry
 
-The Agent Registry is the safe foundation for registering CLI and remote coding agents in the McHarness Agent Library. It lets operators name, enable, and track bounded agent profiles without exposing secrets or allowing arbitrary shell execution.
+The Agent Registry is the safe foundation for registering CLI and remote coding agents in the McHarness Agent Library. Add Agent is a configuration wizard: choose an agent, enter required settings, test the configuration, then save only when the profile is useful.
 
 ## What it is
 
 - A server-side profile store under `<MCHARNESS_DATA_ROOT>/agents/agents.json`
+- A server-side secret store under `<MCHARNESS_DATA_ROOT>/secrets/agent_<agent_id>.json`
 - A read API for the Agent Library and Captain Deck
-- A private-only write API for registering safe, bounded profiles
+- A private-only write API for configuring safe, bounded profiles
 
-Agent profiles are metadata only. Secrets such as API keys are never stored in agent profiles.
+Agent profiles are metadata only. Secrets such as API keys are stored separately and never returned to the browser.
+
+## Add Agent wizard
+
+1. **Choose agent** — Codex CLI (built-in), Jules Remote (configure), or Coming Later placeholders
+2. **Configure** — for Jules: display name, API key, optional default repo/branch, require plan approval
+3. **Test Connection** — private service only; validates Jules API key against `GET /v1alpha/sources`
+4. **Save Agent** — enabled after a successful test, or after explicitly allowing an unverified save when live verification is unavailable
 
 ## CLI vs Remote agents
 
@@ -24,20 +32,27 @@ McHarness always returns a built-in Codex profile:
 - `id`: `codex_cli`
 - `adapter`: `codex_cli`
 - `kind`: `cli`
+- shown as **Installed** in Add Agent
+- cannot be registered again
 - `status`: `ready` on the private runner service when both `MCHARNESS_TMUX_RUNNER_ENABLED=true` and `MCHARNESS_CODEX_RUNNER_ENABLED=true`
 - `status`: `disabled` on the public safe service
 
-Codex remains the only runnable adapter in this version. The existing tmux runner path is unchanged.
+Codex remains the only runnable adapter in this version.
 
-## Jules Remote planned profile
+## Jules Remote configuration
 
-Jules Remote can be registered on the private service as a non-runnable profile:
+Jules Remote can be configured on the private service:
 
 - `adapter`: `jules_remote`
-- `status`: `not_configured`
-- `runnable`: `false`
+- secret stored at `<MCHARNESS_DATA_ROOT>/secrets/agent_<agent_id>.json`
+- `connection_status`: `connected`, `unverified`, `invalid_key`, `error`, or `not_configured`
+- `runnable`: `false` until Jules execution support lands
 
-This version supports registration and status display only. There is no Jules API key setup, no task start button, and no result pull flow yet.
+Configured Jules agents appear in the Agent Library with **Edit Config** and **Remove**. There is no **Use Agent** button yet.
+
+Captain Deck shows Jules as not runnable with:
+
+> Jules Remote is configured for planning/status only. Execution comes next.
 
 ## Why arbitrary shell commands are not allowed
 
@@ -45,9 +60,9 @@ McHarness is a supervised control room, not a generic remote shell. Allowing arb
 
 - `custom_cli` and `custom_remote` are disabled placeholders
 - `agy_cli` is planned but not registerable yet
-- agent profiles cannot store commands, binaries, or secret credentials
+- agent profiles and secrets cannot store arbitrary commands
 
-## Private-only registration
+## Private-only registration and configuration
 
 Write endpoints are available only when the service is in private runner mode:
 
@@ -55,7 +70,7 @@ Write endpoints are available only when the service is in private runner mode:
 - `MCHARNESS_TMUX_RUNNER_ENABLED=true`
 - `MCHARNESS_CODEX_RUNNER_ENABLED=true`
 
-The public safe service on `127.0.0.1:8124` rejects `POST`, `PATCH`, and `DELETE` on `/api/mcharness/agents`.
+The public safe service on `127.0.0.1:8124` rejects `POST`, `PATCH`, and `DELETE` on agent registry endpoints.
 
 ## Public-safe behavior
 
@@ -63,7 +78,7 @@ On the public service:
 
 - `GET /api/mcharness/agents` still returns the built-in Codex profile
 - Codex is reported as disabled / not runnable
-- registration attempts are rejected
+- configuration attempts are rejected
 - no secrets are ever returned in agent responses
 
 ## API summary
@@ -74,22 +89,21 @@ On the public service:
 | `GET /api/mcharness/agents/templates` | public read |
 | `GET /api/mcharness/agents/{id}/status` | public read |
 | `POST /api/mcharness/agents/{id}/probe` | public read, safe probe only |
+| `POST /api/mcharness/agents/test-config` | private write only; does not persist secrets |
 | `POST /api/mcharness/agents` | private write only |
-| `PATCH /api/mcharness/agents/{id}` | private write only |
+| `PATCH /api/mcharness/agents/{id}` | private write only; safe metadata |
+| `PATCH /api/mcharness/agents/{id}/config` | private write only; Jules secret/config |
 | `DELETE /api/mcharness/agents/{id}` | private write only |
 
-## UI behavior
+### Test config response statuses
 
-- Agent Library shows the built-in Codex card plus any registered profiles
-- **Add Agent** opens a modal with CLI / Remote template choices
-- Jules Remote can be saved as a registered profile but is not runnable
-- Coming Later templates cannot be saved
-- Captain Deck loads its agent dropdown from `/api/mcharness/agents`
-- Deploy First Prompt remains enabled only for runnable Codex agents
+- `connected` — Jules API accepted the key
+- `invalid_key` — Jules API rejected the key
+- `not_verified` — structured fallback when live verification is unavailable
+- `error` — network or unexpected API failure
 
 ## Future work
 
-- Jules API key setup and remote execution lane
+- Jules session start/list/pull/approve plan
 - AGY CLI adapter once bounded runner support exists
 - richer per-agent configure actions where they are real and safe
-- probe/status improvements for remote adapters after credential support lands
