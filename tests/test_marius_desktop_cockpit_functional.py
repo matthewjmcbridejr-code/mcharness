@@ -60,6 +60,10 @@ def test_functional_cockpit_page_is_served_with_control_plane_labels():
         "add-agent-step-choose",
         "Test Connection",
         "Captain Deck",
+        "runs-list",
+        "evidence-list",
+        "run-detail-modal",
+        "evidence-detail-modal",
     ]:
         assert snippet in response.text
     for removed_snippet in [

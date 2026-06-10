@@ -26,6 +26,9 @@
     liveAutoScroll: true,
     lastMonitorTranscriptText: "",
     activeSection: "mission",
+    recentRuns: [],
+    recentEvidence: [],
+    activeWardenRunId: "",
     captainDeck: {
       configured: false,
       planningEnabled: false,
@@ -504,6 +507,7 @@
       repoId: deck.repoId || "mcharness-public-export",
       title: deck.plan.title || deck.goal || "Captain plan",
       prompt: firstStep.prompt || deck.goal || "Implement the first Captain step.",
+      planId: deck.plan.plan_id || deck.plan.id || null,
       noteId: "captain-deploy-note",
       closeCurrentModal: closeCaptainDeckModal,
     });
@@ -596,6 +600,166 @@
       const btn = document.getElementById(id);
       if (btn) btn.style.display = hasSession ? "" : "none";
     });
+  }
+
+  function formatHistoryTimestamp(value) {
+    if (!value) return "—";
+    try {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleString();
+    } catch (e) {
+      return value;
+    }
+  }
+
+  function renderRunsPanel() {
+    const list = document.getElementById("runs-list");
+    const empty = document.querySelector("[data-testid='runs-empty-state']");
+    const runs = state.recentRuns || [];
+    if (!list || !empty) return;
+    if (!runs.length) {
+      list.style.display = "none";
+      list.innerHTML = "";
+      empty.style.display = "";
+      return;
+    }
+    empty.style.display = "none";
+    list.style.display = "grid";
+    list.innerHTML = runs.map((run) => `
+      <div class="history-card" data-run-id="${escapeHtml(run.run_id)}">
+        <div class="history-card-top">
+          <h3 class="history-card-title">${escapeHtml(run.title || run.run_id)}</h3>
+          <span class="status-pill ${run.status === "running" || run.status === "dispatched" ? "status-ready" : "status-connected"}">${escapeHtml((run.status || "unknown").toUpperCase())}</span>
+        </div>
+        <p class="history-card-meta">${escapeHtml(run.agent_id || "agent")} · ${escapeHtml(run.repo_id || "repo")} · ${escapeHtml(formatHistoryTimestamp(run.started_at))}</p>
+        <p class="history-card-copy">${escapeHtml(run.prompt_excerpt || "No prompt excerpt saved.")}</p>
+        <p class="history-card-meta">Evidence: ${Number(run.evidence_count || 0)}</p>
+        <button type="button" class="btn" data-view-run-id="${escapeHtml(run.run_id)}">View Run</button>
+      </div>
+    `).join("");
+    list.querySelectorAll("[data-view-run-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const runId = button.getAttribute("data-view-run-id");
+        if (runId) openRunDetailModal(runId).catch((e) => console.error(e));
+      });
+    });
+  }
+
+  function renderEvidencePanel() {
+    const list = document.getElementById("evidence-list");
+    const empty = document.querySelector("[data-testid='evidence-empty-state']");
+    const evidence = state.recentEvidence || [];
+    if (!list || !empty) return;
+    if (!evidence.length) {
+      list.style.display = "none";
+      list.innerHTML = "";
+      empty.style.display = "";
+      return;
+    }
+    empty.style.display = "none";
+    list.style.display = "grid";
+    list.innerHTML = evidence.map((item) => `
+      <div class="history-card" data-evidence-id="${escapeHtml(item.evidence_id)}">
+        <div class="history-card-top">
+          <h3 class="history-card-title">${escapeHtml(item.title || item.evidence_id)}</h3>
+          <span class="status-pill status-connected">${escapeHtml((item.type || "evidence").toUpperCase())}</span>
+        </div>
+        <p class="history-card-meta">${escapeHtml(formatHistoryTimestamp(item.created_at))}${item.run_id ? ` · Run ${escapeHtml(item.run_id)}` : ""}</p>
+        <p class="history-card-copy">${escapeHtml(item.summary || item.content_excerpt || "Saved evidence excerpt.")}</p>
+        <button type="button" class="btn" data-view-evidence-id="${escapeHtml(item.evidence_id)}">View Evidence</button>
+      </div>
+    `).join("");
+    list.querySelectorAll("[data-view-evidence-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const evidenceId = button.getAttribute("data-view-evidence-id");
+        if (evidenceId) openEvidenceDetailModal(evidenceId).catch((e) => console.error(e));
+      });
+    });
+  }
+
+  async function loadRecentRuns() {
+    try {
+      const data = await requestJson(`${MCH}/runs/recent`);
+      state.recentRuns = data.runs || [];
+      renderRunsPanel();
+      return data;
+    } catch (e) {
+      state.recentRuns = [];
+      renderRunsPanel();
+      return null;
+    }
+  }
+
+  async function loadRecentEvidence() {
+    try {
+      const data = await requestJson(`${MCH}/evidence/recent`);
+      state.recentEvidence = data.evidence || [];
+      renderEvidencePanel();
+      return data;
+    } catch (e) {
+      state.recentEvidence = [];
+      renderEvidencePanel();
+      return null;
+    }
+  }
+
+  async function openRunDetailModal(runId) {
+    const modal = document.getElementById("run-detail-modal");
+    if (!modal) return;
+    const data = await requestJson(`${MCH}/runs/${encodeURIComponent(runId)}`);
+    const run = data.run || {};
+    const title = document.getElementById("run-detail-title");
+    const meta = document.getElementById("run-detail-meta");
+    const prompt = document.getElementById("run-detail-prompt");
+    const transcript = document.getElementById("run-detail-transcript");
+    const evidence = document.getElementById("run-detail-evidence");
+    if (title) title.textContent = run.title || run.run_id || "Run Detail";
+    if (meta) {
+      meta.textContent = `${run.agent_id || "agent"} · ${run.status || "unknown"} · ${formatHistoryTimestamp(run.started_at)}`;
+    }
+    if (prompt) prompt.textContent = run.prompt || run.prompt_excerpt || "(no prompt saved)";
+    if (transcript) transcript.textContent = run.transcript_excerpt || "(no transcript saved yet)";
+    if (evidence) {
+      const items = data.evidence || [];
+      evidence.innerHTML = items.length
+        ? items.map((item) => `<li>${escapeHtml(item.title || item.evidence_id)} · ${escapeHtml(item.type || "evidence")}</li>`).join("")
+        : "<li>No saved evidence linked to this run yet.</li>";
+    }
+    modal.style.display = "flex";
+  }
+
+  function closeRunDetailModal() {
+    const modal = document.getElementById("run-detail-modal");
+    if (modal) modal.style.display = "none";
+  }
+
+  async function openEvidenceDetailModal(evidenceId) {
+    const modal = document.getElementById("evidence-detail-modal");
+    if (!modal) return;
+    const data = await requestJson(`${MCH}/evidence/${encodeURIComponent(evidenceId)}`);
+    const item = data.evidence || {};
+    const linkedRun = data.linked_run;
+    const title = document.getElementById("evidence-detail-title");
+    const meta = document.getElementById("evidence-detail-meta");
+    const content = document.getElementById("evidence-detail-content");
+    const runMeta = document.getElementById("evidence-detail-run");
+    if (title) title.textContent = item.title || item.evidence_id || "Evidence Detail";
+    if (meta) {
+      meta.textContent = `${item.type || "evidence"} · ${formatHistoryTimestamp(item.created_at)} · ${item.source || "operator"}`;
+    }
+    if (content) content.textContent = item.content || item.content_excerpt || item.summary || "(no content saved)";
+    if (runMeta) {
+      runMeta.textContent = linkedRun
+        ? `Linked run: ${linkedRun.title || linkedRun.run_id} (${linkedRun.status || "unknown"})`
+        : "No linked run.";
+    }
+    modal.style.display = "flex";
+  }
+
+  function closeEvidenceDetailModal() {
+    const modal = document.getElementById("evidence-detail-modal");
+    if (modal) modal.style.display = "none";
   }
 
   function renderSettingsPanel() {
@@ -716,6 +880,11 @@
     if (inspector) inspector.style.display = showInspector ? "" : "none";
     const stage = document.querySelector(".warden-stage");
     if (stage) stage.classList.toggle("inspector-visible", showInspector);
+    if (state.activeSection === "runs") {
+      loadRecentRuns().catch((e) => console.error(e));
+    } else if (state.activeSection === "evidence") {
+      loadRecentEvidence().catch((e) => console.error(e));
+    }
   }
 
   function registeredAgentCardCopy(agent) {
@@ -1290,7 +1459,7 @@
     closeAddAgentModal();
   }
 
-  async function deployRunnerPrompt({ title, prompt, repoPath, repoId, closeCurrentModal = null, noteId = "deploy-disabled-note" }) {
+  async function deployRunnerPrompt({ title, prompt, repoPath, repoId, planId = null, closeCurrentModal = null, noteId = "deploy-disabled-note" }) {
     const note = noteId ? document.getElementById(noteId) : null;
     const health = state.health || {};
     const canRunReal = !!(health.tmux_runner_enabled && health.codex_runner_enabled);
@@ -1327,10 +1496,21 @@
         });
       } catch (e) { /* non fatal */ }
 
-      await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/start`, {
+      const runnerState = await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/start`, {
         method: "POST",
-        body: { lane_id: "codex_cli", repo_id: repoId, queue_item_id: qid },
+        body: {
+          lane_id: "codex_cli",
+          repo_id: repoId,
+          queue_item_id: qid,
+          title,
+          prompt,
+          plan_id: planId,
+          agent_id: "codex_cli",
+          created_by: planId ? "captain_deck" : "use_agent",
+        },
       });
+      state.activeWardenRunId = (runnerState && (runnerState.runner_id || (runnerState.warden_run && runnerState.warden_run.run_id))) || "";
+      await Promise.all([loadRecentRuns(), loadRecentEvidence()]);
 
       if (typeof closeCurrentModal === "function") closeCurrentModal();
       closeSetupModals();
@@ -1568,6 +1748,14 @@
         openCaptainDeckModal().catch((e) => console.error(e));
       });
     }
+    const runDetailClose = document.getElementById("run-detail-close");
+    if (runDetailClose) runDetailClose.addEventListener("click", closeRunDetailModal);
+    const evidenceDetailClose = document.getElementById("evidence-detail-close");
+    if (evidenceDetailClose) evidenceDetailClose.addEventListener("click", closeEvidenceDetailModal);
+    const runDetailModal = document.getElementById("run-detail-modal");
+    if (runDetailModal) runDetailModal.addEventListener("click", (e) => { if (e.target === runDetailModal) closeRunDetailModal(); });
+    const evidenceDetailModal = document.getElementById("evidence-detail-modal");
+    if (evidenceDetailModal) evidenceDetailModal.addEventListener("click", (e) => { if (e.target === evidenceDetailModal) closeEvidenceDetailModal(); });
     ["runs-open-monitor", "evidence-open-output"].forEach((id) => {
       const btn = document.getElementById(id);
       if (btn) btn.addEventListener("click", openLiveCLIMonitor);
@@ -1709,9 +1897,13 @@
       const sid = state.selectedThreadId;
       if (!sid) return;
       try {
-        await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/transcript-to-evidence`, { method: "POST" });
-        alert("Transcript saved as evidence.");
-      } catch (e) { alert("Save failed: " + e.message); }
+        const result = await requestJson(`${MCH}/sessions/${encodeURIComponent(sid)}/runner/transcript-to-evidence`, { method: "POST" });
+        if (result && result.warden_evidence && result.warden_evidence.evidence_id) {
+          state.activeWardenRunId = result.warden_evidence.run_id || state.activeWardenRunId;
+        }
+        await Promise.all([loadRecentRuns(), loadRecentEvidence()]);
+        setQuickReplyStatus("Transcript saved as evidence.");
+      } catch (e) { setQuickReplyStatus(`Save failed: ${e.message || e}`, true); }
     });
     const mStop = document.getElementById("modal-stop");
     if (mStop) mStop.addEventListener("click", async () => {
@@ -1767,7 +1959,7 @@
 
     wireSimpleUI();
     setActiveSection("mission");
-    await Promise.all([loadLibraryStatus(), loadCaptainDeckStatus()]);
+    await Promise.all([loadLibraryStatus(), loadCaptainDeckStatus(), loadRecentRuns(), loadRecentEvidence()]);
 
     // initial status check for disabled note etc is handled in deploy
     // If user has runner flags in this process (e.g. private), card will reflect Ready

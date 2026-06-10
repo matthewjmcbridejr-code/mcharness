@@ -131,6 +131,7 @@
           <h2 class="workspace-title">Runs</h2>
           <p class="workspace-subhead">Live and completed agent sessions.</p>
         </header>
+        <div id="runs-list" data-testid="runs-list" class="history-card-list" style="display:none;"></div>
         <div class="empty-state-card" data-testid="runs-empty-state">
           <h3>Runs will show live and completed agent sessions.</h3>
           <p>Saved Codex sessions and future Jules sessions will appear here.</p>
@@ -143,6 +144,7 @@
           <h2 class="workspace-title">Evidence</h2>
           <p class="workspace-subhead">Proof artifacts from supervised agent work.</p>
         </header>
+        <div id="evidence-list" data-testid="evidence-list" class="history-card-list" style="display:none;"></div>
         <div class="empty-state-card" data-testid="evidence-empty-state">
           <h3>Saved outputs, transcripts, proof reports, diffs, screenshots, and PR links will appear here.</h3>
           <p>When a Codex session is active, use View Agent to review output or save evidence.</p>
@@ -396,6 +398,41 @@
           </div>
         </div>
       </div>
+
+  <!-- Run Detail Modal -->
+  <div id="run-detail-modal" data-testid="run-detail-modal" class="history-modal" style="display:none;">
+    <div class="history-modal-content">
+      <h3 id="run-detail-title" data-testid="run-detail-title">Run Detail</h3>
+      <div id="run-detail-meta" data-testid="run-detail-meta" class="history-modal-meta"></div>
+      <div class="history-modal-section">
+        <h4>Prompt excerpt</h4>
+        <pre id="run-detail-prompt" data-testid="run-detail-prompt" class="history-modal-pre"></pre>
+      </div>
+      <div class="history-modal-section">
+        <h4>Transcript excerpt</h4>
+        <pre id="run-detail-transcript" data-testid="run-detail-transcript" class="history-modal-pre"></pre>
+      </div>
+      <div class="history-modal-section">
+        <h4>Evidence</h4>
+        <ul id="run-detail-evidence" data-testid="run-detail-evidence" class="history-modal-list"></ul>
+      </div>
+      <button type="button" id="run-detail-close" data-testid="run-detail-close" class="btn">Close</button>
+    </div>
+  </div>
+
+  <!-- Evidence Detail Modal -->
+  <div id="evidence-detail-modal" data-testid="evidence-detail-modal" class="history-modal" style="display:none;">
+    <div class="history-modal-content">
+      <h3 id="evidence-detail-title" data-testid="evidence-detail-title">Evidence Detail</h3>
+      <div id="evidence-detail-meta" data-testid="evidence-detail-meta" class="history-modal-meta"></div>
+      <div class="history-modal-section">
+        <h4>Content</h4>
+        <pre id="evidence-detail-content" data-testid="evidence-detail-content" class="history-modal-pre"></pre>
+      </div>
+      <div id="evidence-detail-run" data-testid="evidence-detail-run" class="history-modal-meta"></div>
+      <button type="button" id="evidence-detail-close" data-testid="evidence-detail-close" class="btn">Close</button>
+    </div>
+  </div>
 
   <script src="./cockpit-app.js"></script>
 </body>

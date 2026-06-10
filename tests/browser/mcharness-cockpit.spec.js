@@ -1324,3 +1324,303 @@ test("Agent Registry configure flow and Captain dropdown use registered agents",
   await captainModal.locator("[data-testid='captain-agent-select']").selectOption("codex_cli");
   await expect(captainModal.locator("[data-testid='captain-agent-note']")).toBeHidden();
 });
+
+test("run history and evidence appear after private Codex dispatch", async ({ page }) => {
+  const runs = [];
+  const evidence = [];
+  let transcriptText = "Codex output line 1\nCodex output line 2\n";
+  let runnerStatus = {
+    session_id: "history-session",
+    runner_id: "run_history01",
+    lane_id: "codex_cli",
+    repo_id: "mcharness-public-export",
+    status: "running",
+    tmux_session_name: "mch_history",
+    attach_command: "tmux attach -t mch_history",
+  };
+
+  await page.route("**/api/mcharness/**", async (route) => {
+    const url = new URL(route.request().url());
+    const { pathname } = url;
+    const method = route.request().method();
+    const body = route.request().postDataJSON ? route.request().postDataJSON() : null;
+
+    if (pathname.endsWith("/health")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          service: "mcharness-control-plane",
+          commit: "test-commit",
+          mode: "public_manual",
+          real_agent_launch_enabled: false,
+          arbitrary_command_execution_enabled: false,
+          public_write_enabled: true,
+          tmux_runner_enabled: true,
+          codex_runner_enabled: true,
+          available_lanes_count: 7,
+          repo_count: 1,
+          manual_mode: true,
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runs/recent")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ service: "mcharness-control-plane", service_mode: "private", runs }),
+      });
+      return;
+    }
+
+    if (pathname.match(/\/runs\/[^/]+$/) && method === "GET") {
+      const runId = pathname.split("/").pop();
+      const run = runs.find((item) => item.run_id === runId);
+      if (!run) {
+        await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Run not found" }) });
+        return;
+      }
+      const linked = evidence.filter((item) => item.run_id === runId);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ service: "mcharness-control-plane", service_mode: "private", run, evidence: linked }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/evidence/recent")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ service: "mcharness-control-plane", service_mode: "private", evidence }),
+      });
+      return;
+    }
+
+    if (pathname.match(/\/evidence\/[^/]+$/) && method === "GET") {
+      const evidenceId = pathname.split("/").pop();
+      const item = evidence.find((entry) => entry.evidence_id === evidenceId);
+      if (!item) {
+        await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Evidence not found" }) });
+        return;
+      }
+      const linkedRun = runs.find((run) => run.run_id === item.run_id);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          service: "mcharness-control-plane",
+          service_mode: "private",
+          evidence: { ...item, content: item.content_excerpt },
+          linked_run: linkedRun ? { run_id: linkedRun.run_id, title: linkedRun.title, status: linkedRun.status } : null,
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/agent-lanes")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          service: "mcharness-control-plane",
+          manual_mode: true,
+          lanes: [{ lane_id: "codex_cli", title: "Codex CLI", installed: true, runner_mode: "controlled_run_ready" }],
+        }),
+      });
+      return;
+    }
+
+    if (await fulfillAgentRegistryRoute(route, { method, pathname, registryWriteEnabled: true })) {
+      return;
+    }
+
+    if (pathname.endsWith("/repos")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          service: "mcharness-control-plane",
+          repos: [{ repo_id: "mcharness-public-export", label: "mcharness-public-export", path: "/root/mcharness-public-export" }],
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/captain/status")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          configured: true,
+          provider: "openrouter",
+          model: "openrouter/auto",
+          planning_enabled: true,
+          key_source: "env",
+          private_key_setup_enabled: true,
+          notes: [],
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/sessions") && method === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ session_id: "history-session" }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/queue") && method === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ queue_item_id: "queue-history-1" }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/prompt-export") && method === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ prompt_text: "History prompt export" }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/start") && method === "POST") {
+      const run = {
+        run_id: runnerStatus.runner_id,
+        title: body.title || "History smoke",
+        agent_id: "codex_cli",
+        agent_adapter: "codex_cli",
+        repo_id: "mcharness-public-export",
+        status: "dispatched",
+        started_at: "2026-06-09T12:00:00.000Z",
+        prompt_excerpt: body.prompt || "History prompt",
+        transcript_excerpt: "",
+        evidence_count: 0,
+        evidence_ids: [],
+      };
+      runs.unshift(run);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...runnerStatus,
+          warden_run: run,
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/send-prompt") && method === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, status: "running", transcript_excerpt: transcriptText }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/status")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(runnerStatus),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/transcript")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          session_id: "history-session",
+          runner_id: runnerStatus.runner_id,
+          transcript: transcriptText,
+        }),
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/runner/transcript-to-evidence") && method === "POST") {
+      const item = {
+        evidence_id: "ev_history01",
+        run_id: runnerStatus.runner_id,
+        type: "transcript",
+        title: "Codex transcript snapshot",
+        summary: "Saved runner transcript as evidence",
+        content_excerpt: transcriptText,
+        created_at: "2026-06-09T12:05:00.000Z",
+        agent_id: "codex_cli",
+        source: "live_monitor",
+        redacted: false,
+      };
+      evidence.unshift(item);
+      const run = runs.find((entry) => entry.run_id === runnerStatus.runner_id);
+      if (run) {
+        run.evidence_count = 1;
+        run.evidence_ids = [item.evidence_id];
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, warden_evidence: item }),
+      });
+      return;
+    }
+
+    await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: `Unhandled route: ${pathname}` }) });
+  });
+
+  await page.goto("/web/mctable-studio/cockpit-app.html");
+  await page.locator("[data-testid='nav-runs']").click();
+  await expect(page.locator("[data-testid='runs-empty-state']")).toBeVisible();
+
+  await page.locator("[data-testid='nav-agents']").click();
+  await page.getByRole("button", { name: "Use Agent" }).click();
+  const useModal = page.locator("#use-agent-modal");
+  await useModal.locator("#modal-task-title").fill("History smoke");
+  await useModal.locator("#modal-prompt").fill("Capture run history after dispatch.");
+  await useModal.locator("#deploy-prompt-btn").click();
+
+  const liveModal = page.locator("#live-cli-modal");
+  await expect(liveModal).toBeVisible();
+  await liveModal.locator("[data-testid='modal-close']").click();
+  await expect(liveModal).not.toBeVisible();
+  await page.locator("[data-testid='nav-runs']").click();
+  await expect(page.locator("[data-testid='runs-list']")).toBeVisible();
+  await expect(page.locator("[data-testid='runs-list']")).toContainText("History smoke");
+  await expect(page.locator("[data-testid='runs-list']")).toContainText("codex_cli");
+  await page.locator("[data-testid='runs-list'] button", { hasText: "View Run" }).click();
+  const runModal = page.locator("#run-detail-modal");
+  await expect(runModal).toBeVisible();
+  await expect(runModal.locator("[data-testid='run-detail-prompt']")).toContainText("Capture run history");
+  await runModal.locator("[data-testid='run-detail-close']").click();
+
+  await page.locator("[data-testid='nav-agents']").click();
+  await page.locator("[data-testid='view-agent-codex']").click();
+  await page.locator("[data-testid='modal-save-evidence']").click();
+  await expect(page.locator("[data-testid='quick-reply-status']")).toContainText("Transcript saved as evidence");
+  await liveModal.locator("[data-testid='modal-close']").click();
+  await expect(liveModal).not.toBeVisible();
+
+  await page.locator("[data-testid='nav-evidence']").click();
+  await expect(page.locator("[data-testid='evidence-list']")).toBeVisible();
+  await expect(page.locator("[data-testid='evidence-list']")).toContainText("Codex transcript snapshot");
+  await page.locator("[data-testid='evidence-list'] button", { hasText: "View Evidence" }).click();
+  const evidenceModal = page.locator("#evidence-detail-modal");
+  await expect(evidenceModal).toBeVisible();
+  await expect(evidenceModal.locator("[data-testid='evidence-detail-content']")).toContainText("Codex output line 1");
+  await expect(page.locator("text=sk-or-")).toHaveCount(0);
+});

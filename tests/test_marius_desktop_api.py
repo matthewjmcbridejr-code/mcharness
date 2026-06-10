@@ -12,11 +12,25 @@ from src.server.api import app
 
 @pytest.fixture(autouse=True)
 def clean_mctable():
-    for d in [TASKS_DIR, MCTABLE_ROOT / "worker_runs", MCTABLE_ROOT / "checkpoints", CAPTAIN_ROOT]:
+    for d in [
+        TASKS_DIR,
+        MCTABLE_ROOT / "worker_runs",
+        MCTABLE_ROOT / "checkpoints",
+        CAPTAIN_ROOT,
+        MCTABLE_ROOT / "runs",
+        MCTABLE_ROOT / "evidence",
+    ]:
         if d.exists():
             shutil.rmtree(d)
     yield
-    for d in [TASKS_DIR, MCTABLE_ROOT / "worker_runs", MCTABLE_ROOT / "checkpoints", CAPTAIN_ROOT]:
+    for d in [
+        TASKS_DIR,
+        MCTABLE_ROOT / "worker_runs",
+        MCTABLE_ROOT / "checkpoints",
+        CAPTAIN_ROOT,
+        MCTABLE_ROOT / "runs",
+        MCTABLE_ROOT / "evidence",
+    ]:
         if d.exists():
             shutil.rmtree(d)
 
@@ -1442,3 +1456,186 @@ def test_mcharness_agents_probe_codex_and_jules(monkeypatch, tmp_path):
     assert jules_probe.status_code == 200, jules_probe.text
     assert jules_probe.json()["status"] == "connected"
     assert "test-jules-key" not in jules_probe.text
+
+
+def _enable_private_run_history(monkeypatch, tmp_path):
+    monkeypatch.setenv("MCHARNESS_TMUX_RUNNER_ENABLED", "true")
+    monkeypatch.setenv("MCHARNESS_CODEX_RUNNER_ENABLED", "true")
+    import src.marius_desktop.api as api_mod
+
+    monkeypatch.setattr(api_mod, "MCTABLE_ROOT", tmp_path)
+
+    def fake_start_codex(state, cwd):
+        state["status"] = "running"
+        state["notes"].append("codex (patched, no real exec)")
+        return state
+
+    monkeypatch.setattr(api_mod, "_start_codex_runner", fake_start_codex)
+
+
+def test_run_history_created_on_private_codex_dispatch(monkeypatch, tmp_path):
+    _enable_private_run_history(monkeypatch, tmp_path)
+    client = TestClient(app)
+    created = client.post(
+        "/api/mcharness/sessions",
+        json={
+            "title": "History smoke",
+            "objective": "Prove run history",
+            "plan_instruction": "Create a bounded run record.",
+            "repo_path": "/root/mcharness-public-export",
+            "agent_lane": "manual_paste",
+        },
+    )
+    assert created.status_code == 200
+    sid = created.json()["session_id"]
+    started = client.post(
+        f"/api/mcharness/sessions/{sid}/runner/start",
+        json={
+            "lane_id": "codex_cli",
+            "repo_id": "mcharness-public-export",
+            "title": "History smoke",
+            "prompt": "Inspect the Warden frontend and summarize entrypoints.",
+            "agent_id": "codex_cli",
+            "created_by": "use_agent",
+        },
+    )
+    assert started.status_code == 200, started.text
+    payload = started.json()
+    assert payload.get("warden_run")
+    run_id = payload["runner_id"]
+    recent = client.get("/api/mcharness/runs/recent")
+    assert recent.status_code == 200
+    data = recent.json()
+    assert data["service_mode"] == "private"
+    assert len(data["runs"]) == 1
+    run = data["runs"][0]
+    assert run["run_id"] == run_id
+    assert run["title"] == "History smoke"
+    assert run["agent_id"] == "codex_cli"
+    assert run["status"] == "dispatched"
+    assert "Inspect the Warden frontend" in run["prompt_excerpt"]
+    assert "sk-or-" not in recent.text
+
+
+def test_run_history_public_evidence_write_rejected(monkeypatch, tmp_path):
+    client = TestClient(app)
+    blocked = client.post(
+        "/api/mcharness/runs/run_fake123/evidence",
+        json={
+            "type": "transcript",
+            "title": "Should fail",
+            "content": "blocked on public service",
+        },
+    )
+    assert blocked.status_code == 403
+    assert "private runner" in blocked.json()["detail"].lower()
+
+
+def test_run_history_evidence_redacts_secret_patterns(monkeypatch, tmp_path):
+    _enable_private_run_history(monkeypatch, tmp_path)
+    client = TestClient(app)
+    created = client.post(
+        "/api/mcharness/sessions",
+        json={
+            "title": "Redaction smoke",
+            "objective": "o",
+            "plan_instruction": "p",
+            "repo_path": "/root/mcharness-public-export",
+            "agent_lane": "manual_paste",
+        },
+    )
+    sid = created.json()["session_id"]
+    started = client.post(
+        f"/api/mcharness/sessions/{sid}/runner/start",
+        json={
+            "lane_id": "codex_cli",
+            "repo_id": "mcharness-public-export",
+            "title": "Redaction smoke",
+            "prompt": "Safe prompt",
+        },
+    )
+    run_id = started.json()["runner_id"]
+    saved = client.post(
+        f"/api/mcharness/runs/{run_id}/evidence",
+        json={
+            "type": "transcript",
+            "title": "Secret-bearing transcript",
+            "content": "OPENROUTER_API_KEY=sk-or-super-secret-token-value\nDone.",
+            "source": "test",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    evidence_id = saved.json()["evidence"]["evidence_id"]
+    detail = client.get(f"/api/mcharness/evidence/{evidence_id}")
+    assert detail.status_code == 200
+    body = detail.text
+    assert "sk-or-super-secret-token-value" not in body
+    assert "[REDACTED]" in body
+    assert detail.json()["evidence"]["redacted"] is True
+
+
+def test_run_history_recent_endpoints_return_safe_data(monkeypatch, tmp_path):
+    _enable_private_run_history(monkeypatch, tmp_path)
+    client = TestClient(app)
+    empty_runs = client.get("/api/mcharness/runs/recent")
+    empty_evidence = client.get("/api/mcharness/evidence/recent")
+    assert empty_runs.status_code == 200
+    assert empty_evidence.status_code == 200
+    assert empty_runs.json()["runs"] == []
+    assert empty_evidence.json()["evidence"] == []
+
+    created = client.post(
+        "/api/mcharness/sessions",
+        json={
+            "title": "Recent list smoke",
+            "objective": "o",
+            "plan_instruction": "p",
+            "repo_path": "/root/mcharness-public-export",
+            "agent_lane": "manual_paste",
+        },
+    )
+    sid = created.json()["session_id"]
+    started = client.post(
+        f"/api/mcharness/sessions/{sid}/runner/start",
+        json={
+            "lane_id": "codex_cli",
+            "repo_id": "mcharness-public-export",
+            "title": "Recent list smoke",
+            "prompt": "List recent runs safely.",
+        },
+    )
+    run_id = started.json()["runner_id"]
+    client.post(
+        f"/api/mcharness/runs/{run_id}/evidence",
+        json={
+            "type": "transcript",
+            "title": "Safe evidence",
+            "content": "Captured output without secrets.",
+        },
+    )
+    runs = client.get("/api/mcharness/runs/recent").json()["runs"]
+    evidence = client.get("/api/mcharness/evidence/recent").json()["evidence"]
+    assert len(runs) == 1
+    assert runs[0]["evidence_count"] == 1
+    assert len(evidence) == 1
+    assert "Captured output" in evidence[0]["content_excerpt"]
+
+
+def test_run_history_public_read_returns_empty_lists(monkeypatch):
+    client = TestClient(app)
+    runs = client.get("/api/mcharness/runs/recent")
+    evidence = client.get("/api/mcharness/evidence/recent")
+    assert runs.status_code == 200
+    assert evidence.status_code == 200
+    assert runs.json()["runs"] == []
+    assert evidence.json()["evidence"] == []
+    assert runs.json()["service_mode"] == "public"
+
+
+def test_run_history_missing_records_return_404(monkeypatch, tmp_path):
+    _enable_private_run_history(monkeypatch, tmp_path)
+    client = TestClient(app)
+    missing_run = client.get("/api/mcharness/runs/run_missing123")
+    missing_evidence = client.get("/api/mcharness/evidence/ev_missing123")
+    assert missing_run.status_code == 404
+    assert missing_evidence.status_code == 404

@@ -48,6 +48,17 @@ from .workbench import (
     WorkbenchThreadUpdateRequest,
 )
 from .worker import WorkerStub, ALLOWED_COMMANDS
+from .run_history import (
+    create_evidence_record,
+    create_run_record,
+    evidence_summaries_for_run,
+    find_run_by_session,
+    get_evidence_record,
+    get_run_record,
+    list_recent_evidence,
+    list_recent_runs,
+    update_run_record,
+)
 from .agent_registry import (
     BUILTIN_CODEX_ID,
     McHarnessAgentConfigPatchRequest,
@@ -324,6 +335,22 @@ class McHarnessRunnerStartRequest(BaseModel):
     repo_id: str = Field(min_length=1)
     queue_item_id: Optional[str] = None
     prompt_artifact_id: Optional[str] = None
+    title: Optional[str] = None
+    prompt: Optional[str] = None
+    branch: Optional[str] = None
+    plan_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    created_by: Optional[str] = "operator"
+
+
+class McHarnessRunEvidenceCreateRequest(BaseModel):
+    type: str = Field(default="transcript", min_length=1)
+    title: str = Field(min_length=1)
+    summary: Optional[str] = None
+    content_excerpt: Optional[str] = None
+    content: Optional[str] = None
+    agent_id: Optional[str] = None
+    source: str = Field(default="operator", min_length=1)
 
 
 class McHarnessCaptainPlanRequest(BaseModel):
@@ -466,6 +493,27 @@ def _captain_private_key_setup_enabled() -> bool:
 
 def _codex_runner_ready() -> bool:
     return _tmux_runner_enabled() and _codex_runner_enabled()
+
+
+def _service_mode_label() -> str:
+    return "private" if _codex_runner_ready() else "public"
+
+
+def _run_history_write_enabled() -> bool:
+    return _codex_runner_ready()
+
+
+def _run_history_read_enabled() -> bool:
+    return _codex_runner_ready()
+
+
+def _require_run_history_write(request: Request) -> None:
+    if _run_history_write_enabled():
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Run history writes require the private runner service.",
+    )
 
 
 def _agent_registry_write_enabled() -> bool:
@@ -1116,6 +1164,66 @@ def _runner_transcript_excerpt(state: dict[str, Any], limit: int = 1200) -> str:
     return text
 
 
+def _resolve_dispatch_prompt(session_id: str, payload: McHarnessRunnerStartRequest) -> tuple[str, str]:
+    thread = _thread_for_session(session_id)
+    title = (payload.title or thread.get("title") or "Codex run").strip()
+    prompt = (payload.prompt or "").strip()
+    if not prompt and payload.queue_item_id:
+        try:
+            prompt = export_captain_queue_item(payload.queue_item_id).strip()
+        except Exception:
+            prompt = ""
+    if not prompt:
+        prompt = title
+    return title, prompt
+
+
+def _create_warden_run_on_dispatch(
+    session_id: str,
+    payload: McHarnessRunnerStartRequest,
+    *,
+    runner_id: str,
+    transcript_path: str,
+    status: str = "dispatched",
+) -> dict[str, Any] | None:
+    if payload.lane_id != "codex_cli" or not _run_history_write_enabled():
+        return None
+    title, prompt = _resolve_dispatch_prompt(session_id, payload)
+    return create_run_record(
+        MCTABLE_ROOT,
+        run_id=runner_id,
+        title=title,
+        agent_id=payload.agent_id or "codex_cli",
+        agent_adapter="codex_cli",
+        repo_id=payload.repo_id,
+        branch=payload.branch,
+        prompt=prompt,
+        status=status,
+        session_id=session_id,
+        plan_id=payload.plan_id,
+        transcript_path=transcript_path,
+        created_by=payload.created_by or "operator",
+        service_mode=_service_mode_label(),
+    )
+
+
+def _sync_warden_run_from_runner_state(state: dict[str, Any], *, status: str | None = None, completed: bool = False) -> None:
+    if not _run_history_write_enabled():
+        return
+    runner_id = state.get("runner_id")
+    if not runner_id:
+        return
+    patch: dict[str, Any] = {
+        "transcript_excerpt": _runner_transcript_excerpt(state),
+        "transcript_path": state.get("transcript_file_path"),
+    }
+    if status:
+        patch["status"] = status
+    if completed:
+        patch["completed_at"] = datetime.now(timezone.utc).isoformat()
+    update_run_record(MCTABLE_ROOT, str(runner_id), **patch)
+
+
 def _runner_transcript_text(state: dict[str, Any]) -> str:
     name = state.get("tmux_session_name", "")
     if name:
@@ -1218,6 +1326,7 @@ def _send_prompt_to_codex_runner(session_id: str, prompt_text: str):
     state["status"] = "awaiting_response"
     state["notes"].append("prompt text injected via tmux send-keys -l + Tab + Enter; waiting for Codex response")
     _save_runner_state(state)
+    _sync_warden_run_from_runner_state(state, status="running")
     try:
         run = _run_for_session(session_id)
         _append_run_event(run.get("run_id", ""), "Prompt sent to Codex", "User task prompt injected via safe tmux send-keys", "info", "runner")
@@ -1662,9 +1771,15 @@ def queue_mcharness_prompt(session_id: str, payload: McHarnessQueueRequest):
         ),
     ).model_dump(mode="json")
     _append_run_event(run["run_id"], "Prompt queued", f"Queued prompt {payload.title}.", "info", "instruction")
+    queue_item_id = None
+    prompt_queue = state.get("prompt_queue") if isinstance(state, dict) else getattr(state, "prompt_queue", None)
+    if prompt_queue:
+        latest = prompt_queue[-1]
+        queue_item_id = latest.get("queue_item_id") if isinstance(latest, dict) else getattr(latest, "queue_item_id", None)
     return {
         "session_id": session_id,
         "run_id": run["run_id"],
+        "queue_item_id": queue_item_id,
         "state": state,
     }
 
@@ -1850,6 +1965,14 @@ def post_mcharness_runner_start(session_id: str, payload: McHarnessRunnerStartRe
         state = _start_fake_runner(state)
     _save_runner_state(state)
 
+    warden_run = _create_warden_run_on_dispatch(
+        session_id,
+        payload,
+        runner_id=runner_id,
+        transcript_path=trans_path,
+        status="dispatched",
+    )
+
     # event for audit/proof
     try:
         run = _run_for_session(session_id)
@@ -1857,6 +1980,8 @@ def post_mcharness_runner_start(session_id: str, payload: McHarnessRunnerStartRe
     except Exception:
         pass
 
+    if warden_run:
+        state["warden_run"] = warden_run
     return state
 
 
@@ -1893,6 +2018,7 @@ def post_mcharness_runner_stop(session_id: str):
     state["stopped_at"] = datetime.now(timezone.utc).isoformat()
     state["notes"].append("stopped by operator")
     _save_runner_state(state)
+    _sync_warden_run_from_runner_state(state, status="stopped", completed=True)
     try:
         run = _run_for_session(session_id)
         _append_run_event(run.get("run_id", ""), "Runner stopped", f"Stopped runner {state.get('runner_id')}", "info", "runner")
@@ -1945,12 +2071,34 @@ def post_mcharness_runner_transcript_to_evidence(session_id: str):
         "Saved runner transcript as evidence",
         "md",
     )
+    warden_evidence = None
+    if _run_history_write_enabled():
+        run_id = state.get("runner_id")
+        if not run_id:
+            existing = find_run_by_session(MCTABLE_ROOT, session_id)
+            run_id = existing.get("run_id") if existing else None
+        warden_evidence = create_evidence_record(
+            MCTABLE_ROOT,
+            run_id=str(run_id) if run_id else None,
+            evidence_type="transcript",
+            title="Codex transcript snapshot",
+            summary="Saved runner transcript as evidence",
+            content=text,
+            agent_id="codex_cli",
+            source="live_monitor" if run_id else "live_monitor_unlinked",
+        )
     try:
         run = _run_for_session(session_id)
         _append_run_event(run["run_id"], "Runner transcript to evidence", f"Saved transcript for {state.get('runner_id')} as evidence", "info", "evidence")
     except Exception:
         pass
-    return {"ok": True, "artifact": artifact, "evidence_artifact": ev, "session_id": session_id}
+    return {
+        "ok": True,
+        "artifact": artifact,
+        "evidence_artifact": ev,
+        "session_id": session_id,
+        "warden_evidence": warden_evidence,
+    }
 
 
 @mcharness_router.post("/sessions/{session_id}/manual-result")
@@ -2118,6 +2266,105 @@ def get_mcharness_session_artifacts(session_id: str):
 def get_mcharness_session_git_status(session_id: str):
     thread = _thread_for_session(session_id)
     return _capture_git_status_artifacts(thread)
+
+
+@mcharness_router.get("/runs/recent")
+def get_mcharness_runs_recent():
+    if not _run_history_read_enabled():
+        return {
+            "service": "mcharness-control-plane",
+            "service_mode": _service_mode_label(),
+            "runs": [],
+            "notes": ["Run history is available on the private runner service."],
+        }
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "runs": list_recent_runs(MCTABLE_ROOT),
+    }
+
+
+@mcharness_router.get("/runs/{run_id}")
+def get_mcharness_run_detail(run_id: str):
+    if not _run_history_read_enabled():
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    run = get_run_record(MCTABLE_ROOT, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    evidence = evidence_summaries_for_run(MCTABLE_ROOT, list(run.get("evidence_ids") or []))
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "run": run,
+        "evidence": evidence,
+    }
+
+
+@mcharness_router.post("/runs/{run_id}/evidence", dependencies=[Depends(_require_run_history_write)])
+def post_mcharness_run_evidence(run_id: str, payload: McHarnessRunEvidenceCreateRequest):
+    run = get_run_record(MCTABLE_ROOT, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    content = payload.content or payload.content_excerpt or payload.summary or ""
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="Evidence content is required.")
+    evidence = create_evidence_record(
+        MCTABLE_ROOT,
+        run_id=run_id,
+        evidence_type=payload.type,
+        title=payload.title,
+        summary=payload.summary,
+        content=content,
+        content_excerpt=payload.content_excerpt,
+        agent_id=payload.agent_id or run.get("agent_id"),
+        source=payload.source,
+    )
+    return {
+        "ok": True,
+        "service": "mcharness-control-plane",
+        "evidence": evidence,
+    }
+
+
+@mcharness_router.get("/evidence/recent")
+def get_mcharness_evidence_recent():
+    if not _run_history_read_enabled():
+        return {
+            "service": "mcharness-control-plane",
+            "service_mode": _service_mode_label(),
+            "evidence": [],
+            "notes": ["Evidence history is available on the private runner service."],
+        }
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "evidence": list_recent_evidence(MCTABLE_ROOT),
+    }
+
+
+@mcharness_router.get("/evidence/{evidence_id}")
+def get_mcharness_evidence_detail(evidence_id: str):
+    if not _run_history_read_enabled():
+        raise HTTPException(status_code=404, detail=f"Evidence not found: {evidence_id}")
+    evidence = get_evidence_record(MCTABLE_ROOT, evidence_id)
+    if evidence is None:
+        raise HTTPException(status_code=404, detail=f"Evidence not found: {evidence_id}")
+    linked_run = None
+    run_id = evidence.get("run_id")
+    if run_id:
+        linked_run = get_run_record(MCTABLE_ROOT, str(run_id))
+        if linked_run:
+            linked_run = {
+                "run_id": linked_run.get("run_id"),
+                "title": linked_run.get("title"),
+                "status": linked_run.get("status"),
+            }
+    return {
+        "service": "mcharness-control-plane",
+        "service_mode": _service_mode_label(),
+        "evidence": evidence,
+        "linked_run": linked_run,
+    }
 
 
 @legacy_router.post("/api/mctable/local/dispatch-launch")
