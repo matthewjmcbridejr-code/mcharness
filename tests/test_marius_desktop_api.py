@@ -223,3 +223,28 @@ def test_captain_manual_evidence_and_gate_decision_routes_exposed_via_api():
     )
     assert decision_response.status_code == 200
     assert decision_response.json()["hard_gates"][0]["decision"] == "reject"
+
+
+def test_cancel_worker_run():
+    client = TestClient(app)
+    payload = {
+        "task_id": "task-worker-cancel",
+        "title": "Cancel Worker Task",
+        "description": "Sleep task to cancel",
+        "command": "fake-worker-sleep",
+        "args": [],
+    }
+    res = client.post("/api/marius/tasks", json=payload)
+    run_id = res.json()["worker_run_id"]
+    assert run_id is not None
+
+    response = client.post(f"/api/marius/worker-runs/{run_id}/cancel")
+    assert response.status_code == 200
+    assert response.json() == {"status": "cancelled", "run_id": run_id}
+
+    response = client.get(f"/api/marius/worker-runs/{run_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
+
+    response = client.post("/api/marius/worker-runs/non-existent-run-id/cancel")
+    assert response.status_code == 404
