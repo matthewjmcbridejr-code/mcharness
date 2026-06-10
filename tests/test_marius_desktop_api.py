@@ -93,6 +93,12 @@ def test_get_task_not_found():
     assert response.status_code == 404
 
 
+def test_get_task_events_not_found():
+    client = TestClient(app)
+    response = client.get("/api/marius/tasks/non-existent-task-id/events")
+    assert response.status_code == 404
+
+
 def test_get_tasks_is_read_only():
     client = TestClient(app)
     payload = {
