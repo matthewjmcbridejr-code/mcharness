@@ -23,6 +23,8 @@ EVENT_LABELS: dict[str, str] = {
     "step_completed": "Step completed",
     "step_revised": "Step revised",
     "plan_stopped": "Plan stopped",
+    "mission_paused": "Mission paused",
+    "plan_adjustment_requested": "Plan adjustment requested",
     "gate_created": "Proof gate created",
     "gate_approved": "Proof gate approved",
     "gate_blocked": "Proof gate blocked",
@@ -41,6 +43,8 @@ DECISION_ACTIONS: dict[str, tuple[str, str]] = {
     "step_completed": ("step_completed", "completed"),
     "step_revised": ("step_revised", "saved"),
     "plan_stopped": ("plan_stopped", "stopped"),
+    "mission_paused": ("mission_paused", "stopped"),
+    "plan_adjustment_requested": ("plan_adjustment_requested", "saved"),
 }
 
 RUN_STATUS_MAP: dict[str, str] = {

@@ -31,6 +31,7 @@ http://127.0.0.1:8125/web/warden/index.html
 
 ## Operator workbench highlights
 
+- Mission Control snapshot API (`/api/mcharness/mission-control/snapshot`)
 - Mission worklog from real plans, runs, and evidence
 - Manual proof gates (approve / block / request more evidence)
 - Run review + markdown export
@@ -46,6 +47,7 @@ http://127.0.0.1:8125/web/warden/index.html
 ## Docs
 
 - [docs/warden_operator_smoke.md](docs/warden_operator_smoke.md)
+- [docs/warden_mission_control_api.md](docs/warden_mission_control_api.md)
 - [docs/warden_repo_layout.md](docs/warden_repo_layout.md)
 - [docs/quickstart.md](docs/quickstart.md)
 - [SECURITY.md](SECURITY.md)
