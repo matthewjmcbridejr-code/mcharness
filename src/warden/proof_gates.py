@@ -50,10 +50,25 @@ def _write_gates(path: Path, rows: list[dict[str, Any]]) -> None:
     path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
 
 
+def _sanitize_decision_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    reason, _ = redact_secrets(str(entry.get("reason") or ""))
+    return {
+        "at": entry.get("at"),
+        "decision": entry.get("decision"),
+        "decided_by": entry.get("decided_by"),
+        "reason": reason or None,
+    }
+
+
 def _sanitize_gate(gate: dict[str, Any]) -> dict[str, Any]:
     title, _ = redact_secrets(str(gate.get("title") or ""))
     summary, _ = redact_secrets(str(gate.get("summary") or ""))
     reason, _ = redact_secrets(str(gate.get("decision_reason") or ""))
+    decision_log = [
+        _sanitize_decision_entry(entry)
+        for entry in list(gate.get("decision_log") or [])
+        if isinstance(entry, dict)
+    ]
     return {
         "gate_id": gate.get("gate_id"),
         "run_id": gate.get("run_id"),
@@ -68,6 +83,7 @@ def _sanitize_gate(gate: dict[str, Any]) -> dict[str, Any]:
         "decided_at": gate.get("decided_at"),
         "decided_by": gate.get("decided_by"),
         "decision_reason": reason or None,
+        "decision_log": decision_log[:20],
     }
 
 

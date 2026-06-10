@@ -1765,6 +1765,44 @@ def test_worklog_includes_gate_created_and_decision_events(monkeypatch, tmp_path
     assert "sample" not in worklog.text.lower()
 
 
+def test_run_detail_includes_gate_decision_history(monkeypatch, tmp_path):
+    _enable_private_run_history(monkeypatch, tmp_path)
+    client = TestClient(app)
+    run_id = _create_private_run(client)
+    gate = client.post(
+        f"/api/mcharness/runs/{run_id}/gates",
+        json={"title": "Review gate", "summary": "Check output."},
+    )
+    gate_id = gate.json()["gate"]["gate_id"]
+    client.post(
+        f"/api/mcharness/gates/{gate_id}/decision",
+        json={"decision": "approve", "decided_by": "operator"},
+    )
+    detail = client.get(f"/api/mcharness/runs/{run_id}")
+    assert detail.status_code == 200, detail.text
+    gates = detail.json()["gates"]
+    assert len(gates) == 1
+    assert gates[0]["status"] == "approved"
+    assert gates[0]["decision_log"]
+    assert gates[0]["decision_log"][0]["decision"] == "approve"
+
+
+def test_run_detail_review_sections_and_export_still_work(monkeypatch, tmp_path):
+    _enable_private_run_history(monkeypatch, tmp_path)
+    client = TestClient(app)
+    run_id = _create_private_run(client)
+    detail = client.get(f"/api/mcharness/runs/{run_id}")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert "run" in body
+    assert "evidence" in body
+    assert "gates" in body
+    assert body["run"]["gate_label"] == "No gate"
+    report = client.get(f"/api/mcharness/runs/{run_id}/report")
+    assert report.status_code == 200
+    assert report.json()["format"] == "markdown"
+
+
 def test_run_report_includes_evidence_gates_and_redacts_secrets(monkeypatch, tmp_path):
     _enable_private_run_history(monkeypatch, tmp_path)
     client = TestClient(app)
