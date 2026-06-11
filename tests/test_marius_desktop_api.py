@@ -223,3 +223,24 @@ def test_captain_manual_evidence_and_gate_decision_routes_exposed_via_api():
     )
     assert decision_response.status_code == 200
     assert decision_response.json()["hard_gates"][0]["decision"] == "reject"
+
+def test_api_path_traversal():
+    client = TestClient(app)
+    bad_payload = {
+        "task_id": "../../etc/passwd",
+        "title": "Malicious Task",
+        "description": "Path traversal attack",
+        "command": "fake-worker-success",
+        "args": [],
+    }
+    response = client.post("/api/marius/tasks", json=bad_payload)
+    assert response.status_code in (400, 422)
+
+    response = client.get("/api/marius/tasks/..%2F..%2Fetc%2Fpasswd")
+    assert response.status_code in (400, 404)
+
+    response = client.get("/api/marius/tasks/..%2F..%2Fetc%2Fpasswd/events")
+    assert response.status_code in (400, 404)
+
+    response = client.get("/api/marius/captain/runs/..%2F..%2Fetc%2Fpasswd")
+    assert response.status_code in (400, 404)

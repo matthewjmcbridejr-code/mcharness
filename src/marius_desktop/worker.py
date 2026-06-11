@@ -14,6 +14,15 @@ MCTABLE_ROOT = Path("_mctable")
 RUNS_DIR = MCTABLE_ROOT / "worker_runs"
 
 # Allowlist definition
+
+def get_worker_run_dir(run_id: str) -> Path:
+    if '/' in run_id or '\\' in run_id or run_id == '..' or run_id.startswith('.'):
+        raise ValueError("Invalid run_id")
+    path = (RUNS_DIR / run_id).resolve()
+    if not path.is_relative_to(RUNS_DIR.resolve()):
+        raise ValueError("Invalid run_id")
+    return path
+
 ALLOWED_COMMANDS = {
     "fake-worker-success",
     "fake-worker-fail",
@@ -41,7 +50,7 @@ class WorkerStub:
             raise ValueError("Command 'agy' is registered as disabled/dry-run only.")
 
         run_id = f"run_{uuid.uuid4().hex[:8]}"
-        run_dir = RUNS_DIR / run_id
+        run_dir = get_worker_run_dir(run_id)
         run_dir.mkdir(parents=True, exist_ok=True)
 
         now = datetime.now(timezone.utc)
@@ -212,7 +221,7 @@ class WorkerStub:
 
     @staticmethod
     def get_status(run_id: str) -> WorkerRun:
-        run_dir = RUNS_DIR / run_id
+        run_dir = get_worker_run_dir(run_id)
         run_json = run_dir / "run.json"
 
         with FILE_LOCK:
@@ -278,7 +287,7 @@ class WorkerStub:
 
     @staticmethod
     def stream_logs(run_id: str) -> Iterator[str]:
-        run_dir = RUNS_DIR / run_id
+        run_dir = get_worker_run_dir(run_id)
         stdout_path = run_dir / "stdout.log"
         stderr_path = run_dir / "stderr.log"
 
@@ -293,7 +302,7 @@ class WorkerStub:
 
     @staticmethod
     def cancel_run(run_id: str) -> None:
-        run_dir = RUNS_DIR / run_id
+        run_dir = get_worker_run_dir(run_id)
         run_json = run_dir / "run.json"
         monitor_thread = None
         cancel_event = None

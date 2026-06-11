@@ -96,6 +96,16 @@ def _ensure_dirs() -> None:
     CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+
+def get_task_path(task_id: str) -> Path:
+    if '/' in task_id or '\\' in task_id or task_id == '..' or task_id.startswith('.'):
+        raise ValueError("Invalid task_id")
+    path = (TASKS_DIR / f"{task_id}.json").resolve()
+    if not path.is_relative_to(TASKS_DIR.resolve()):
+        raise ValueError("Invalid task_id")
+    return path
+
+
 def _build_capabilities() -> list[CapabilityStatus]:
     if LANGGRAPH_AVAILABLE:
         langgraph_summary = f"LangGraph is installed and checkpointing to {CHECKPOINT_DB_PATH}"
@@ -409,14 +419,14 @@ class McTableTaskGraph:
 
     def _persist_state(self, state: TaskState) -> None:
         _ensure_dirs()
-        path = TASKS_DIR / f"{state.task_id}.json"
+        path = get_task_path(state.task_id)
         path.write_text(state.model_dump_json(indent=2), encoding="utf-8")
 
     def _load_snapshot(self, task_id: str) -> TaskState:
         graph = self._require_graph()
         snapshot = graph.get_state(self._config(task_id))
         if snapshot is None or not getattr(snapshot, "values", None):
-            path = TASKS_DIR / f"{task_id}.json"
+            path = get_task_path(task_id)
             if not path.exists():
                 raise FileNotFoundError(f"Task {task_id} not found.")
             return TaskState.model_validate_json(path.read_text(encoding="utf-8"))
@@ -436,7 +446,7 @@ class McTableTaskGraph:
 
     def load_state(self, task_id: str) -> TaskState:
         if not self.langgraph_available:
-            path = TASKS_DIR / f"{task_id}.json"
+            path = get_task_path(task_id)
             if not path.exists():
                 raise FileNotFoundError(f"Task {task_id} not found.")
             return TaskState.model_validate_json(path.read_text(encoding="utf-8"))
@@ -451,7 +461,7 @@ class McTableTaskGraph:
         args: list[str],
     ) -> TaskState:
         _ensure_dirs()
-        if (TASKS_DIR / f"{task_id}.json").exists():
+        if get_task_path(task_id).exists():
             raise FileExistsError(f"Task {task_id} already exists.")
 
         now = _now()
