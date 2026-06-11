@@ -881,7 +881,7 @@ textarea {
 .mission-command-panel {
   border: 1px solid rgba(125, 176, 255, 0.18);
   border-radius: 14px;
-  padding: 24px 26px;
+  padding: 20px 22px;
   background: linear-gradient(135deg, rgba(17, 29, 49, 0.98), rgba(12, 22, 38, 0.98));
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
   margin-bottom: 22px;
@@ -1337,7 +1337,8 @@ textarea {
   box-shadow: 0 0 12px rgba(99, 219, 157, 0.15);
 }
 
-.topbar-refresh-time {
+.topbar-refresh-time,
+.visually-hidden.topbar-refresh-time {
   font-size: 0.78rem;
   color: var(--muted);
 }
@@ -1406,26 +1407,27 @@ textarea {
   top: 0;
   z-index: 100;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding: 8px 16px;
+  padding: 6px 16px;
   background: linear-gradient(90deg, rgba(167, 139, 250, 0.25), rgba(125, 176, 255, 0.2));
   border-bottom: 1px solid rgba(167, 139, 250, 0.4);
   color: var(--text);
   text-align: center;
-}
-
-.demo-mode-banner-main {
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 600;
 }
 
-.demo-mode-banner-note {
-  font-size: 0.72rem;
-  color: var(--muted);
-  font-weight: 500;
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .mode-pill.mode-connecting,
@@ -1444,15 +1446,16 @@ textarea {
 
 .cr-idle-card {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 12px 14px;
-  border-radius: 12px;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 12px;
+  border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
   color: var(--text);
-  text-align: left;
+  font-size: 0.84rem;
+  font-weight: 600;
+  text-align: center;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
@@ -1462,15 +1465,36 @@ textarea {
   background: rgba(125, 176, 255, 0.06);
 }
 
-.cr-idle-card-title {
-  font-size: 0.86rem;
-  font-weight: 600;
+.runner-cleanup-note {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  color: var(--muted);
 }
 
-.cr-idle-card-copy {
-  font-size: 0.74rem;
+.timeline-rail-item-compact .timeline-rail-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.timeline-rail-item-compact .timeline-rail-summary {
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  margin: 4px 0;
+}
+
+.timeline-rail-item-compact .timeline-rail-time {
+  font-size: 0.72rem;
   color: var(--muted);
-  line-height: 1.35;
+}
+
+.settings-inline-row {
+  margin-top: 4px;
+}
+
+.sidebar-mode-card {
+  justify-content: center;
 }
 
 .warden-toast-host {

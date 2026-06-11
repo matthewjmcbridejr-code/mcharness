@@ -356,8 +356,8 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await expect(page.locator("[data-testid='warden-powered']")).toContainText("Powered by McHarness");
   await expect(page.locator("[data-testid='nav-mission']")).toHaveClass(/active/);
   await expect(page.locator("[data-testid='warden-section-mission']")).toHaveClass(/active/);
-  await expect(page.locator("[data-testid='cr-hero-title']")).toContainText("Supervised control room for AI coding agents");
-  await expect(page.locator("[data-testid='cr-product-headline']")).toContainText("engineering control room");
+  await expect(page.locator("[data-testid='cr-hero-title']")).toContainText("Control Room");
+  await expect(page.locator("[data-testid='cr-product-headline']")).toContainText("Supervise missions");
   await expect(page.locator("[data-testid='current-mission-card']")).toContainText("No active mission");
   await expect(page.locator("[data-testid='cr-tab-timeline']")).toBeVisible();
   await expect(page.locator("[data-testid='operator-inspector']")).toBeVisible();
@@ -380,9 +380,9 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await expect(page.locator("[data-testid='evidence-empty-state']")).toContainText("Saved outputs");
   await page.locator("[data-testid='nav-settings']").click();
   await expect(page.locator("[data-testid='settings-captain-status']")).toContainText("Captain:");
-  await expect(page.locator("[data-testid='settings-public-runner']")).toContainText("Public runner: Disabled on public service");
-  await expect(page.locator("[data-testid='settings-private-runner']")).toContainText("Private runner:");
-  await expect(page.locator("[data-testid='settings-shell-input']")).toContainText("Arbitrary shell input: Disabled");
+  await expect(page.locator("[data-testid='settings-public-runner']")).toContainText("Public runner — Off");
+  await expect(page.locator("[data-testid='settings-private-runner']")).toContainText("Private runner");
+  await expect(page.locator("[data-testid='settings-shell-input']")).toContainText("Shell access — Restricted");
   await expect(page.locator("[data-testid='settings-agent-registration']")).toContainText("Agent registration:");
   await expect(page.locator("text=SERVER CONTROL PLANE")).toHaveCount(0);
   await expect(page.locator("text=Advanced / Legacy Cockpit")).toHaveCount(0);
@@ -2245,7 +2245,7 @@ test("Control Room loads by default with bold product headline", async ({ page }
   await page.goto("/web/warden/index.html");
   await page.waitForSelector("[data-control-room-ready='1']");
   await expect(page.locator("[data-testid='nav-mission']")).toHaveClass(/active/);
-  await expect(page.locator("[data-testid='cr-hero-title']")).toContainText("Supervised control room for AI coding agents");
+  await expect(page.locator("[data-testid='cr-hero-title']")).toContainText("Control Room");
   await expect(page.locator("[data-testid='warden-topbar']")).toBeVisible();
 });
 
@@ -2253,8 +2253,7 @@ test("demo mode is visibly labeled simulated", async ({ page }) => {
   await page.goto("/web/warden/index.html?demo=1");
   await page.waitForSelector("[data-control-room-ready='1']");
   await expect(page.locator("[data-testid='demo-mode-banner']")).toBeVisible();
-  await expect(page.locator("[data-testid='demo-mode-banner']")).toContainText("Demo data — simulated for product preview");
-  await expect(page.locator("[data-testid='demo-mode-banner']")).toContainText("No backend state is modified in demo mode.");
+  await expect(page.locator("[data-testid='demo-mode-banner']")).toContainText("Demo data — simulated preview");
   await expect(page.locator("[data-testid='cr-mission-active']")).toBeVisible();
 });
 
@@ -2310,12 +2309,12 @@ test("real idle state stays honest", async ({ page }) => {
   await page.goto("/web/warden/index.html");
   await page.waitForSelector("[data-control-room-ready='1']");
   await expect(page.locator("[data-testid='cr-mission-empty']")).toBeVisible();
-  await expect(page.locator("[data-testid='current-mission-status']")).toContainText("No active mission. Create or load a Captain plan to begin supervised work.");
+  await expect(page.locator("[data-testid='current-mission-status']")).toContainText("No active mission. Start a Captain plan.");
   await expect(page.locator("[data-testid='cr-idle-cards']")).toBeVisible();
-  await expect(page.locator("[data-testid='idle-card-captain']")).toContainText("Start with Captain");
-  await expect(page.locator("[data-testid='idle-card-agents']")).toContainText("Configure agents");
-  await expect(page.locator("[data-testid='idle-card-runners']")).toContainText("Review runner sessions");
-  await expect(page.locator("[data-testid='idle-card-safety']")).toContainText("Safety status");
+  await expect(page.locator("[data-testid='idle-card-captain']")).toContainText("Captain");
+  await expect(page.locator("[data-testid='idle-card-agents']")).toContainText("Agents");
+  await expect(page.locator("[data-testid='idle-card-runners']")).toContainText("Runners");
+  await expect(page.locator("[data-testid='idle-card-safety']")).toContainText("Safety");
   await expect(page.locator("[data-testid='cr-mission-active']")).toBeHidden();
   await expect(page.locator("text=Warden auth hardening sprint")).toHaveCount(0);
 });
@@ -2329,8 +2328,8 @@ test("command center tabs switch and right rail renders", async ({ page }) => {
   await page.waitForSelector("[data-control-room-ready='1']");
   await page.locator("[data-testid='cr-tab-plan']").click();
   await expect(page.locator("[data-testid='cr-panel-plan']")).toHaveClass(/active/);
-  await page.locator("[data-testid='cr-tab-worklog']").click();
-  await expect(page.locator("[data-testid='cr-panel-worklog']")).toHaveClass(/active/);
+  await page.locator("[data-testid='cr-tab-gates']").click();
+  await expect(page.locator("[data-testid='cr-panel-gates']")).toHaveClass(/active/);
   await expect(page.locator("[data-testid='rail-proof-gates-card']")).toBeVisible();
   await expect(page.locator("[data-testid='rail-connected-agents-card']")).toBeVisible();
   await expect(page.locator("[data-testid='rail-runner-sessions-card']")).toBeVisible();

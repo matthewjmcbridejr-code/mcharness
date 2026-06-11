@@ -219,26 +219,7 @@
     const title = document.getElementById("topbar-page-title");
     if (title) title.textContent = "Control Room";
     const refreshed = document.getElementById("topbar-last-refresh");
-    if (refreshed) {
-      if (crState.demoMode) {
-        refreshed.textContent = crState.lastRefresh
-          ? `Demo preview · Updated ${formatTs(crState.lastRefresh)}`
-          : "Demo preview · Connecting…";
-      } else if (crState.loadStatus === "connecting") {
-        refreshed.textContent = "Connecting…";
-      } else if (crState.loadStatus === "degraded") {
-        refreshed.textContent = crState.lastRefresh
-          ? `Degraded · last ok ${formatTs(crState.lastRefresh)}`
-          : "Degraded · snapshot unavailable";
-      } else if (crState.lastRefresh) {
-        const mode = serviceModeLabel(snap.service_mode);
-        refreshed.textContent = mode
-          ? `Updated ${formatTs(crState.lastRefresh)} · ${mode} service`
-          : `Updated ${formatTs(crState.lastRefresh)}`;
-      } else {
-        refreshed.textContent = "Connecting…";
-      }
-    }
+    if (refreshed) refreshed.textContent = "";
     const live = document.getElementById("topbar-live-indicator");
     if (live) {
       if (crState.demoMode) {
@@ -258,17 +239,7 @@
     const mode = document.getElementById("sidebar-service-mode");
     const modePill = document.getElementById("sidebar-mode-pill");
     const knownMode = serviceModeLabel(snap.service_mode);
-    if (mode) {
-      if (crState.demoMode) {
-        mode.textContent = "Service: private (simulated)";
-      } else if (knownMode) {
-        mode.textContent = `Service: ${snap.service_mode}`;
-      } else if (crState.loadStatus === "connecting") {
-        mode.textContent = "Service: Connecting…";
-      } else {
-        mode.textContent = "Service: unavailable";
-      }
-    }
+    if (mode) mode.textContent = "";
     if (modePill) {
       if (crState.demoMode || snap.service_mode === "private") {
         modePill.textContent = "Private";
@@ -295,12 +266,11 @@
       statusEl.textContent = String(mission.status || "idle").replace(/_/g, " ");
       statusEl.className = `status-pill ${statusChipClass(mission.status || "idle")}`;
     }
+    const captain = snap.agents && snap.agents.items && snap.agents.items.find((a) => a.id === "captain");
     const chips = [
-      ["cr-chip-public-runner", snap.safety && !snap.safety.public_runner_enabled ? "Public runner: Disabled" : "Public runner: Enabled", "chip-good"],
-      ["cr-chip-private-runner", snap.safety && snap.safety.private_runner_enabled ? "Private runner: Controlled" : "Private runner: Off", snap.safety && snap.safety.private_runner_enabled ? "chip-good" : "chip-muted"],
-      ["cr-chip-captain", snap.agents && snap.agents.items && snap.agents.items.find((a) => a.id === "captain") ? `Captain: ${snap.agents.items.find((a) => a.id === "captain").status}` : "Captain: Unknown", "chip-active"],
-      ["cr-chip-jules", "Jules: Planning only", "chip-warn"],
-      ["cr-chip-runner-health", snap.runner_sessions ? `Runner sessions: ${snap.runner_sessions.active_runner_sessions}/${snap.runner_sessions.max_active_runner_sessions}` : "Runner sessions: —", (snap.runner_sessions && snap.runner_sessions.active_runner_sessions >= snap.runner_sessions.max_active_runner_sessions) ? "chip-bad" : "chip-good"],
+      ["cr-chip-private-runner", snap.safety && snap.safety.private_runner_enabled ? "Private · Controlled" : "Private · Off", snap.safety && snap.safety.private_runner_enabled ? "chip-good" : "chip-muted"],
+      ["hero-captain-status", captain ? `Captain · ${captain.status || "ready"}` : "Captain · —", "chip-active"],
+      ["cr-chip-runner-health", snap.runner_sessions ? `Sessions · ${snap.runner_sessions.active_runner_sessions}/${snap.runner_sessions.max_active_runner_sessions}` : "Sessions · —", (snap.runner_sessions && snap.runner_sessions.active_runner_sessions >= snap.runner_sessions.max_active_runner_sessions) ? "chip-bad" : "chip-good"],
     ];
     chips.forEach(([id, text, cls]) => {
       const el = document.getElementById(id);
@@ -327,7 +297,7 @@
     set("cr-mission-id", mission.mission_id || "—");
     set("cr-mission-step", mission.current_step || "—");
     set("cr-mission-agent", mission.current_agent || "—");
-    set("cr-mission-eta", mission.eta || "ETA unavailable");
+    set("cr-mission-eta", mission.eta || "—");
     set("cr-mission-started", formatTs(mission.started_at));
     set("cr-mission-updated", formatTs(mission.updated_at));
     const pct = Number(mission.progress_pct || 0);
@@ -382,26 +352,24 @@
     });
     if (!all.length) {
       list.innerHTML = "";
-      setTabEmptyState(empty, true, "No mission activity yet. Create a Captain plan to start the timeline.");
+      setTabEmptyState(empty, true, "No activity yet.");
       return;
     }
     if (!items.length) {
       list.innerHTML = "";
-      setTabEmptyState(empty, true, "No timeline events match this filter.");
+      setTabEmptyState(empty, true, "No events match this filter.");
       return;
     }
     setTabEmptyState(empty, false);
     list.innerHTML = items.map((item) => `
-      <div class="timeline-rail-item" data-testid="cr-timeline-item">
-        <div class="timeline-rail-dot"></div>
+      <div class="timeline-rail-item timeline-rail-item-compact" data-testid="cr-timeline-item">
         <div class="timeline-rail-body">
           <div class="timeline-rail-top">
-            <span class="timeline-rail-kind">${escapeHtml(item.label || item.kind || "event")}</span>
-            <span class="timeline-rail-time">${escapeHtml(formatTs(item.created_at))}</span>
+            <span class="timeline-rail-title">${escapeHtml(item.title || item.label || "Event")}</span>
+            <span class="status-pill ${statusChipClass(item.status)}">${escapeHtml(String(item.status || "").toUpperCase())}</span>
           </div>
-          <div class="timeline-rail-title">${escapeHtml(item.title || "Mission event")}</div>
           <div class="timeline-rail-summary">${escapeHtml(item.summary || "")}</div>
-          <span class="status-pill ${statusChipClass(item.status)}">${escapeHtml(String(item.status || "").toUpperCase())}</span>
+          <span class="timeline-rail-time">${escapeHtml(formatTs(item.created_at))}</span>
         </div>
       </div>
     `).join("");
@@ -564,7 +532,7 @@
           <span class="status-pill ${row.active ? "chip-active" : "chip-muted"}">${row.active ? "active" : "idle"}</span>
         </div>
       `).join("") || '<div class="muted">No runner sessions</div>'}</div>
-      ${atLimit ? '<div class="rail-alert bad">Runner session limit reached. Clean stale sessions first.</div>' : ""}
+      ${atLimit ? '<div class="rail-alert bad">Session limit reached.</div>' : ""}
     `;
     const dryBtn = document.getElementById("rail-runner-dry-run");
     const confirmBtn = document.getElementById("rail-runner-confirm");
@@ -579,16 +547,45 @@
     }
   }
 
+  function safetyRowLabel(key, label) {
+    const map = {
+      public_runner: "Public runner",
+      private_runner: "Private runner",
+      runner_sessions: "Runner sessions",
+      shell_input: "Shell access",
+      arbitrary_shell_input: "Shell access",
+      agent_registration: "Registration",
+    };
+    return map[key] || label || key;
+  }
+
+  function safetyRowValue(item) {
+    const key = String(item.key || "").toLowerCase();
+    const status = String(item.status || "").toLowerCase();
+    if (key === "public_runner") return status === "disabled" ? "Off" : "On";
+    if (key === "private_runner") return status === "controlled" ? "Controlled" : status === "disabled" ? "Off" : "On";
+    if (key === "runner_sessions") return status === "healthy" ? "Healthy" : status;
+    if (key.includes("shell")) return status === "disabled" ? "Restricted" : "Enabled";
+    return item.summary || item.status || "—";
+  }
+
   function renderRailSafety() {
     const host = document.getElementById("rail-safety-status");
     if (!host) return;
-    const items = (crState.snapshot && crState.snapshot.safety && crState.snapshot.safety.items) || [];
-    host.innerHTML = items.map((item) => `
+    const snap = crState.snapshot && crState.snapshot.safety;
+    const defaults = [
+      { key: "public_runner", label: "Public runner", status: snap && !snap.public_runner_enabled ? "disabled" : "enabled" },
+      { key: "private_runner", label: "Private runner", status: snap && snap.private_runner_enabled ? "controlled" : "disabled" },
+      { key: "shell_input", label: "Shell access", status: snap && snap.arbitrary_shell_input ? "enabled" : "disabled" },
+    ];
+    const items = (snap && snap.items && snap.items.length) ? snap.items.filter((item) => ["public_runner", "private_runner", "arbitrary_shell_input", "shell_input"].includes(String(item.key || ""))) : defaults;
+    const rows = items.length ? items : defaults;
+    host.innerHTML = rows.slice(0, 3).map((item) => `
       <div class="rail-safety-row" data-testid="rail-safety-row">
-        <span>${escapeHtml(item.label || item.key)}</span>
-        <span class="status-pill ${statusChipClass(item.severity || item.status)}">${escapeHtml(item.summary || item.status || "")}</span>
+        <span>${escapeHtml(safetyRowLabel(item.key, item.label))}</span>
+        <span class="status-pill ${statusChipClass(item.severity || item.status)}">${escapeHtml(safetyRowValue(item))}</span>
       </div>
-    `).join("") || '<div class="muted">Safety status unavailable</div>';
+    `).join("") || '<div class="muted">Unavailable</div>';
   }
 
   function renderRailNextMove() {
@@ -597,8 +594,7 @@
     const nm = (crState.snapshot && crState.snapshot.next_move) || {};
     host.innerHTML = `
       <div class="rail-next-label">${escapeHtml(nm.label || "Awaiting mission")}</div>
-      <div class="rail-next-desc">${escapeHtml(nm.description || "Create or load a Captain plan to begin supervised work.")}</div>
-      <div class="rail-next-action muted">Action: ${escapeHtml(nm.action || "none")} · manual only</div>
+      <div class="rail-next-desc">${escapeHtml(nm.description || "Start a Captain plan.")}</div>
     `;
   }
 
@@ -618,7 +614,7 @@
     const items = rs.items || [];
     if (table) {
       if (!items.length) {
-        table.innerHTML = '<div class="empty-state-card"><h3>No runner sessions</h3><p>Only mch_run_* tmux sessions appear here. Normal shells are never listed.</p></div>';
+        table.innerHTML = '<div class="empty-state-card"><h3>No sessions</h3></div>';
       } else {
         table.innerHTML = `
           <table class="runner-table">
@@ -657,7 +653,7 @@
     const pg = (crState.snapshot && crState.snapshot.proof_gates) || {};
     const items = pg.items || [];
     if (!items.length) {
-      host.innerHTML = '<div class="empty-state-card"><h3>No proof gates yet</h3><p>Proof gates control mission progress. Runs attach evidence; you approve, block, or request more before anything advances.</p></div>';
+      host.innerHTML = '<div class="empty-state-card"><h3>No gates yet</h3></div>';
       return;
     }
     host.innerHTML = items.map((gate) => `
@@ -666,14 +662,14 @@
           <strong>${escapeHtml(gate.title || gate.gate_id)}</strong>
           <span class="status-pill ${statusChipClass(gate.status)}">${escapeHtml(String(gate.status || "pending").toUpperCase())}</span>
         </div>
-        <div class="muted">Step ${escapeHtml(gate.step_id || "—")} · Manual review required — no auto-dispatch</div>
+        <div class="muted">${escapeHtml(gate.step_id || "—")}</div>
       </div>
     `).join("");
   }
 
   function renderEvidenceViewPolish() {
     const lead = document.getElementById("evidence-section-lead");
-    if (lead) lead.textContent = "Proof artifacts from supervised agent work — transcripts, diffs, tests, and reports.";
+    if (lead) lead.textContent = "Transcripts, diffs, and artifacts.";
   }
 
   function markReady() {
@@ -709,7 +705,7 @@
         if (empty) empty.style.display = "none";
         if (plan) plan.style.display = "";
       } else {
-        status.textContent = "No active mission. Create or load a Captain plan to begin supervised work.";
+        status.textContent = "No active mission. Start a Captain plan.";
         if (empty) empty.style.display = "";
         if (plan) plan.style.display = "none";
       }

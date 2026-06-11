@@ -13,8 +13,7 @@
 </head>
 <body>
   <div id="demo-mode-banner" class="demo-mode-banner" style="display:none;" data-testid="demo-mode-banner">
-    <span class="demo-mode-banner-main">Demo data — simulated for product preview</span>
-    <span class="demo-mode-banner-note">No backend state is modified in demo mode.</span>
+    Demo data — simulated preview
   </div>
   <div id="warden-toast-host" class="warden-toast-host"></div>
 
@@ -28,7 +27,6 @@
             <span class="warden-byline" data-testid="warden-byline">by Marius Systems</span>
           </div>
         </div>
-        <p class="sidebar-tagline">Supervised control room</p>
       </div>
 
       <button id="develop-plan-primary" data-testid="develop-plan-primary" data-action="develop-plan" class="btn primary sidebar-primary" type="button">Develop Plan</button>
@@ -46,11 +44,10 @@
 
       <footer class="sidebar-footer">
         <div class="sidebar-mode-card">
-          <span id="sidebar-service-mode" class="sidebar-mode-label">Service: Connecting…</span>
+          <span id="sidebar-service-mode" class="sidebar-mode-label visually-hidden">Connecting…</span>
           <span id="sidebar-mode-pill" class="mode-pill mode-connecting">…</span>
         </div>
-        <span class="warden-powered" data-testid="warden-powered">Powered by McHarness</span>
-        <span class="sidebar-build-label">Warden Control Room v1.5</span>
+        <span class="warden-powered visually-hidden" data-testid="warden-powered">Powered by McHarness</span>
       </footer>
     </aside>
 
@@ -59,7 +56,7 @@
         <div class="topbar-left">
           <h2 id="topbar-page-title" class="topbar-title">Control Room</h2>
           <span id="topbar-live-indicator" class="live-indicator">Live</span>
-          <span id="topbar-last-refresh" class="topbar-refresh-time">Connecting…</span>
+          <span id="topbar-last-refresh" class="topbar-refresh-time visually-hidden" aria-hidden="true">Connecting…</span>
         </div>
         <div class="topbar-actions">
           <button type="button" id="topbar-refresh" class="btn" data-testid="topbar-refresh">Refresh</button>
@@ -72,24 +69,19 @@
         <div class="warden-stage-main">
       <section id="warden-section-mission" class="workspace-section active" data-section="mission" data-testid="warden-section-mission">
         <div class="mission-command-panel cr-hero-panel" data-testid="mission-command">
-          <p class="cr-product-eyebrow" data-testid="cr-product-headline">Use your AI coding subscriptions like a real engineering control room.</p>
-          <h3 class="hero-title" data-testid="cr-hero-title">Supervised control room for AI coding agents</h3>
-          <p class="hero-subtitle">Track missions, agent runs, transcripts, diffs, tests, evidence, and proof gates before anything moves forward.</p>
-          <p class="hero-subline">Warden wraps Codex and other CLI coding agents with missions, prompt queues, transcripts, artifacts, and proof gates — designed for additional agents when configured.</p>
+          <h3 class="hero-title" data-testid="cr-hero-title">Control Room</h3>
+          <p class="hero-subtitle" data-testid="cr-product-headline">Supervise missions, runs, and proof gates.</p>
           <div class="mission-command-actions">
             <button type="button" class="btn primary hero-cta" data-action="develop-plan" data-testid="develop-plan-hero">Develop Plan</button>
-            <button type="button" class="btn" id="cr-pause-mission" data-testid="cr-pause-mission" disabled>Pause Mission</button>
+            <button type="button" class="btn" id="cr-pause-mission" data-testid="cr-pause-mission" disabled>Pause</button>
             <button type="button" class="btn" id="cr-adjust-plan" data-testid="cr-adjust-plan" disabled>Adjust Plan</button>
             <button type="button" class="btn" id="use-codex-directly" data-testid="use-codex-directly" style="display:none;">Use Codex Directly</button>
           </div>
           <div class="hero-status-row" data-testid="hero-status-row">
             <span class="status-pill" id="cr-mission-status-pill" data-testid="cr-mission-status-pill">idle</span>
-            <span class="hero-status-chip" id="cr-chip-public-runner">Public runner: Disabled</span>
-            <span class="hero-status-chip" id="cr-chip-private-runner">Private runner: Off</span>
-            <span class="hero-status-chip" id="hero-captain-status" data-testid="hero-captain-status">Captain: Not configured</span>
-            <span class="hero-status-chip" id="hero-codex-status" data-testid="hero-codex-status">Codex: Disabled</span>
-            <span class="hero-status-chip" id="hero-jules-status" data-testid="hero-jules-status">Jules: Planning only</span>
-            <span class="hero-status-chip" id="cr-chip-runner-health">Runner sessions: —</span>
+            <span class="hero-status-chip" id="cr-chip-private-runner">Private · Off</span>
+            <span class="hero-status-chip" id="hero-captain-status" data-testid="hero-captain-status">Captain · —</span>
+            <span class="hero-status-chip" id="cr-chip-runner-health">Sessions · —</span>
           </div>
         </div>
 
@@ -97,36 +89,25 @@
           <div class="cr-mission-card" data-testid="current-mission-card">
             <div id="cr-mission-empty" data-testid="cr-mission-empty">
               <h3 class="mission-card-title">No active mission</h3>
-              <p id="current-mission-status" data-testid="current-mission-status" class="mission-card-lead">No active mission. Create or load a Captain plan to begin supervised work.</p>
+              <p id="current-mission-status" data-testid="current-mission-status" class="mission-card-lead">No active mission. Start a Captain plan.</p>
               <div class="cr-idle-cards" data-testid="cr-idle-cards">
-                <button type="button" class="cr-idle-card" data-action="develop-plan" data-testid="idle-card-captain">
-                  <span class="cr-idle-card-title">Start with Captain</span>
-                  <span class="cr-idle-card-copy">Develop a supervised plan and dispatch bounded steps.</span>
-                </button>
-                <button type="button" class="cr-idle-card" data-section-jump="agents" data-testid="idle-card-agents">
-                  <span class="cr-idle-card-title">Configure agents</span>
-                  <span class="cr-idle-card-copy">Connect Codex CLI or register remote planning agents.</span>
-                </button>
-                <button type="button" class="cr-idle-card" data-section-jump="runner-sessions" data-testid="idle-card-runners">
-                  <span class="cr-idle-card-title">Review runner sessions</span>
-                  <span class="cr-idle-card-copy">Inspect mch_run_* tmux sessions and dry-run cleanup.</span>
-                </button>
-                <button type="button" class="cr-idle-card" data-section-jump="settings" data-testid="idle-card-safety">
-                  <span class="cr-idle-card-title">Safety status</span>
-                  <span class="cr-idle-card-copy">Review runner policy, shell input, and registration gates.</span>
-                </button>
+                <button type="button" class="cr-idle-card" data-action="develop-plan" data-testid="idle-card-captain">Captain</button>
+                <button type="button" class="cr-idle-card" data-section-jump="agents" data-testid="idle-card-agents">Agents</button>
+                <button type="button" class="cr-idle-card" data-section-jump="runner-sessions" data-testid="idle-card-runners">Runners</button>
+                <button type="button" class="cr-idle-card" data-section-jump="settings" data-testid="idle-card-safety">Safety</button>
               </div>
             </div>
             <div id="cr-mission-active" data-testid="cr-mission-active" style="display:none;">
               <h3 class="mission-card-title" id="cr-mission-title">Mission</h3>
-              <p class="mission-card-meta">ID: <span id="cr-mission-id">—</span></p>
-              <p class="mission-card-meta">Step: <span id="cr-mission-step">—</span> · Agent: <span id="cr-mission-agent">—</span></p>
+              <p class="mission-card-meta"><span id="cr-mission-step">—</span> · <span id="cr-mission-agent">—</span></p>
               <div class="cr-progress-wrap">
                 <div class="cr-progress-bar"><div id="cr-mission-progress-bar" class="cr-progress-fill"></div></div>
                 <span id="cr-mission-progress-label">0%</span>
               </div>
-              <p class="mission-card-meta">ETA: <span id="cr-mission-eta">ETA unavailable</span></p>
-              <p class="mission-card-meta">Started: <span id="cr-mission-started">—</span> · Updated: <span id="cr-mission-updated">—</span></p>
+              <p class="mission-card-meta">ETA <span id="cr-mission-eta">—</span></p>
+              <span id="cr-mission-id" class="visually-hidden">—</span>
+              <span id="cr-mission-started" class="visually-hidden">—</span>
+              <span id="cr-mission-updated" class="visually-hidden">—</span>
             </div>
             <div id="current-mission-empty" data-testid="current-mission-empty" style="display:none;"></div>
             <div id="current-mission-plan" data-testid="current-mission-plan" style="display:none;">
@@ -139,21 +120,17 @@
 
         <div class="cr-command-center" data-testid="cr-command-center">
           <div class="cr-tab-bar">
-            <button type="button" class="btn active" data-cr-tab="timeline" data-testid="cr-tab-timeline">Mission Timeline</button>
-            <button type="button" class="btn" data-cr-tab="plan" data-testid="cr-tab-plan">Captain Plan</button>
-            <button type="button" class="btn" data-cr-tab="worklog" data-testid="cr-tab-worklog">Worklog</button>
+            <button type="button" class="btn active" data-cr-tab="timeline" data-testid="cr-tab-timeline">Timeline</button>
+            <button type="button" class="btn" data-cr-tab="plan" data-testid="cr-tab-plan">Plan</button>
             <button type="button" class="btn" data-cr-tab="evidence" data-testid="cr-tab-evidence">Evidence</button>
-            <button type="button" class="btn" data-cr-tab="gates" data-testid="cr-tab-gates">Proof Gates</button>
+            <button type="button" class="btn" data-cr-tab="gates" data-testid="cr-tab-gates">Gates</button>
           </div>
           <div class="cr-tab-panels">
             <div class="cr-tab-panel active" data-cr-panel="timeline" data-testid="cr-panel-timeline">
               <div class="cr-timeline-filters">
                 <button type="button" class="btn active" data-cr-timeline-filter="all">All</button>
-                <button type="button" class="btn" data-cr-timeline-filter="plans">Plans</button>
                 <button type="button" class="btn" data-cr-timeline-filter="runs">Runs</button>
-                <button type="button" class="btn" data-cr-timeline-filter="evidence">Evidence</button>
                 <button type="button" class="btn" data-cr-timeline-filter="gates">Gates</button>
-                <button type="button" class="btn" data-cr-timeline-filter="safety">Safety/Runner</button>
               </div>
               <div id="cr-tab-timeline-content" class="cr-timeline-list"></div>
               <p id="cr-tab-timeline-empty" class="mission-card-copy" style="display:none;">No mission activity yet.</p>
@@ -186,7 +163,7 @@
           <div class="workspace-header-row">
             <div>
               <h2 class="workspace-title">Agent Library</h2>
-              <p class="workspace-subhead">Connect local CLI agents and remote workers, then dispatch bounded work through Captain.</p>
+              <p class="workspace-subhead">CLI and remote agents.</p>
             </div>
             <button type="button" id="refresh-agent-status" data-testid="refresh-agent-status" class="btn">Refresh Status</button>
           </div>
@@ -229,7 +206,7 @@
       <section id="warden-section-tasks" class="workspace-section" data-section="tasks" data-testid="warden-section-tasks">
         <header class="workspace-header">
           <h2 class="workspace-title">Tasks</h2>
-          <p class="workspace-subhead">Captain plan steps and supervised work items.</p>
+          <p class="workspace-subhead">Plan steps and work items.</p>
         </header>
         <div class="empty-state-card" data-testid="tasks-empty-state">
           <h3>No active task plan yet.</h3>
@@ -241,7 +218,7 @@
       <section id="warden-section-runs" class="workspace-section" data-section="runs" data-testid="warden-section-runs">
         <header class="workspace-header">
           <h2 class="workspace-title">Runs</h2>
-          <p class="workspace-subhead">Live and completed agent sessions.</p>
+          <p class="workspace-subhead">Live and completed sessions.</p>
         </header>
         <div id="runs-list" data-testid="runs-list" class="history-card-list" style="display:none;"></div>
         <div class="empty-state-card" data-testid="runs-empty-state">
@@ -254,7 +231,7 @@
       <section id="warden-section-proof-gates" class="workspace-section" data-section="proof-gates" data-testid="warden-section-proof-gates">
         <header class="workspace-header">
           <h2 class="workspace-title">Proof Gates</h2>
-          <p class="workspace-subhead">Human approval gates that control mission progress. No auto-dispatch after approval.</p>
+          <p class="workspace-subhead">Approval gates before progress continues.</p>
         </header>
         <div id="proof-gates-view-content" data-testid="proof-gates-view-content"></div>
       </section>
@@ -262,10 +239,11 @@
       <section id="warden-section-runner-sessions" class="workspace-section" data-section="runner-sessions" data-testid="warden-section-runner-sessions">
         <header class="workspace-header">
           <h2 class="workspace-title">Runner Sessions</h2>
-          <p class="workspace-subhead">Safe inventory of mch_run_* tmux sessions. Cleanup defaults to dry-run.</p>
+          <p class="workspace-subhead">Active tmux runner sessions.</p>
         </header>
         <div id="runner-sessions-summary" class="runner-sessions-summary" data-testid="runner-sessions-summary"></div>
-        <p id="runner-sessions-disabled-note" class="mission-card-copy" style="display:none;">Runner cleanup is disabled on the public service. Use private 8125 for dry-run and confirmed cleanup.</p>
+        <p id="runner-sessions-disabled-note" class="mission-card-copy" style="display:none;">Cleanup unavailable on this service.</p>
+        <p class="runner-cleanup-note">Cleanup defaults to dry-run.</p>
         <div class="runner-sessions-actions">
           <button type="button" id="runner-view-dry-run" class="btn" data-testid="runner-view-dry-run">Dry-run cleanup</button>
           <button type="button" id="runner-view-confirm" class="btn bad" data-testid="runner-view-confirm" disabled>Confirm cleanup</button>
@@ -277,7 +255,7 @@
       <section id="warden-section-evidence" class="workspace-section" data-section="evidence" data-testid="warden-section-evidence">
         <header class="workspace-header">
           <h2 class="workspace-title">Evidence</h2>
-          <p id="evidence-section-lead" class="workspace-subhead">Proof artifacts from supervised agent work.</p>
+          <p id="evidence-section-lead" class="workspace-subhead">Transcripts, diffs, and artifacts.</p>
         </header>
         <div id="evidence-type-filter" data-testid="evidence-type-filter" class="evidence-type-filter" style="display:none;">
           <button type="button" class="btn active" data-evidence-filter="all">All</button>
@@ -296,36 +274,29 @@
       <section id="warden-section-settings" class="workspace-section" data-section="settings" data-testid="warden-section-settings">
         <header class="workspace-header">
           <h2 class="workspace-title">Settings</h2>
-          <p class="workspace-subhead">Captain planning and service configuration.</p>
         </header>
         <div class="settings-grid">
           <div class="settings-card">
-            <h3>Captain / OpenRouter</h3>
-            <div id="settings-captain-status" data-testid="settings-captain-status" class="settings-value">Loading Captain status...</div>
+            <h3>Captain</h3>
+            <div id="settings-captain-status" data-testid="settings-captain-status" class="settings-value">Loading…</div>
             <div id="settings-captain-model" data-testid="settings-captain-model" class="settings-meta"></div>
             <div id="settings-captain-key-source" data-testid="settings-captain-key-source" class="settings-meta"></div>
-            <button type="button" id="configure-captain-btn" data-testid="configure-captain" class="btn primary">Configure Captain</button>
+            <button type="button" id="configure-captain-btn" data-testid="configure-captain" class="btn primary">Configure</button>
           </div>
           <div class="settings-card">
-            <h3>Agent Registry</h3>
-            <p id="settings-agent-note" data-testid="settings-agent-note" class="settings-meta">Loading agent setup note...</p>
+            <h3>Agents</h3>
+            <p id="settings-agent-note" data-testid="settings-agent-note" class="settings-meta">Loading…</p>
+            <p id="settings-codex-status" data-testid="settings-codex-status" class="settings-meta settings-inline-row"></p>
+            <p id="settings-jules-status" data-testid="settings-jules-status" class="settings-meta settings-inline-row"></p>
           </div>
           <div class="settings-card" data-testid="settings-safety-card">
             <h3>Safety</h3>
             <ul class="settings-safety-list" data-testid="settings-safety-list">
-              <li id="settings-public-runner" data-testid="settings-public-runner">Public runner: Disabled on public service</li>
-              <li id="settings-private-runner" data-testid="settings-private-runner">Private runner: Available only on private service</li>
-              <li id="settings-shell-input" data-testid="settings-shell-input">Arbitrary shell input: Disabled</li>
-              <li id="settings-agent-registration" data-testid="settings-agent-registration">Agent registration: Private only</li>
+              <li id="settings-public-runner" data-testid="settings-public-runner">Public runner — Off</li>
+              <li id="settings-private-runner" data-testid="settings-private-runner">Private runner — Off</li>
+              <li id="settings-shell-input" data-testid="settings-shell-input">Shell access — Restricted</li>
+              <li id="settings-agent-registration" data-testid="settings-agent-registration">Agent registration — Private</li>
             </ul>
-          </div>
-          <div class="settings-card">
-            <h3>Codex CLI</h3>
-            <p id="settings-codex-status" data-testid="settings-codex-status" class="settings-meta">Loading Codex status...</p>
-          </div>
-          <div class="settings-card">
-            <h3>Jules Remote</h3>
-            <p id="settings-jules-status" data-testid="settings-jules-status" class="settings-meta">Loading Jules status...</p>
           </div>
         </div>
       </section>
@@ -346,7 +317,7 @@
               <li id="inspector-codex-agent" data-testid="inspector-codex-agent"></li>
               <li id="inspector-jules-agent" data-testid="inspector-jules-agent"></li>
             </ul>
-            <button type="button" id="inspector-refresh-agents" data-testid="inspector-refresh-agents" class="btn">Refresh Status</button>
+            <button type="button" id="inspector-refresh-agents" data-testid="inspector-refresh-agents" class="btn">Refresh</button>
           </div>
           <div class="inspector-card rail-card" data-testid="rail-runner-sessions-card">
             <h3 class="inspector-title">Runner Sessions</h3>
@@ -357,7 +328,7 @@
             </div>
           </div>
           <div class="inspector-card rail-card" data-testid="rail-safety-card">
-            <h3 class="inspector-title">Safety Status</h3>
+            <h3 class="inspector-title">Safety</h3>
             <div id="rail-safety-status" data-testid="rail-safety-status"></div>
             <ul class="control-room-list" style="display:none;" data-testid="control-room-status">
               <li id="cr-public-runner" data-testid="cr-public-runner">Public runner: Disabled</li>
@@ -513,12 +484,11 @@
   <!-- Captain Deck Modal -->
   <div id="captain-deck-modal" data-testid="captain-deck-modal" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.56); display:none; align-items:center; justify-content:center; z-index:10001;">
     <div style="background:var(--bg-2); border:1px solid var(--line); padding:16px; width:min(94vw, 980px); max-height:92vh; overflow:auto; border-radius:8px;">
-      <h3 style="margin-top:0;">Captain Deck</h3>
+      <h3 style="margin-top:0;" data-testid="captain-deck-title">Captain</h3>
       <div id="captain-config-note" data-testid="captain-config-note" style="font-size:0.85em; color:var(--warn, #f0c66a); margin-bottom:6px;"></div>
       <div id="captain-settings" data-testid="captain-settings" class="captain-settings" style="border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:10px;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
           <div>
-            <div style="font-weight:600;">Captain Settings</div>
             <div id="captain-settings-status" data-testid="captain-settings-status" style="font-size:0.82em; color:var(--muted);"></div>
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -526,11 +496,11 @@
             <button id="captain-remove-key" data-testid="captain-remove-key" class="btn bad" type="button" style="display:none;">Remove Key</button>
           </div>
         </div>
-        <div id="captain-settings-note" data-testid="captain-settings-note" style="font-size:0.78em; color:var(--muted); margin-top:6px;"></div>
+        <div id="captain-settings-note" data-testid="captain-settings-note" style="display:none; font-size:0.78em; color:var(--muted); margin-top:6px;"></div>
         <div id="captain-key-form" data-testid="captain-key-form" style="display:none; margin-top:10px; border-top:1px solid var(--line); padding-top:10px;">
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
             <div>
-              <label for="captain-openrouter-key" style="display:block; font-size:0.82em; margin-bottom:4px;">OpenRouter API Key</label>
+              <label for="captain-openrouter-key" style="display:block; font-size:0.82em; margin-bottom:4px;">API key</label>
               <input id="captain-openrouter-key" data-testid="captain-openrouter-key" type="password" autocomplete="off" spellcheck="false" style="width:100%; padding:8px;" placeholder="sk-or-..." />
             </div>
             <div>
@@ -538,7 +508,7 @@
               <input id="captain-openrouter-model" data-testid="captain-openrouter-model" type="text" autocomplete="off" spellcheck="false" style="width:100%; padding:8px;" placeholder="openrouter/auto" />
             </div>
           </div>
-          <div id="captain-key-form-note" data-testid="captain-key-form-note" style="font-size:0.78em; color:var(--muted); margin-top:6px;"></div>
+          <div id="captain-key-form-note" data-testid="captain-key-form-note" style="display:none; font-size:0.78em; color:var(--muted); margin-top:6px;"></div>
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
             <button id="captain-save-key" data-testid="captain-save-key" class="btn primary" type="button">Save Key</button>
             <button id="captain-cancel-key" data-testid="captain-cancel-key" class="btn" type="button">Cancel</button>
@@ -568,7 +538,7 @@
         <button id="captain-close" data-testid="captain-close" class="btn" type="button">Close</button>
       </div>
       <div id="captain-deploy-note" data-testid="captain-deploy-note" style="display:none; color:var(--bad); font-size:0.85em; margin-top:6px;"></div>
-      <div style="font-size:0.72em; color:var(--muted); margin-top:8px;">Captain creates a bounded plan. Deploy one prompt at a time through the existing Codex runner.</div>
+
       <div id="captain-plan-body" data-testid="captain-plan-body" style="margin-top:12px;"></div>
     </div>
   </div>

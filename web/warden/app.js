@@ -1484,64 +1484,44 @@
     const inspectorViewCodex = document.getElementById("inspector-view-codex");
     const runnerActive = !!health.tmux_runner_enabled && !!health.codex_runner_enabled;
     const shellDisabled = !health.arbitrary_command_execution_enabled;
-    const publicRunnerText = "Public runner: Disabled on public service";
-    const privateRunnerText = runnerActive
-      ? "Private runner: Active on this service"
-      : "Private runner: Available only on private service";
-    const shellText = shellDisabled ? "Arbitrary shell input: Disabled" : "Arbitrary shell input: Enabled";
-    const agentRegText = state.registryWriteEnabled
-      ? "Agent registration: Enabled on this service"
-      : "Agent registration: Private only";
+    const publicRunnerText = "Public runner — Off";
+    const privateRunnerText = runnerActive ? "Private runner — On" : "Private runner — Off";
+    const shellText = shellDisabled ? "Shell access — Restricted" : "Shell access — Enabled";
+    const agentRegText = state.registryWriteEnabled ? "Agent registration — On" : "Agent registration — Private";
     if (captainStatus) {
       captainStatus.textContent = deck.configured
-        ? `Captain: Configured${deck.keySource && deck.keySource !== "missing" ? ` (${deck.keySource})` : ""}`
-        : "Captain: Not configured";
+        ? `Configured · ${deck.model || "openrouter/auto"}`
+        : "Not configured";
     }
-    if (captainModel) {
-      captainModel.textContent = `Model: ${deck.model || "openrouter/auto"}`;
-    }
+    if (captainModel) captainModel.textContent = "";
     if (captainKeySource) {
-      captainKeySource.textContent = `Key source: ${deck.keySource || "missing"}`;
+      captainKeySource.textContent = deck.keySource && deck.keySource !== "missing" ? `Key · ${deck.keySource}` : "";
     }
     if (agentNote) {
-      agentNote.textContent = state.registryWriteEnabled
-        ? "Add and configure CLI or remote agents from the Agents section after connection checks."
-        : "Agent registration is available on the private runner service (8125).";
+      agentNote.textContent = state.registryWriteEnabled ? "Registration enabled." : "Registration on private service.";
     }
     if (publicRunner) publicRunner.textContent = publicRunnerText;
     if (privateRunner) privateRunner.textContent = privateRunnerText;
     if (shellInput) shellInput.textContent = shellText;
     if (agentRegistration) agentRegistration.textContent = agentRegText;
     if (heroCaptain) {
-      heroCaptain.textContent = `Captain: ${deck.configured ? "Ready" : "Not configured"}`;
+      heroCaptain.textContent = `Captain · ${deck.configured ? "Ready" : "—"}`;
     }
-    if (heroCodex) heroCodex.textContent = `Codex: ${runnerActive ? "Ready" : "Disabled"}`;
-    if (heroJules) heroJules.textContent = `Jules: ${julesHeroStatus()}`;
+    if (heroCodex) heroCodex.textContent = "";
+    if (heroJules) heroJules.textContent = "";
     if (settingsCodex) {
-      settingsCodex.textContent = runnerActive ? "Codex CLI: Ready on this service" : "Codex CLI: Disabled on this service";
+      settingsCodex.textContent = runnerActive ? "Codex · Ready" : "Codex · Off";
     }
     if (settingsJules) {
       const jules = (state.agents || []).find((agent) => agent.adapter === "jules_remote" && agent.user_created);
-      if (!jules) {
-        settingsJules.textContent = "Jules Remote: Not configured";
-      } else if (jules.connection_status === "connected" && jules.status === "ready") {
-        settingsJules.textContent = "Jules Remote: Connected — planning and status only";
-      } else {
-        settingsJules.textContent = "Jules Remote: Setup needed";
-      }
+      if (!jules) settingsJules.textContent = "Jules · —";
+      else if (jules.connection_status === "connected" && jules.status === "ready") settingsJules.textContent = "Jules · Connected";
+      else settingsJules.textContent = "Jules · Setup";
     }
-    if (crPublic) crPublic.textContent = "Public runner: Disabled";
-    if (crPrivate) {
-      crPrivate.textContent = runnerActive
-        ? "Private runner: Active on this service"
-        : "Private runner: Unavailable on this service";
-    }
-    if (crShell) crShell.textContent = shellDisabled ? "Arbitrary shell input: Disabled" : "Arbitrary shell input: Enabled";
-    if (crAgentReg) {
-      crAgentReg.textContent = state.registryWriteEnabled
-        ? "Agent registration: Enabled on this service"
-        : "Agent registration: Private only";
-    }
+    if (crPublic) crPublic.textContent = "Public runner — Off";
+    if (crPrivate) crPrivate.textContent = runnerActive ? "Private runner — On" : "Private runner — Off";
+    if (crShell) crShell.textContent = shellDisabled ? "Shell access — Restricted" : "Shell access — Enabled";
+    if (crAgentReg) crAgentReg.textContent = agentRegText;
     const codexAgent = (state.agents || []).find((agent) => agent.id === "codex_cli");
     const codexReady = !!(codexAgent && codexAgent.runnable);
     const codexChecked = codexAgent && codexAgent.last_checked_at
