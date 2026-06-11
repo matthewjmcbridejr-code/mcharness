@@ -124,3 +124,17 @@ def test_graph_edit_state_accepts_patch_and_keeps_pause():
 
     reloaded = McTableTaskGraph().load_state(state.task_id)
     assert reloaded.recovery_hint == "patched through graph"
+
+def test_graph_path_traversal():
+    graph = McTableTaskGraph()
+    with pytest.raises(ValueError, match="Invalid task_id"):
+        graph.create_task(
+            "../../etc/passwd",
+            "Malicious Task",
+            "Path traversal attack",
+            "fake-worker-success",
+            [],
+        )
+
+    with pytest.raises(ValueError, match="Invalid task_id"):
+        graph.load_state("../../etc/passwd")

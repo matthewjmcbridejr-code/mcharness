@@ -10,6 +10,7 @@ from .graph import (
     LANGGRAPH_AVAILABLE,
     McTableTaskGraph,
     TASKS_DIR,
+    get_task_path,
     checkpoint_file_exists,
     get_runtime_capabilities,
 )
@@ -68,7 +69,11 @@ def create_task(req: TaskCreateRequest):
         raise HTTPException(status_code=400, detail=f"Command '{req.command}' is not allowlisted.")
 
     # Check if task already exists
-    if (TASKS_DIR / f"{req.task_id}.json").exists():
+    try:
+        if get_task_path(req.task_id).exists():
+            raise HTTPException(status_code=400, detail=f"Task already exists.")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid task_id")
         raise HTTPException(status_code=400, detail=f"Task {req.task_id} already exists.")
 
     graph = McTableTaskGraph()
@@ -81,7 +86,9 @@ def get_task(task_id: str):
     try:
         return graph.load_state(task_id)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Task {task_id} not found.")
+        raise HTTPException(status_code=404, detail="Task not found.")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid task_id")
 
 @router.get("/tasks/{task_id}/events")
 def get_task_events(task_id: str):
@@ -89,7 +96,9 @@ def get_task_events(task_id: str):
     try:
         state = graph.load_state(task_id)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Task {task_id} not found.")
+        raise HTTPException(status_code=404, detail="Task not found.")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid task_id")
 
     # Return a simple list of events based on the task state
     return [
