@@ -1,7 +1,14 @@
 (function () {
   const MCH = "/api/mcharness";
   const JULES_VIEW_URL = "https://jules.google.com/session";
-  // Minimal state for Agent Library + Codex flow + Live Monitor
+  const CAPTAIN_PROFILE_BASE = "/web/warden/agent_profiles";
+  const CAPTAIN_PROFILE_STORAGE_KEY = "warden.captain.instructionProfile";
+  const CAPTAIN_PROFILES = [
+    { id: "captain-default", label: "Default Captain", file: "captain-default.md" },
+    { id: "captain-code-review", label: "Code Review Captain", file: "captain-code-review.md" },
+    { id: "captain-release-manager", label: "Release Manager Captain", file: "captain-release-manager.md" },
+  ];
+  // Minimal state for Agents page + Codex flow + Live Monitor
   const state = {
     repos: [],
     lanes: [],
@@ -50,6 +57,12 @@
       keySaving: false,
       keyError: "",
       keyModel: "openrouter/auto",
+    },
+    captainProfile: {
+      selectedId: localStorage.getItem(CAPTAIN_PROFILE_STORAGE_KEY) || "captain-default",
+      cache: {},
+      loading: false,
+      error: "",
     },
   };
 
@@ -342,6 +355,133 @@
         `;
       }
     }
+    renderCaptainAgentCard();
+  }
+
+  function currentCaptainProfile() {
+    return CAPTAIN_PROFILES.find((profile) => profile.id === state.captainProfile.selectedId) || CAPTAIN_PROFILES[0];
+  }
+
+  function profilePreviewText(markdown) {
+    const lines = String(markdown || "").split("\n").filter((line) => line.trim());
+    const body = lines.filter((line) => !line.startsWith("#")).join(" ").trim();
+    return body.slice(0, 180) + (body.length > 180 ? "…" : "");
+  }
+
+  async function fetchCaptainProfileMarkdown(profile) {
+    if (!profile) return "";
+    if (state.captainProfile.cache[profile.id]) return state.captainProfile.cache[profile.id];
+    const url = `${CAPTAIN_PROFILE_BASE}/${profile.file}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Profile unavailable");
+    const text = await res.text();
+    state.captainProfile.cache[profile.id] = text;
+    return text;
+  }
+
+  function populateCaptainProfileSelect() {
+    const sel = document.getElementById("captain-profile-select");
+    if (!sel) return;
+    sel.innerHTML = CAPTAIN_PROFILES.map((profile) => (
+      `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.label)}</option>`
+    )).join("");
+    sel.value = currentCaptainProfile().id;
+  }
+
+  async function renderCaptainProfilePanel() {
+    const preview = document.getElementById("captain-profile-preview");
+    const profileLabel = document.getElementById("captain-agent-profile-label");
+    const profile = currentCaptainProfile();
+    if (profileLabel) {
+      profileLabel.textContent = profile ? `Profile: ${profile.label}` : "";
+    }
+    if (!preview) return;
+    preview.textContent = "Loading profile preview…";
+    try {
+      const markdown = await fetchCaptainProfileMarkdown(profile);
+      preview.textContent = profilePreviewText(markdown) || "No preview available.";
+      state.captainProfile.error = "";
+    } catch (e) {
+      preview.textContent = "Profile preview unavailable.";
+      state.captainProfile.error = e.message || "Profile unavailable";
+    }
+  }
+
+  function renderCaptainAgentCard() {
+    const deck = state.captainDeck;
+    const pill = document.getElementById("captain-agent-status-pill");
+    const modelEl = document.getElementById("captain-agent-model");
+    if (pill) {
+      const label = deck.configured ? "CONFIGURED" : "NOT CONFIGURED";
+      pill.textContent = label;
+      pill.className = `status-pill ${deck.configured ? "status-ready" : "status-coming"}`;
+    }
+    if (modelEl) {
+      modelEl.textContent = deck.configured || deck.model
+        ? `Model: ${deck.model || "openrouter/auto"}`
+        : "Model: —";
+    }
+    populateCaptainProfileSelect();
+    renderCaptainProfilePanel().catch((e) => console.error(e));
+  }
+
+  function navigateToCaptainAgents({ highlightProfile = false } = {}) {
+    setActiveSection("agents");
+    const card = document.getElementById("captain-agent-card");
+    if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (highlightProfile) {
+      const panel = document.getElementById("captain-profile-panel");
+      if (panel) {
+        panel.classList.add("captain-profile-highlight");
+        setTimeout(() => panel.classList.remove("captain-profile-highlight"), 1800);
+      }
+      const sel = document.getElementById("captain-profile-select");
+      if (sel) sel.focus();
+    }
+  }
+
+  async function openCaptainProfileModal() {
+    const modal = document.getElementById("captain-profile-modal");
+    const pre = document.getElementById("captain-profile-markdown");
+    const nameEl = document.getElementById("captain-profile-modal-name");
+    const profile = currentCaptainProfile();
+    if (!modal || !pre) return;
+    if (nameEl) nameEl.textContent = profile ? profile.label : "";
+    pre.textContent = "Loading…";
+    modal.style.display = "flex";
+    try {
+      pre.textContent = await fetchCaptainProfileMarkdown(profile);
+    } catch (e) {
+      pre.textContent = "Unable to load instruction profile.";
+    }
+  }
+
+  function closeCaptainProfileModal() {
+    const modal = document.getElementById("captain-profile-modal");
+    if (modal) modal.style.display = "none";
+  }
+
+  async function copyCaptainProfileInstructions() {
+    const profile = currentCaptainProfile();
+    try {
+      const markdown = await fetchCaptainProfileMarkdown(profile);
+      await navigator.clipboard.writeText(markdown);
+    } catch (e) {
+      try {
+        const markdown = await fetchCaptainProfileMarkdown(profile);
+        prompt("Copy instructions:", markdown);
+      } catch (err) {
+        alert("Unable to copy instruction profile.");
+      }
+    }
+  }
+
+  function useCaptainProfileSelection() {
+    const sel = document.getElementById("captain-profile-select");
+    const profileId = (sel && sel.value) || currentCaptainProfile().id;
+    state.captainProfile.selectedId = profileId;
+    localStorage.setItem(CAPTAIN_PROFILE_STORAGE_KEY, profileId);
+    renderCaptainAgentCard();
   }
 
   async function openCaptainDeckModal() {
@@ -515,14 +655,14 @@
       const data = await requestJson(`${MCH}/agents`);
       state.agents = data.agents || [];
       state.registryWriteEnabled = !!data.registry_write_enabled;
-      renderRegisteredAgentCards();
+      renderRemoteAgentCards();
       populateCaptainAgents();
       renderSettingsPanel();
       return data;
     } catch (e) {
       state.agents = [];
       state.registryWriteEnabled = false;
-      renderRegisteredAgentCards();
+      renderRemoteAgentCards();
       renderSettingsPanel();
       return null;
     }
@@ -533,7 +673,7 @@
     state.agents = data.agents || [];
     state.agentStatusLastChecked = data.last_checked_at || null;
     state.registryWriteEnabled = !!data.registry_write_enabled;
-    renderRegisteredAgentCards();
+    renderRemoteAgentCards();
     populateCaptainAgents();
     renderSettingsPanel();
     return data;
@@ -1490,8 +1630,8 @@
     const agentRegText = state.registryWriteEnabled ? "Agent registration — On" : "Agent registration — Private";
     if (captainStatus) {
       captainStatus.textContent = deck.configured
-        ? `Configured · ${deck.model || "openrouter/auto"}`
-        : "Not configured";
+        ? `Captain · Configured · ${deck.model || "openrouter/auto"}`
+        : "Captain · Not configured";
     }
     if (captainModel) captainModel.textContent = "";
     if (captainKeySource) {
@@ -1530,15 +1670,15 @@
         ? ` · ${formatHistoryTimestamp(state.agentStatusLastChecked)}`
         : "";
     if (inspectorCaptain) {
-      inspectorCaptain.textContent = `Captain — ${deck.configured ? "Ready" : "Not configured"}`;
+      inspectorCaptain.textContent = `Captain — Orchestrator · ${deck.configured ? "Configured" : "Not configured"}`;
     }
     if (inspectorCodex) {
-      inspectorCodex.textContent = `Codex CLI — ${codexReady ? "Ready" : "Disabled"}${codexChecked}`;
+      inspectorCodex.textContent = `Codex CLI — CLI Agent · ${codexReady ? "Ready" : "Disabled"}${codexChecked}`;
     }
     if (inspectorJules) {
       const julesChecked = (state.agents || []).find((agent) => agent.adapter === "jules_remote" && agent.user_created);
       const suffix = julesChecked && julesChecked.last_checked_at ? ` · ${formatHistoryTimestamp(julesChecked.last_checked_at)}` : "";
-      inspectorJules.textContent = `Jules Remote — ${julesInspectorStatus()}${suffix}`;
+      inspectorJules.textContent = `Jules Remote — Remote · Planning only · ${julesInspectorStatus()}${suffix}`;
     }
     if (useCodexDirectly) useCodexDirectly.style.display = runnerActive ? "" : "none";
     if (inspectorViewCodex) inspectorViewCodex.style.display = runnerActive ? "" : "none";
@@ -1594,20 +1734,22 @@
     }
   }
 
-  function registeredAgentCardCopy(agent) {
+  function remoteAgentCardCopy(agent) {
     if (agent.adapter === "jules_remote") {
       const connected = agent.connection_status === "connected" && agent.status === "ready";
       return {
-        pillLabel: connected ? "CONNECTED" : "SETUP NEEDED",
-        pillClass: connected ? "status-connected" : "status-coming",
-        body: "Connected for planning and status. Remote execution comes next.",
+        pillLabel: connected ? "CONNECTED" : agent.status === "disabled" ? "DISABLED" : "PLANNING ONLY",
+        pillClass: connected ? "status-connected" : agent.status === "disabled" ? "status-disabled" : "status-coming",
+        mode: "Planning + status only",
+        notExecutable: true,
       };
     }
     const status = agentStatusLabel(agent);
     return {
-      pillLabel: status === "connected" ? "Connected" : "Coming next",
+      pillLabel: status === "connected" ? "CONNECTED" : "PLANNING ONLY",
       pillClass: status === "connected" ? "status-connected" : "status-coming",
-      body: agent.description || "",
+      mode: "Planning + status only",
+      notExecutable: true,
     };
   }
 
@@ -1623,31 +1765,39 @@
     return `${agent.name || agent.id} — Not runnable`;
   }
 
-  function renderRegisteredAgentCards() {
-    const container = document.getElementById("connected-agent-cards");
-    const group = document.getElementById("agent-group-connected");
+  function renderRemoteAgentCards() {
+    const container = document.getElementById("remote-agent-cards");
+    const empty = document.getElementById("remote-agents-empty");
     if (!container) return;
-    const registered = (state.agents || []).filter((agent) => agent.user_created);
+    const registered = (state.agents || []).filter((agent) => agent.user_created && (agent.kind === "remote" || agent.adapter === "jules_remote"));
     if (!registered.length) {
       container.innerHTML = "";
-      if (group) group.style.display = "none";
+      if (empty) empty.style.display = "";
       return;
     }
-    if (group) group.style.display = "";
+    if (empty) empty.style.display = "none";
     container.innerHTML = registered.map((agent) => {
-      const copy = registeredAgentCardCopy(agent);
-      const runnable = !!agent.runnable;
+      const copy = remoteAgentCardCopy(agent);
+      const displayName = agent.adapter === "jules_remote" ? (agent.name || "Jules Remote") : (agent.name || agent.id);
       const showEdit = agent.adapter === "jules_remote";
       return `
-        <div class="agent-card registered-agent-card" data-agent-id="${escapeHtml(agent.id)}">
+        <div class="agent-card registered-agent-card remote-agent-card" data-agent-id="${escapeHtml(agent.id)}">
           <div class="agent-card-top">
-            <h3 class="agent-card-title">${escapeHtml(agent.name || agent.id)}</h3>
+            <h3 class="agent-card-title">${escapeHtml(displayName)}</h3>
             <span class="status-pill ${copy.pillClass}">${escapeHtml(copy.pillLabel)}</span>
           </div>
-          <p class="agent-card-copy">${escapeHtml(copy.body)}</p>
+          <div class="agent-card-meta-row">
+            <span class="agent-type-label">Type: Remote Agent</span>
+            <span class="agent-mode-label">Mode: ${escapeHtml(copy.mode)}</span>
+          </div>
+          ${copy.notExecutable ? '<p class="agent-remote-note">Not executable from Warden yet.</p>' : ""}
+          <ul class="agent-capability-list">
+            <li>Planning</li>
+            <li>Review</li>
+            <li>Status reports</li>
+          </ul>
           <div class="agent-card-actions">
             ${agent.adapter === "jules_remote" ? `<a class="btn view-agent-link" href="${JULES_VIEW_URL}" target="_blank" rel="noopener noreferrer" title="Open Jules remote agent workspace" aria-label="View Agent — open Jules remote agent workspace" data-testid="view-agent-jules">View Agent</a>` : ""}
-            ${runnable ? `<button class="btn" type="button" data-use-agent-id="${escapeHtml(agent.id)}">Use Agent</button>` : ""}
             ${showEdit ? `<button class="btn" type="button" data-edit-agent-id="${escapeHtml(agent.id)}">Edit Config</button>` : ""}
             <button class="btn bad" type="button" data-remove-agent-id="${escapeHtml(agent.id)}">Remove</button>
           </div>
@@ -1710,45 +1860,71 @@
     }
   }
 
-  function renderAddAgentTemplateList() {
-    const list = document.getElementById("add-agent-template-list");
+  function renderAddAgentCategoryList() {
+    const list = document.getElementById("add-agent-category-list");
+    const templateList = document.getElementById("add-agent-template-list");
     if (!list) return;
     const templates = state.agentTemplates || [];
-    list.innerHTML = templates.map((template) => {
-      const suffix = template.builtin ? " — Installed" : (template.registerable ? " — Configure" : " — Coming later");
-      const disabled = !template.registerable && !template.builtin;
-      return `
-        <button
-          class="btn ${template.registerable ? "primary" : ""}"
-          type="button"
-          data-template-adapter="${escapeHtml(template.adapter)}"
-          data-template-registerable="${template.registerable ? "1" : "0"}"
-          data-template-builtin="${template.builtin ? "1" : "0"}"
-          ${disabled ? "disabled" : ""}
-          style="justify-content:flex-start; text-align:left; width:100%;"
-        >
-          ${escapeHtml(template.label || template.adapter)}${escapeHtml(suffix)}
-        </button>
-      `;
-    }).join("");
-    list.querySelectorAll("[data-template-adapter]").forEach((button) => {
+    const julesTemplate = templates.find((template) => template.adapter === "jules_remote");
+    const remoteRegisterable = !!(julesTemplate && julesTemplate.registerable);
+    list.innerHTML = `
+      <button class="btn" type="button" data-add-category="captain_profile" style="justify-content:flex-start; text-align:left; width:100%;">
+        Add Captain profile — Choose instruction profile on Agents
+      </button>
+      <button class="btn" type="button" data-add-category="cli_agent" disabled style="justify-content:flex-start; text-align:left; width:100%;">
+        Add CLI agent — Planned
+      </button>
+      <div class="add-agent-category-block">
+        <div class="add-agent-category-label">Add Remote agent</div>
+        <div id="add-agent-remote-options" data-testid="add-agent-remote-options" style="display:flex; flex-direction:column; gap:8px;"></div>
+      </div>
+      <button class="btn" type="button" data-add-category="research_agent" disabled style="justify-content:flex-start; text-align:left; width:100%;">
+        Add Read-only research agent — Planned
+      </button>
+    `;
+    const remoteOptions = document.getElementById("add-agent-remote-options");
+    if (remoteOptions) {
+      remoteOptions.innerHTML = templates.filter((template) => template.kind === "remote" || template.adapter === "jules_remote").map((template) => {
+        const suffix = template.registerable ? "" : " — Planned";
+        const disabled = !template.registerable;
+        return `
+          <button
+            class="btn ${template.registerable ? "primary" : ""}"
+            type="button"
+            data-template-adapter="${escapeHtml(template.adapter)}"
+            data-template-registerable="${template.registerable ? "1" : "0"}"
+            data-template-builtin="${template.builtin ? "1" : "0"}"
+            ${disabled ? "disabled" : ""}
+            style="justify-content:flex-start; text-align:left; width:100%;"
+          >
+            ${escapeHtml(template.label || template.adapter)}${escapeHtml(suffix)}
+          </button>
+        `;
+      }).join("") || `<button class="btn" type="button" disabled style="width:100%;">No remote adapters available</button>`;
+      remoteOptions.querySelectorAll("[data-template-adapter]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const adapter = button.getAttribute("data-template-adapter") || "";
+          const registerable = button.getAttribute("data-template-registerable") === "1";
+          if (!registerable) return;
+          state.addAgent.templateAdapter = adapter;
+          showAddAgentConfigStep();
+        });
+      });
+    }
+    if (templateList) templateList.innerHTML = "";
+    list.querySelectorAll("[data-add-category]").forEach((button) => {
       button.addEventListener("click", () => {
-        const adapter = button.getAttribute("data-template-adapter") || "";
-        const registerable = button.getAttribute("data-template-registerable") === "1";
-        const builtin = button.getAttribute("data-template-builtin") === "1";
-        if (builtin) {
-          const err = document.getElementById("add-agent-error");
-          if (err) {
-            err.textContent = "Codex CLI is built-in and already installed.";
-            err.style.display = "block";
-          }
-          return;
+        const category = button.getAttribute("data-add-category");
+        if (category === "captain_profile") {
+          closeAddAgentModal();
+          navigateToCaptainAgents({ highlightProfile: true });
         }
-        if (!registerable) return;
-        state.addAgent.templateAdapter = adapter;
-        showAddAgentConfigStep();
       });
     });
+  }
+
+  function renderAddAgentTemplateList() {
+    renderAddAgentCategoryList();
   }
 
   function showAddAgentChooseStep() {
@@ -2103,8 +2279,13 @@
       const installed = !!codex.installed || codex.status === "ready" || codex.status === "disabled";
       const tmuxF = !!state.health.tmux_runner_enabled;
       const codexF = !!state.health.codex_runner_enabled;
-      if (codex.status === "ready" || (installed && tmuxF && codexF)) {
+      const working = codex.status === "working";
+      if (working) {
+        setCodexStatusPill({ ready: true, label: "WORKING" });
+      } else if (codex.status === "ready" || (installed && tmuxF && codexF)) {
         setCodexStatusPill({ ready: true, label: "READY" });
+      } else if (codex.status === "error") {
+        setCodexStatusPill({ disabled: true, label: "ERROR" });
       } else if (installed) {
         setCodexStatusPill({ disabled: true, label: "DISABLED" });
       } else {
@@ -2174,6 +2355,7 @@
   function closeSetupModals() {
     closeUseAgentModal();
     closeCaptainDeckModal();
+    closeCaptainProfileModal();
     closeAddAgentModal();
   }
 
@@ -2464,6 +2646,59 @@
     if (configureCaptain) {
       configureCaptain.addEventListener("click", () => {
         openCaptainDeckModal().catch((e) => console.error(e));
+      });
+    }
+    const settingsCaptainAgentsLink = document.getElementById("settings-captain-agents-link");
+    if (settingsCaptainAgentsLink) {
+      settingsCaptainAgentsLink.addEventListener("click", () => navigateToCaptainAgents());
+    }
+    const captainConfigureBtn = document.getElementById("captain-configure-btn");
+    if (captainConfigureBtn) {
+      captainConfigureBtn.addEventListener("click", () => {
+        openCaptainDeckModal().catch((e) => console.error(e));
+      });
+    }
+    const captainViewInstructionsBtn = document.getElementById("captain-view-instructions-btn");
+    if (captainViewInstructionsBtn) {
+      captainViewInstructionsBtn.addEventListener("click", () => {
+        openCaptainProfileModal().catch((e) => console.error(e));
+      });
+    }
+    const captainEditProfileBtn = document.getElementById("captain-edit-profile-btn");
+    if (captainEditProfileBtn) {
+      captainEditProfileBtn.addEventListener("click", () => navigateToCaptainAgents({ highlightProfile: true }));
+    }
+    const captainProfileSelect = document.getElementById("captain-profile-select");
+    if (captainProfileSelect) {
+      captainProfileSelect.addEventListener("change", () => {
+        state.captainProfile.selectedId = captainProfileSelect.value || "captain-default";
+        renderCaptainProfilePanel().catch((e) => console.error(e));
+      });
+    }
+    const captainViewProfileMd = document.getElementById("captain-view-profile-md");
+    if (captainViewProfileMd) {
+      captainViewProfileMd.addEventListener("click", () => {
+        openCaptainProfileModal().catch((e) => console.error(e));
+      });
+    }
+    const captainCopyProfile = document.getElementById("captain-copy-profile");
+    if (captainCopyProfile) {
+      captainCopyProfile.addEventListener("click", () => {
+        copyCaptainProfileInstructions().catch((e) => console.error(e));
+      });
+    }
+    const captainUseProfile = document.getElementById("captain-use-profile");
+    if (captainUseProfile) {
+      captainUseProfile.addEventListener("click", useCaptainProfileSelection);
+    }
+    const captainProfileModalClose = document.getElementById("captain-profile-modal-close");
+    if (captainProfileModalClose) {
+      captainProfileModalClose.addEventListener("click", closeCaptainProfileModal);
+    }
+    const captainProfileModal = document.getElementById("captain-profile-modal");
+    if (captainProfileModal) {
+      captainProfileModal.addEventListener("click", (e) => {
+        if (e.target === captainProfileModal) closeCaptainProfileModal();
       });
     }
     const runDetailClose = document.getElementById("run-detail-close");

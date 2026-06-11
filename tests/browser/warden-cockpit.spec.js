@@ -101,8 +101,8 @@ function idleMissionSnapshot(overrides = {}) {
     agents: {
       summary: {},
       items: [
-        { id: "codex_cli", name: "Codex CLI", status: "disabled", mode: "disabled", runnable: false },
-        { id: "captain", name: "Captain", status: "not_configured", mode: "orchestrator", runnable: false },
+        { id: "captain", name: "Captain", kind: "orchestrator", status: "not_configured", mode: "orchestrator", runnable: false },
+        { id: "codex_cli", name: "Codex CLI", kind: "cli", status: "disabled", mode: "disabled", runnable: false },
       ],
     },
     safety: {
@@ -379,26 +379,30 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await page.locator("[data-testid='nav-evidence']").click();
   await expect(page.locator("[data-testid='evidence-empty-state']")).toContainText("Saved outputs");
   await page.locator("[data-testid='nav-settings']").click();
-  await expect(page.locator("[data-testid='settings-captain-status']")).toContainText("Captain:");
+  await expect(page.locator("[data-testid='settings-captain-status']")).toContainText("Captain ·");
   await expect(page.locator("[data-testid='settings-public-runner']")).toContainText("Public runner — Off");
   await expect(page.locator("[data-testid='settings-private-runner']")).toContainText("Private runner");
   await expect(page.locator("[data-testid='settings-shell-input']")).toContainText("Shell access — Restricted");
-  await expect(page.locator("[data-testid='settings-agent-registration']")).toContainText("Agent registration:");
+  await expect(page.locator("[data-testid='settings-agent-registration']")).toContainText("Agent registration");
   await expect(page.locator("text=SERVER CONTROL PLANE")).toHaveCount(0);
   await expect(page.locator("text=Advanced / Legacy Cockpit")).toHaveCount(0);
   await page.locator("[data-testid='nav-agents']").click();
-  await expect(page.locator("text=Agent Library")).toBeVisible();
+  await expect(page.locator("[data-testid='warden-section-agents'] .workspace-title")).toHaveText("Agents");
   await expect(page.locator("[data-testid='operator-inspector']")).toBeVisible();
-  await expect(page.locator("[data-testid='agent-group-ready']")).toBeVisible();
-  await expect(page.locator("[data-testid='agent-group-ready']")).toContainText("Ready to Run");
+  await expect(page.locator("[data-testid='agent-group-captain']")).toBeVisible();
+  await expect(page.locator("[data-testid='captain-agent-card']")).toContainText("Captain");
+  await expect(page.locator("[data-testid='captain-agent-card']")).toContainText("Orchestrator");
+  await expect(page.locator("[data-testid='captain-profile-panel']")).toBeVisible();
+  await expect(page.locator("[data-testid='agent-group-cli']")).toBeVisible();
+  await expect(page.locator("[data-testid='agent-group-cli']")).toContainText("CLI Agents");
   await expect(page.locator("#codex-card")).toBeVisible();
   await expect(page.locator("#codex-card")).toContainText("Codex CLI");
-  await expect(page.locator("#codex-card")).toContainText("Run live coding tasks through Warden");
+  await expect(page.locator("#codex-card")).toContainText("Private runner only");
   await expect(page.locator("#codex-card").getByRole("button", { name: "Use Agent" })).toBeVisible();
   await expect(page.locator("#codex-card").getByRole("button", { name: "View Agent" })).toBeVisible();
   await expect(page.locator("[data-testid='agent-library-cards']")).not.toContainText("Open Live Monitor");
   await expect(page.getByRole("button", { name: "Add Agent" })).toBeVisible();
-  await expect(page.locator("[data-testid='add-agent-help']")).toContainText("configuration and connection checks");
+  await expect(page.locator("[data-testid='add-agent-help']")).toContainText("Agent additions are adapter-based");
 
   await page.locator("[data-testid='view-agent-codex']").click();
   const viewMon = page.locator("#live-cli-modal");
@@ -1001,7 +1005,7 @@ test("private runner quick replies send allowed keys and refresh transcript", as
 
   await page.goto("http://127.0.0.1:8125/web/warden/index.html");
   await page.locator("[data-testid='nav-agents']").click();
-  await expect(page.locator("text=Agent Library")).toBeVisible();
+  await expect(page.locator("[data-testid='warden-section-agents'] .workspace-title")).toHaveText("Agents");
 
   await page.getByRole("button", { name: "Use Agent" }).click();
   const useModal = page.locator("#use-agent-modal");
@@ -1742,8 +1746,8 @@ test("Agent Registry configure flow and Captain dropdown use registered agents",
   await expect(page.locator("h1")).toContainText("Warden");
   await expect(page.locator("[data-testid='nav-mission']")).toHaveClass(/active/);
   await page.locator("[data-testid='nav-agents']").click();
-  await expect(page.locator("text=Agent Library")).toBeVisible();
-  await expect(page.locator("[data-testid='agent-group-ready']")).toContainText("Ready to Run");
+  await expect(page.locator("[data-testid='warden-section-agents'] .workspace-title")).toHaveText("Agents");
+  await expect(page.locator("[data-testid='agent-group-cli']")).toContainText("CLI Agents");
   await expect(page.locator("#codex-card")).toContainText("Codex CLI");
   await expect(page.getByRole("button", { name: "Add Agent" })).toBeVisible();
   await expect(page.locator("input[type='text'][placeholder*='shell'], textarea[placeholder*='shell']")).toHaveCount(0);
@@ -1752,10 +1756,11 @@ test("Agent Registry configure flow and Captain dropdown use registered agents",
   const addModal = page.locator("#add-agent-modal");
   await expect(addModal).toBeVisible();
   await expect(addModal.locator("[data-testid='add-agent-step-choose']")).toBeVisible();
-  await expect(addModal.locator("button[data-template-adapter='jules_remote']")).toBeVisible();
-  await expect(addModal.locator("button[data-template-adapter='custom_cli']")).toBeDisabled();
+  await expect(addModal.locator("[data-testid='add-agent-category-list']")).toContainText("Add Captain profile");
+  await expect(addModal.locator("[data-testid='add-agent-remote-options'] button[data-template-adapter='jules_remote']")).toBeVisible();
+  await expect(addModal.locator("button[data-template-adapter='custom_cli']")).toHaveCount(0);
 
-  await addModal.locator("button[data-template-adapter='jules_remote']").click();
+  await addModal.locator("[data-testid='add-agent-remote-options'] button[data-template-adapter='jules_remote']").click();
   await expect(addModal.locator("[data-testid='add-agent-step-config']")).toBeVisible();
   await expect(addModal.locator("[data-testid='add-agent-api-key']")).toHaveAttribute("type", "password");
   await expect(addModal.locator("[data-testid='add-agent-test']")).toBeVisible();
@@ -1775,10 +1780,10 @@ test("Agent Registry configure flow and Captain dropdown use registered agents",
   await expect(agentPostCalls[0].adapter).toBe("jules_remote");
   await expect(agentPostCalls[0].api_key).toBe("test-jules-key");
   await expect(addModal.locator("[data-testid='add-agent-api-key']")).toHaveValue("");
-  await expect(page.locator("[data-testid='agent-group-connected']")).toBeVisible();
-  await expect(page.locator("[data-testid='agent-group-connected']")).toContainText("Connected / Setup Complete");
+  await expect(page.locator("[data-testid='agent-group-remote']")).toBeVisible();
+  await expect(page.locator("[data-testid='agent-group-remote']")).toContainText("Remote Agents");
   await expect(page.locator(".registered-agent-card")).toContainText("Jules Remote Worker");
-  await expect(page.locator(".registered-agent-card")).toContainText("Connected for planning and status. Remote execution comes next.");
+  await expect(page.locator(".registered-agent-card")).toContainText("Not executable from Warden yet");
   await expect(page.locator(".registered-agent-card button", { hasText: "Use Agent" })).toHaveCount(0);
   await expect(page.locator(".registered-agent-card button", { hasText: "Edit Config" })).toBeVisible();
   const julesView = page.locator(".registered-agent-card [data-testid='view-agent-jules']");

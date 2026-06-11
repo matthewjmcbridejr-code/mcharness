@@ -47,9 +47,9 @@
     agents: {
       summary: { ready: 2, working: 1, idle: 0 },
       items: [
-        { id: "codex_cli", name: "Codex CLI", status: "working", mode: "execution", runnable: true },
-        { id: "jules_remote", name: "Jules Remote", status: "ready", mode: "planning_only", runnable: false },
-        { id: "captain", name: "Captain", status: "ready", mode: "orchestrator", runnable: true },
+        { id: "captain", name: "Captain", kind: "orchestrator", status: "ready", mode: "orchestrator", runnable: false },
+        { id: "codex_cli", name: "Codex CLI", kind: "cli", status: "working", mode: "execution", runnable: true },
+        { id: "jules_remote", name: "Jules Remote", kind: "remote", status: "ready", mode: "planning_only", runnable: false },
       ],
     },
     safety: {
@@ -501,14 +501,44 @@
     `;
   }
 
+  function railAgentTypeLabel(agent) {
+    const id = String(agent.id || "");
+    const kind = String(agent.kind || "").toLowerCase();
+    const mode = String(agent.mode || "").toLowerCase();
+    if (id === "captain" || kind === "orchestrator" || mode === "orchestrator") return "Orchestrator";
+    if (id === "codex_cli" || kind === "cli") return "CLI Agent";
+    if (kind === "remote" || mode === "planning_only") return "Remote · Planning only";
+    return kind || "Agent";
+  }
+
+  function railAgentStatusLabel(agent) {
+    const mode = String(agent.mode || "").toLowerCase();
+    if (mode === "planning_only") return "Planning only";
+    if (agent.id === "captain") return agent.status === "ready" ? "Configured" : "Not configured";
+    return agent.status || "idle";
+  }
+
+  function sortRailAgents(items) {
+    const order = { captain: 0, codex_cli: 1 };
+    return [...items].sort((a, b) => {
+      const aRank = Object.prototype.hasOwnProperty.call(order, a.id) ? order[a.id] : 2;
+      const bRank = Object.prototype.hasOwnProperty.call(order, b.id) ? order[b.id] : 2;
+      if (aRank !== bRank) return aRank - bRank;
+      return String(a.name || a.id).localeCompare(String(b.name || b.id));
+    });
+  }
+
   function renderRailAgents() {
     const host = document.getElementById("rail-connected-agents");
     if (!host) return;
-    const items = (crState.snapshot && crState.snapshot.agents && crState.snapshot.agents.items) || [];
+    const items = sortRailAgents((crState.snapshot && crState.snapshot.agents && crState.snapshot.agents.items) || []);
     host.innerHTML = items.map((agent) => `
       <div class="rail-agent-row" data-testid="rail-agent-row">
-        <span class="rail-agent-name">${escapeHtml(agent.name || agent.id)}</span>
-        <span class="status-pill ${statusChipClass(agent.status || agent.mode)}">${escapeHtml(agent.mode === "planning_only" ? "Planning only" : (agent.status || "idle"))}</span>
+        <div class="rail-agent-copy">
+          <span class="rail-agent-name">${escapeHtml(agent.name || agent.id)}</span>
+          <span class="rail-agent-type muted">${escapeHtml(railAgentTypeLabel(agent))}</span>
+        </div>
+        <span class="status-pill ${statusChipClass(agent.status || agent.mode)}">${escapeHtml(railAgentStatusLabel(agent))}</span>
       </div>
     `).join("") || '<div class="muted">No agents loaded</div>';
   }
