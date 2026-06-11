@@ -227,23 +227,30 @@
     if (laneSel && deck.laneId && laneSel.value !== deck.laneId) laneSel.value = deck.laneId;
 
     if (noteEl) {
-      noteEl.textContent = deck.configured
-        ? `Captain is configured. Model: ${deck.model}`
-        : "Captain is not configured. Set OPENROUTER_API_KEY on the private service.";
-      noteEl.style.display = "block";
+      if (deck.configured) {
+        noteEl.textContent = "";
+        noteEl.style.display = "none";
+      } else {
+        noteEl.textContent = "Not configured. Set OpenRouter key on the private service.";
+        noteEl.style.display = "block";
+      }
     }
     if (settingsStatusEl) {
       settingsStatusEl.textContent = `Status: ${deck.configured ? "Configured" : "Not configured"} • Key source: ${deck.keySource || "missing"} • Model: ${deck.model || "openrouter/auto"}`;
     }
     if (settingsNoteEl) {
-      if (!deck.privateKeySetupEnabled) {
-        settingsNoteEl.textContent = "Captain key setup is available only on the private service.";
+      if (!deck.privateKeySetupEnabled && !deck.configured) {
+        settingsNoteEl.textContent = "Key setup is private-service only.";
+        settingsNoteEl.style.display = "block";
       } else if (deck.keySource === "env") {
-        settingsNoteEl.textContent = "Captain is configured via environment on this service. Saved keys cannot override it.";
-      } else if (deck.keySource === "saved") {
-        settingsNoteEl.textContent = "Captain is configured via a saved private key on this service.";
+        settingsNoteEl.textContent = "";
+        settingsNoteEl.style.display = "none";
+      } else if (!deck.configured && deck.privateKeySetupEnabled) {
+        settingsNoteEl.textContent = "Set an OpenRouter key to enable planning.";
+        settingsNoteEl.style.display = "block";
       } else {
-        settingsNoteEl.textContent = "Set an OpenRouter key to enable Captain planning on the private service.";
+        settingsNoteEl.textContent = "";
+        settingsNoteEl.style.display = "none";
       }
     }
     if (keyFormEl) {
@@ -1737,19 +1744,18 @@
   function remoteAgentCardCopy(agent) {
     if (agent.adapter === "jules_remote") {
       const connected = agent.connection_status === "connected" && agent.status === "ready";
+      const disabled = agent.status === "disabled" || agent.enabled === false;
       return {
-        pillLabel: connected ? "CONNECTED" : agent.status === "disabled" ? "DISABLED" : "PLANNING ONLY",
-        pillClass: connected ? "status-connected" : agent.status === "disabled" ? "status-disabled" : "status-coming",
-        mode: "Planning + status only",
-        notExecutable: true,
+        pillLabel: disabled ? "DISABLED" : connected ? "CONNECTED" : "PLANNING ONLY",
+        pillClass: disabled ? "status-disabled" : connected ? "status-connected" : "status-coming",
+        mode: "Not executable",
       };
     }
     const status = agentStatusLabel(agent);
     return {
       pillLabel: status === "connected" ? "CONNECTED" : "PLANNING ONLY",
       pillClass: status === "connected" ? "status-connected" : "status-coming",
-      mode: "Planning + status only",
-      notExecutable: true,
+      mode: "Not executable",
     };
   }
 
@@ -1778,8 +1784,8 @@
     if (empty) empty.style.display = "none";
     container.innerHTML = registered.map((agent) => {
       const copy = remoteAgentCardCopy(agent);
-      const displayName = agent.adapter === "jules_remote" ? (agent.name || "Jules Remote") : (agent.name || agent.id);
-      const showEdit = agent.adapter === "jules_remote";
+      const displayName = agent.adapter === "jules_remote" ? "Jules Remote" : (agent.name || agent.id);
+      const showConfig = agent.adapter === "jules_remote";
       return `
         <div class="agent-card registered-agent-card remote-agent-card" data-agent-id="${escapeHtml(agent.id)}">
           <div class="agent-card-top">
@@ -1790,15 +1796,9 @@
             <span class="agent-type-label">Type: Remote Agent</span>
             <span class="agent-mode-label">Mode: ${escapeHtml(copy.mode)}</span>
           </div>
-          ${copy.notExecutable ? '<p class="agent-remote-note">Not executable from Warden yet.</p>' : ""}
-          <ul class="agent-capability-list">
-            <li>Planning</li>
-            <li>Review</li>
-            <li>Status reports</li>
-          </ul>
+          <p class="agent-card-copy">Planning and status only.</p>
           <div class="agent-card-actions">
-            ${agent.adapter === "jules_remote" ? `<a class="btn view-agent-link" href="${JULES_VIEW_URL}" target="_blank" rel="noopener noreferrer" title="Open Jules remote agent workspace" aria-label="View Agent — open Jules remote agent workspace" data-testid="view-agent-jules">View Agent</a>` : ""}
-            ${showEdit ? `<button class="btn" type="button" data-edit-agent-id="${escapeHtml(agent.id)}">Edit Config</button>` : ""}
+            ${showConfig ? `<button class="btn" type="button" data-edit-agent-id="${escapeHtml(agent.id)}" data-testid="view-config-jules">View Config</button>` : ""}
             <button class="btn bad" type="button" data-remove-agent-id="${escapeHtml(agent.id)}">Remove</button>
           </div>
         </div>
@@ -1815,9 +1815,6 @@
         const agentId = button.getAttribute("data-edit-agent-id");
         if (agentId) openEditAgentModal(agentId).catch((e) => console.error(e));
       });
-    });
-    container.querySelectorAll("[data-use-agent-id]").forEach((button) => {
-      button.addEventListener("click", () => openUseAgentModal());
     });
     renderSettingsPanel();
   }
@@ -1869,17 +1866,17 @@
     const remoteRegisterable = !!(julesTemplate && julesTemplate.registerable);
     list.innerHTML = `
       <button class="btn" type="button" data-add-category="captain_profile" style="justify-content:flex-start; text-align:left; width:100%;">
-        Add Captain profile — Choose instruction profile on Agents
+        Captain profile
       </button>
       <button class="btn" type="button" data-add-category="cli_agent" disabled style="justify-content:flex-start; text-align:left; width:100%;">
-        Add CLI agent — Planned
+        CLI agent — Planned
       </button>
       <div class="add-agent-category-block">
-        <div class="add-agent-category-label">Add Remote agent</div>
+        <div class="add-agent-category-label">Remote agent</div>
         <div id="add-agent-remote-options" data-testid="add-agent-remote-options" style="display:flex; flex-direction:column; gap:8px;"></div>
       </div>
       <button class="btn" type="button" data-add-category="research_agent" disabled style="justify-content:flex-start; text-align:left; width:100%;">
-        Add Read-only research agent — Planned
+        Research agent — Planned
       </button>
     `;
     const remoteOptions = document.getElementById("add-agent-remote-options");
@@ -2658,15 +2655,11 @@
         openCaptainDeckModal().catch((e) => console.error(e));
       });
     }
-    const captainViewInstructionsBtn = document.getElementById("captain-view-instructions-btn");
-    if (captainViewInstructionsBtn) {
-      captainViewInstructionsBtn.addEventListener("click", () => {
+    const captainInstructionsBtn = document.getElementById("captain-instructions-btn");
+    if (captainInstructionsBtn) {
+      captainInstructionsBtn.addEventListener("click", () => {
         openCaptainProfileModal().catch((e) => console.error(e));
       });
-    }
-    const captainEditProfileBtn = document.getElementById("captain-edit-profile-btn");
-    if (captainEditProfileBtn) {
-      captainEditProfileBtn.addEventListener("click", () => navigateToCaptainAgents({ highlightProfile: true }));
     }
     const captainProfileSelect = document.getElementById("captain-profile-select");
     if (captainProfileSelect) {
@@ -2738,18 +2731,32 @@
     wireDevelopPlanButtons();
     wireWorkspaceNav();
 
-    // Use Agent
-    const useBtn = document.getElementById("use-codex-btn");
-    if (useBtn) useBtn.addEventListener("click", openUseAgentModal);
-
     const useCodexDirectly = document.getElementById("use-codex-directly");
     if (useCodexDirectly) useCodexDirectly.addEventListener("click", openUseAgentModal);
 
     const inspectorViewCodex = document.getElementById("inspector-view-codex");
     if (inspectorViewCodex) inspectorViewCodex.addEventListener("click", openLiveCLIMonitor);
 
-    const viewCodexBtn = document.getElementById("view-agent-codex-btn");
-    if (viewCodexBtn) viewCodexBtn.addEventListener("click", openLiveCLIMonitor);
+    const codexOpenMonitor = document.getElementById("codex-open-monitor-btn");
+    if (codexOpenMonitor) codexOpenMonitor.addEventListener("click", openLiveCLIMonitor);
+
+    const codexConfigure = document.getElementById("codex-configure-btn");
+    if (codexConfigure) codexConfigure.addEventListener("click", () => setActiveSection("settings"));
+
+    const codexViewRuns = document.getElementById("codex-view-runs-btn");
+    if (codexViewRuns) {
+      codexViewRuns.addEventListener("click", () => {
+        setActiveSection("runs");
+        loadRecentRuns().catch((e) => console.error(e));
+      });
+    }
+
+    const captainCreatePlanBtn = document.getElementById("captain-create-plan-btn");
+    if (captainCreatePlanBtn) {
+      captainCreatePlanBtn.addEventListener("click", () => {
+        openCaptainDeckModal().catch((e) => console.error(e));
+      });
+    }
 
     const refreshAgentStatus = document.getElementById("refresh-agent-status");
     if (refreshAgentStatus) {
@@ -2956,7 +2963,7 @@
   }
 
   // expose a couple for console/manual if needed
-  window.McHarnessSimple = { deployPrompt, openLiveCLIMonitor, refreshLiveMonitor };
+  window.McHarnessSimple = { deployPrompt, openUseAgentModal, openLiveCLIMonitor, refreshLiveMonitor };
   window.WardenApp = { setActiveSection, openCaptainDeckModal, openLiveCLIMonitor };
 
   // boot

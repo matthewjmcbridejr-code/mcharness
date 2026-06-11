@@ -397,14 +397,17 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await expect(page.locator("[data-testid='agent-group-cli']")).toContainText("CLI Agents");
   await expect(page.locator("#codex-card")).toBeVisible();
   await expect(page.locator("#codex-card")).toContainText("Codex CLI");
-  await expect(page.locator("#codex-card")).toContainText("Private runner only");
-  await expect(page.locator("#codex-card").getByRole("button", { name: "Use Agent" })).toBeVisible();
-  await expect(page.locator("#codex-card").getByRole("button", { name: "View Agent" })).toBeVisible();
-  await expect(page.locator("[data-testid='agent-library-cards']")).not.toContainText("Open Live Monitor");
+  await expect(page.locator("#codex-card")).toContainText("Private runner");
+  await expect(page.locator("#codex-card")).toContainText("Executes approved CLI tasks");
+  await expect(page.locator("#codex-card").getByRole("button", { name: "Open Monitor" })).toBeVisible();
+  await expect(page.locator("#codex-card").getByRole("button", { name: "Configure" })).toBeVisible();
+  await expect(page.locator("#codex-card").getByRole("button", { name: "Develop Plan" })).toHaveCount(0);
+  await expect(page.locator("#codex-card").getByRole("button", { name: "Use Agent" })).toHaveCount(0);
+  await expect(page.locator("[data-testid='captain-agent-card']").getByRole("button", { name: "Create Plan" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add Agent" })).toBeVisible();
-  await expect(page.locator("[data-testid='add-agent-help']")).toContainText("Agent additions are adapter-based");
+  await expect(page.locator("[data-testid='add-agent-help']")).toContainText("New agents require an adapter");
 
-  await page.locator("[data-testid='view-agent-codex']").click();
+  await page.locator("[data-testid='codex-open-monitor']").click();
   const viewMon = page.locator("#live-cli-modal");
   await expect(viewMon).toBeVisible();
   await expect(viewMon).toContainText("Codex Live Monitor");
@@ -415,27 +418,27 @@ test("proves the minimal Agent Library + Codex flow (SIMPLE MODE)", async ({ pag
   await page.locator("[data-testid='develop-plan-hero']").click();
   const captainModal = page.locator("#captain-deck-modal");
   await expect(captainModal).toBeVisible();
-  await expect(captainModal.locator("#captain-config-note")).toContainText("Captain is not configured. Set OPENROUTER_API_KEY on the private service.");
+  await expect(captainModal.locator("#captain-config-note")).toContainText("Not configured");
   await expect(captainModal.locator("[data-testid='captain-settings-status']")).toContainText("Not configured");
-  await expect(captainModal.locator("[data-testid='captain-settings-note']")).toContainText("Captain key setup is available only on the private service.");
+  await expect(captainModal.locator("[data-testid='captain-settings-note']")).toContainText("Key setup is private-service only");
   await expect(captainModal.locator("[data-testid='captain-set-key']")).toBeDisabled();
   await expect(captainModal.locator("#captain-create-plan")).toBeDisabled();
   await captainModal.locator("#captain-close").click();
   await expect(captainModal).not.toBeVisible();
 
-  // Use Agent opens modal with required fields
+  // Captain Create Plan opens Captain modal
   await page.locator("[data-testid='nav-agents']").click();
-  await page.getByRole("button", { name: "Use Agent" }).click();
-  const useModal = page.locator("#use-agent-modal");
-  await expect(useModal).toBeVisible();
-  await expect(useModal.locator("text=Use Codex CLI")).toBeVisible();
-  await expect(useModal.locator("#modal-repo-select")).toBeVisible();
-  await expect(useModal.locator("#modal-task-title")).toBeVisible();
-  await expect(useModal.locator("#modal-prompt")).toBeVisible();
-  await expect(useModal.locator("#deploy-prompt-btn")).toBeVisible();
-  await expect(useModal.locator("text=Cancel")).toBeVisible();
+  await page.locator("[data-testid='captain-create-plan-btn']").click();
+  const captainFromAgents = page.locator("#captain-deck-modal");
+  await expect(captainFromAgents).toBeVisible();
+  await expect(captainFromAgents.locator("[data-testid='captain-deck-title']")).toHaveText("Captain");
+  await captainFromAgents.locator("#captain-close").click();
+  await expect(captainFromAgents).not.toBeVisible();
 
   // Deploy (public disabled path) shows clear message, no arbitrary input
+  await page.evaluate(() => window.McHarnessSimple.openUseAgentModal());
+  const useModal = page.locator("#use-agent-modal");
+  await expect(useModal).toBeVisible();
   await useModal.locator("#modal-task-title").fill("Test task for codex");
   await useModal.locator("#modal-prompt").fill("Print exactly: MCHARNESS_SIMPLE_MODE_PROOF_LINE");
   await useModal.locator("#deploy-prompt-btn").click();
@@ -1007,7 +1010,7 @@ test("private runner quick replies send allowed keys and refresh transcript", as
   await page.locator("[data-testid='nav-agents']").click();
   await expect(page.locator("[data-testid='warden-section-agents'] .workspace-title")).toHaveText("Agents");
 
-  await page.getByRole("button", { name: "Use Agent" }).click();
+  await page.evaluate(() => window.McHarnessSimple.openUseAgentModal());
   const useModal = page.locator("#use-agent-modal");
   await expect(useModal).toBeVisible();
   await useModal.locator("#modal-task-title").fill("Private quick reply smoke");
@@ -1756,7 +1759,7 @@ test("Agent Registry configure flow and Captain dropdown use registered agents",
   const addModal = page.locator("#add-agent-modal");
   await expect(addModal).toBeVisible();
   await expect(addModal.locator("[data-testid='add-agent-step-choose']")).toBeVisible();
-  await expect(addModal.locator("[data-testid='add-agent-category-list']")).toContainText("Add Captain profile");
+  await expect(addModal.locator("[data-testid='add-agent-category-list']")).toContainText("Captain profile");
   await expect(addModal.locator("[data-testid='add-agent-remote-options'] button[data-template-adapter='jules_remote']")).toBeVisible();
   await expect(addModal.locator("button[data-template-adapter='custom_cli']")).toHaveCount(0);
 
@@ -1782,16 +1785,12 @@ test("Agent Registry configure flow and Captain dropdown use registered agents",
   await expect(addModal.locator("[data-testid='add-agent-api-key']")).toHaveValue("");
   await expect(page.locator("[data-testid='agent-group-remote']")).toBeVisible();
   await expect(page.locator("[data-testid='agent-group-remote']")).toContainText("Remote Agents");
-  await expect(page.locator(".registered-agent-card")).toContainText("Jules Remote Worker");
-  await expect(page.locator(".registered-agent-card")).toContainText("Not executable from Warden yet");
+  await expect(page.locator(".registered-agent-card")).toContainText("Jules Remote");
+  await expect(page.locator(".registered-agent-card")).toContainText("Planning and status only");
+  await expect(page.locator(".registered-agent-card")).toContainText("Not executable");
   await expect(page.locator(".registered-agent-card button", { hasText: "Use Agent" })).toHaveCount(0);
-  await expect(page.locator(".registered-agent-card button", { hasText: "Edit Config" })).toBeVisible();
-  const julesView = page.locator(".registered-agent-card [data-testid='view-agent-jules']");
-  await expect(julesView).toBeVisible();
-  await expect(julesView).toHaveAttribute("href", "https://jules.google.com/session");
-  await expect(julesView).toHaveAttribute("target", "_blank");
-  await expect(julesView).toHaveAttribute("rel", "noopener noreferrer");
-  await expect(julesView).toHaveAttribute("title", "Open Jules remote agent workspace");
+  await expect(page.locator(".registered-agent-card button", { hasText: "View Config" })).toBeVisible();
+  await expect(page.locator(".registered-agent-card [data-testid='view-agent-jules']")).toHaveCount(0);
   await expect(page.evaluate(() => window.__storageWrites || [])).resolves.toEqual([]);
 
   await page.locator("[data-testid='develop-plan-primary']").click();
@@ -2070,7 +2069,7 @@ test("run history and evidence appear after private Codex dispatch", async ({ pa
   await expect(page.locator("[data-testid='runs-empty-state']")).toBeVisible();
 
   await page.locator("[data-testid='nav-agents']").click();
-  await page.getByRole("button", { name: "Use Agent" }).click();
+  await page.evaluate(() => window.McHarnessSimple.openUseAgentModal());
   const useModal = page.locator("#use-agent-modal");
   await useModal.locator("#modal-task-title").fill("History smoke");
   await useModal.locator("#modal-prompt").fill("Capture run history after dispatch.");
@@ -2091,7 +2090,7 @@ test("run history and evidence appear after private Codex dispatch", async ({ pa
   await runModal.locator("[data-testid='run-detail-close']").click();
 
   await page.locator("[data-testid='nav-agents']").click();
-  await page.locator("[data-testid='view-agent-codex']").click();
+  await page.locator("[data-testid='codex-open-monitor']").click();
   await page.locator("[data-testid='modal-save-evidence']").click();
   await expect(page.locator("[data-testid='quick-reply-status']")).toContainText("Transcript saved as evidence");
   await liveModal.locator("[data-testid='modal-close']").click();

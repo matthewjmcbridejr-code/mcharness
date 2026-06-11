@@ -173,7 +173,7 @@
           <section class="agent-group" data-testid="agent-group-captain">
             <div class="agent-group-header">
               <h3 class="agent-group-title">Captain</h3>
-              <p class="agent-group-subtitle">Plans missions, assigns work, tracks proof, and waits for human approval.</p>
+              <p class="agent-group-subtitle">Plans missions, assigns work, and waits for approval.</p>
             </div>
             <div class="agent-group-cards">
               <div id="captain-agent-card" data-testid="captain-agent-card" class="agent-card agent-card-orchestrator">
@@ -186,29 +186,21 @@
                   <span id="captain-agent-model" data-testid="captain-agent-model" class="agent-card-meta"></span>
                   <span id="captain-agent-profile-label" data-testid="captain-agent-profile-label" class="agent-card-meta"></span>
                 </div>
-                <p class="agent-orchestrator-note" data-testid="captain-orchestrator-note">Not an execution runner — plans and assigns work only.</p>
-                <ul class="agent-capability-list" data-testid="captain-agent-capabilities">
-                  <li>Plan missions</li>
-                  <li>Assign agents</li>
-                  <li>Track proof gates</li>
-                  <li>Summarize evidence</li>
-                  <li>Wait for human approval</li>
-                </ul>
                 <div id="captain-profile-panel" data-testid="captain-profile-panel" class="captain-profile-panel">
                   <label for="captain-profile-select" class="captain-profile-label">Instruction profile</label>
                   <select id="captain-profile-select" data-testid="captain-profile-select" class="captain-profile-select"></select>
                   <div id="captain-profile-preview" data-testid="captain-profile-preview" class="captain-profile-preview muted"></div>
-                  <p id="captain-profile-persistence-note" data-testid="captain-profile-persistence-note" class="captain-profile-note">Profile choice is saved locally. Backend persistence is planned.</p>
+                  <p id="captain-profile-persistence-note" data-testid="captain-profile-persistence-note" class="captain-profile-note">Saved locally. Backend persistence planned.</p>
                   <div class="agent-card-actions captain-profile-actions">
                     <button type="button" id="captain-view-profile-md" data-testid="captain-view-profile-md" class="btn">View markdown</button>
                     <button type="button" id="captain-copy-profile" data-testid="captain-copy-profile" class="btn">Copy instructions</button>
-                    <button type="button" id="captain-use-profile" data-testid="captain-use-profile" class="btn primary">Use profile</button>
+                    <button type="button" id="captain-use-profile" data-testid="captain-use-profile" class="btn">Use profile</button>
                   </div>
                 </div>
                 <div class="agent-card-actions">
-                  <button type="button" id="captain-configure-btn" data-testid="captain-configure-btn" class="btn primary">Configure Captain</button>
-                  <button type="button" id="captain-view-instructions-btn" data-testid="captain-view-instructions" class="btn">View Instructions</button>
-                  <button type="button" id="captain-edit-profile-btn" data-testid="captain-edit-profile" class="btn">Edit Instruction Profile</button>
+                  <button type="button" id="captain-create-plan-btn" data-testid="captain-create-plan-btn" class="btn primary">Create Plan</button>
+                  <button type="button" id="captain-configure-btn" data-testid="captain-configure-btn" class="btn">Configure</button>
+                  <button type="button" id="captain-instructions-btn" data-testid="captain-instructions-btn" class="btn">Instructions</button>
                 </div>
               </div>
             </div>
@@ -227,20 +219,15 @@
                 </div>
                 <div class="agent-card-meta-row">
                   <span class="agent-type-label">Type: CLI Agent</span>
-                  <span class="agent-mode-label" data-testid="codex-mode-label">Mode: Private runner only</span>
+                  <span class="agent-mode-label" data-testid="codex-mode-label">Mode: Private runner</span>
                 </div>
                 <div id="codex-status-line" class="agent-card-status" style="display:none;"></div>
-                <ul class="agent-capability-list" data-testid="codex-agent-capabilities">
-                  <li>Code editing</li>
-                  <li>Tests</li>
-                  <li>Read-only inspection</li>
-                  <li>Terminal-monitored work</li>
-                </ul>
+                <p class="agent-card-copy" data-testid="codex-agent-copy">Executes approved CLI tasks.</p>
                 <div id="codex-capabilities" class="agent-capability-chips" style="display:none;"></div>
                 <div class="agent-card-actions">
-                  <button id="develop-plan-btn" data-action="develop-plan" class="btn" type="button">Develop Plan</button>
-                  <button id="use-codex-btn" class="btn primary" type="button">Use Agent</button>
-                  <button id="view-agent-codex-btn" data-testid="view-agent-codex" class="btn" type="button" title="Open Codex live monitor" aria-label="View Agent — open Codex live monitor">View Agent</button>
+                  <button id="codex-open-monitor-btn" data-testid="codex-open-monitor" class="btn primary" type="button">Open Monitor</button>
+                  <button id="codex-configure-btn" data-testid="codex-configure" class="btn" type="button">Configure</button>
+                  <button id="codex-view-runs-btn" data-testid="codex-view-runs" class="btn" type="button">View Runs</button>
                 </div>
               </div>
             </div>
@@ -258,7 +245,7 @@
 
         <div class="add-agent-section">
           <button id="add-agent-btn" data-testid="add-agent-btn" class="btn" type="button">Add Agent</button>
-          <p class="add-agent-help" data-testid="add-agent-help">Agent additions are adapter-based. Warden needs a type, capabilities, safety mode, and proof rules before an agent can run.</p>
+          <p class="add-agent-help" data-testid="add-agent-help">New agents require an adapter, capability rules, and proof policy before they can run.</p>
         </div>
 
       </section>
@@ -472,7 +459,7 @@
     <div style="background:var(--bg-2); border:1px solid var(--line); padding:16px; width:90%; max-width:620px; border-radius:6px;">
       <h3 id="add-agent-title" style="margin-top:0;">Add Agent</h3>
       <div id="add-agent-step-choose" data-testid="add-agent-step-choose">
-        <div id="add-agent-intro" data-testid="add-agent-intro" style="font-size:0.85em; color:var(--muted); margin-bottom:10px;">Agent additions are adapter-based. Warden needs a type, capabilities, safety mode, and proof rules before an agent can run.</div>
+        <div id="add-agent-intro" data-testid="add-agent-intro" style="font-size:0.85em; color:var(--muted); margin-bottom:10px;">New agents require an adapter, capability rules, and proof policy before they can run.</div>
         <div id="add-agent-category-list" data-testid="add-agent-category-list" style="display:flex; flex-direction:column; gap:10px;"></div>
         <div id="add-agent-template-list" data-testid="add-agent-template-list" style="display:none; flex-direction:column; gap:8px;"></div>
       </div>
@@ -557,7 +544,7 @@
     </div>
   </div>
 
-  <!-- Captain Deck Modal -->
+  <!-- Captain Modal -->
   <div id="captain-deck-modal" data-testid="captain-deck-modal" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.56); display:none; align-items:center; justify-content:center; z-index:10001;">
     <div style="background:var(--bg-2); border:1px solid var(--line); padding:16px; width:min(94vw, 980px); max-height:92vh; overflow:auto; border-radius:8px;">
       <h3 style="margin-top:0;" data-testid="captain-deck-title">Captain</h3>
