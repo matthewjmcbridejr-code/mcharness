@@ -15,4 +15,5 @@ _mctable/workbench/
 _mctable/checkpoints/*.sqlite
 
 docs/archive/legacy/src-tauri/target/
-docs/archive/legacy/src-tauri/gen/
+docs/archive/legacy/src-tauri/gen/mcharness.egg-info/
+*.db

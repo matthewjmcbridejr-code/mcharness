@@ -26,6 +26,20 @@ def create_app() -> FastAPI:
         "category": CATEGORY,
     }
     app.include_router(mcharness_router)
+    
+    # Marius Core Integration
+    try:
+        from src.marius.api import router as marius_router
+        from src.marius.bot import start_bot
+        app.include_router(marius_router)
+        
+        @app.on_event("startup")
+        def startup_marius():
+            start_bot()
+    except ImportError as e:
+        # Fallback if Marius is not fully implemented or has missing deps
+        print(f"Marius integration skipped: {e}")
+
     if _WEB_DIR.exists():
         app.mount("/web", StaticFiles(directory=str(_WEB_DIR), html=True), name="web")
     return app
