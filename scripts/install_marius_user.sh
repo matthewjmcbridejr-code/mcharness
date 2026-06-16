@@ -2,9 +2,9 @@
 set -e
 
 # Marius User-Level Installer
-# This script symlinks or copies the marius script to ~/.local/bin/marius
+# This script creates a wrapper in ~/.local/bin/marius pointing to the repo
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN_DIR="${HOME}/.local/bin"
 TARGET="${BIN_DIR}/marius"
 
@@ -20,7 +20,7 @@ fi
 # Check for existing marius
 if [ -e "${TARGET}" ]; then
     echo "Warning: ${TARGET} already exists."
-    read -p "Overwrite? [y/N] " -n 1 -r
+    read -p "Overwrite with new wrapper? [y/N] " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo "Installation cancelled."
@@ -29,9 +29,17 @@ if [ -e "${TARGET}" ]; then
     rm "${TARGET}"
 fi
 
-# Create symlink
-echo "Linking ${SCRIPT_DIR}/marius -> ${TARGET}..."
-ln -s "${SCRIPT_DIR}/marius" "${TARGET}"
+# Create wrapper script
+echo "Creating wrapper at ${TARGET}..."
+cat <<EOF > "${TARGET}"
+#!/usr/bin/env bash
+set -e
+REPO="${ROOT_DIR}"
+cd "\$REPO"
+exec "\$REPO/scripts/marius" "\$@"
+EOF
+
+chmod +x "${TARGET}"
 
 echo "Installation complete."
 

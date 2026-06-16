@@ -33,6 +33,12 @@ PID_PATH = STATE_DIR / "marius.pid"
 LOG_PATH = STATE_DIR / "marius.log"
 HISTORY_PATH = SHARE_DIR / "history.txt"
 
+DEBUG = os.getenv("MARIUS_DEBUG") == "1"
+
+def debug_log(msg: str):
+    if DEBUG:
+        print(f"[DEBUG] {msg}", file=sys.stderr)
+
 class ConfigManager:
     def __init__(self, path: Union[Path, str] = CONFIG_PATH):
         self.path = Path(path)
@@ -43,14 +49,18 @@ class ConfigManager:
             try:
                 with open(self.path, "r") as f:
                     return json.load(f)
-            except Exception:
+            except Exception as e:
+                debug_log(f"Failed to load config: {e}")
                 return {}
         return {}
 
     def save(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "w") as f:
-            json.dump(self.config, f, indent=2)
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.path, "w") as f:
+                json.dump(self.config, f, indent=2)
+        except Exception as e:
+            debug_log(f"Failed to save config: {e}")
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.config.get(key, default)
@@ -73,46 +83,47 @@ class ApiClient:
                 continue
         return None
 
-    def _request(self, method: str, endpoint: str, data: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None) -> Optional[Any]:
+    def _request(self, method: str, endpoint: str, data: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None, timeout: int = 5) -> Optional[Any]:
         if not self.api_base:
             return None
         url = f"{self.api_base}/{endpoint.lstrip('/')}"
+        debug_log(f"Request: {method} {url}")
         try:
             if method.upper() == "POST":
-                resp = requests.post(url, json=data, timeout=5)
+                resp = requests.post(url, json=data, timeout=timeout)
             else:
-                resp = requests.get(url, params=params, timeout=5)
+                resp = requests.get(url, params=params, timeout=timeout)
             
             if resp.status_code == 200:
                 return resp.json()
-        except Exception:
-            pass
+        except Exception as e:
+            debug_log(f"Request failed: {e}")
         return None
 
     def get_health(self) -> bool:
-        res = self._request("GET", "health")
+        res = self._request("GET", "health", timeout=2)
         return res is not None and res.get("status") == "OK"
 
     def get_chat(self, message: str) -> Optional[Dict[str, Any]]:
-        return self._request("POST", "chat", data={"message": message})
+        return self._request("POST", "chat", data={"message": message}, timeout=30)
 
     def get_status(self) -> Optional[Dict[str, Any]]:
-        return self._request("GET", "status")
+        return self._request("GET", "status", timeout=5)
 
     def get_projects(self) -> Optional[List[Dict[str, Any]]]:
-        return self._request("GET", "projects")
+        return self._request("GET", "projects", timeout=5)
 
     def save_memory(self, content: str, category: str = "general") -> Optional[Dict[str, Any]]:
-        return self._request("POST", "memory/remember", data={"content": content, "category": category})
+        return self._request("POST", "memory/remember", data={"content": content, "category": category}, timeout=5)
 
     def search_memory(self, query: str) -> Optional[List[Dict[str, Any]]]:
-        return self._request("GET", "memory/recall", params={"q": query})
+        return self._request("GET", "memory/recall", params={"q": query}, timeout=5)
 
     def get_whereleftoff(self) -> Optional[Dict[str, Any]]:
-        return self._request("GET", "whereleftoff")
+        return self._request("GET", "whereleftoff", timeout=5)
 
     def get_handoff(self, target: str, context: str) -> Optional[Dict[str, Any]]:
-        return self._request("POST", "handoff/agent-prompt", data={"target": target, "context": context})
+        return self._request("POST", "handoff/agent-prompt", data={"target": target, "context": context}, timeout=5)
 
 def parse_command(line: str) -> Tuple[Optional[str], List[str]]:
     # Natural language triggers
@@ -162,15 +173,18 @@ class MariusCLI:
             "last_command": None
         }
 
-    def start_server(self):
+    def start_server(self, wait_timeout: int = 10):
         if self.client.get_health():
+            debug_log("Server already healthy.")
             return True
 
+        debug_log(f"Starting Marius API on port {DEFAULT_PORT}...")
         print(f"Starting Marius API on port {DEFAULT_PORT}...")
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         
         venv_python = self.repo_root / ".venv" / "bin" / "python"
         if not venv_python.exists():
+            debug_log("Venv python not found, using system python.")
             venv_python = Path(sys.executable)
 
         cmd = [
@@ -179,37 +193,52 @@ class MariusCLI:
             "--log-level", "warning"
         ]
         
+        debug_log(f"Executing: {' '.join(cmd)}")
         log_file = open(LOG_PATH, "a")
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(self.repo_root),
-            stdout=log_file,
-            stderr=log_file,
-            preexec_fn=os.setsid,
-            env={**os.environ, "PYTHONPATH": str(self.repo_root / "src")}
-        )
-        
-        with open(PID_PATH, "w") as f:
-            f.write(str(proc.pid))
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(self.repo_root),
+                stdout=log_file,
+                stderr=log_file,
+                preexec_fn=os.setsid,
+                env={**os.environ, "PYTHONPATH": f"{self.repo_root}:{self.repo_root}/src"}
+            )
+            
+            with open(PID_PATH, "w") as f:
+                f.write(str(proc.pid))
+            debug_log(f"Started process with PID {proc.pid}")
+        except Exception as e:
+            print(f"Failed to launch uvicorn: {e}")
+            return False
             
         # Wait for health
         self.client.api_base = DEFAULT_API_BASE
-        for _ in range(20):
+        start_time = time.time()
+        while time.time() - start_time < wait_timeout:
             if self.client.get_health():
                 print("Marius API is online.")
                 return True
             time.sleep(0.5)
             
-        print(f"Error: Marius API failed to start. Check logs at {LOG_PATH}")
+        print(f"Error: Marius API failed to start within {wait_timeout}s. Check logs at {LOG_PATH}")
         return False
 
     def stop_server(self):
         if PID_PATH.exists():
             try:
                 with open(PID_PATH, "r") as f:
-                    pid = int(f.read().strip())
+                    pid_str = f.read().strip()
+                if not pid_str:
+                    PID_PATH.unlink()
+                    return
+                pid = int(pid_str)
+                debug_log(f"Stopping PID {pid}...")
                 os.killpg(os.getpgid(pid), signal.SIGTERM)
                 print(f"Stopped Marius API (PID {pid})")
+                PID_PATH.unlink()
+            except ProcessLookupError:
+                debug_log("Process not found, removing stale PID file.")
                 PID_PATH.unlink()
             except Exception as e:
                 print(f"Error stopping server: {e}")
@@ -224,7 +253,9 @@ class MariusCLI:
         
         if PID_PATH.exists():
             with open(PID_PATH, "r") as f:
-                print(f"PID: {f.read().strip()}")
+                pid = f.read().strip()
+                if pid:
+                    print(f"PID: {pid}")
         
         if online:
             status = self.client.get_status()
@@ -237,13 +268,36 @@ class MariusCLI:
         print("Marius Doctor Diagnostics")
         print("-" * 30)
         print(f"Repo Root: {self.repo_root}")
+        
+        # Check launcher path
+        launcher_path = self.repo_root / "scripts" / "marius"
+        print(f"Launcher: {launcher_path} ({'Executable' if os.access(launcher_path, os.X_OK) else 'NOT EXECUTABLE'})")
+        
+        # Check wrapper path
+        wrapper_path = Path.home() / ".local" / "bin" / "marius"
+        if wrapper_path.exists():
+            print(f"Wrapper: {wrapper_path}")
+            try:
+                with open(wrapper_path, "r") as f:
+                    content = f.read()
+                if str(self.repo_root) in content:
+                    print("  Status: Points to correct repo root.")
+                else:
+                    print("  Status: STALE or points elsewhere.")
+            except Exception:
+                print("  Status: Could not read wrapper.")
+        else:
+            print(f"Wrapper: {wrapper_path} (NOT INSTALLED)")
+
         venv_python = self.repo_root / ".venv" / "bin" / "python"
         print(f"Venv Python: {'Found' if venv_python.exists() else 'Not Found (using system)'}")
         print(f"Config Path: {CONFIG_PATH} ({'Exists' if CONFIG_PATH.exists() else 'Missing'})")
         print(f"PID File: {PID_PATH} ({'Exists' if PID_PATH.exists() else 'Missing'})")
+        print(f"Log Path: {LOG_PATH}")
         
         import socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
         result = sock.connect_ex(('127.0.0.1', DEFAULT_PORT))
         print(f"Port {DEFAULT_PORT}: {'Busy' if result == 0 else 'Free'}")
         sock.close()
@@ -257,17 +311,23 @@ class MariusCLI:
             if status and "model_backend" in status:
                 diag = status["model_backend"]
                 print(f"Ollama Reachable: {'Yes' if diag.get('ollama_reachable') else 'No'}")
+        
+        print(f"Command Parser: {'Functional' if parse_command('/status')[0] == 'status' else 'BROKEN'}")
         print("-" * 30)
 
-    def tail_logs(self):
+    def tail_logs(self, follow: bool = False):
         if not LOG_PATH.exists():
             print("No log file found.")
             return
-        print(f"Tailing logs at {LOG_PATH} (Ctrl+C to stop)...")
-        try:
-            subprocess.run(["tail", "-n", "50", "-f", str(LOG_PATH)])
-        except KeyboardInterrupt:
-            pass
+        if follow:
+            print(f"Tailing logs at {LOG_PATH} (Ctrl+C to stop)...")
+            try:
+                subprocess.run(["tail", "-n", "50", "-f", str(LOG_PATH)])
+            except KeyboardInterrupt:
+                print()
+        else:
+            print(f"Recent logs from {LOG_PATH}:")
+            subprocess.run(["tail", "-n", "50", str(LOG_PATH)])
 
     def handle_chat(self, message: str):
         self.session_stats["messages_sent"] += 1
@@ -281,7 +341,7 @@ class MariusCLI:
             if model: footer += f" | model: {model}"
             print(f"[{footer}]\n")
         else:
-            print("\nError: API offline.\n")
+            print("\nError: API offline or request timed out.\n")
 
     def run_command(self, line: str) -> bool:
         self.session_stats["last_command"] = line
@@ -398,7 +458,6 @@ class MariusCLI:
     def handle_session(self):
         print("\n--- Session Notes ---")
         print(f"API Base: {self.client.api_base}")
-        
         status = self.client.get_status()
         if status and "model_backend" in status:
             diag = status["model_backend"]
@@ -406,7 +465,6 @@ class MariusCLI:
             print(f"Model: {diag.get('configured_model')}")
         else:
             print("Provider/Model: Unknown")
-
         print(f"Started At: {self.session_stats['started_at'].strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"Messages Sent: {self.session_stats['messages_sent']}")
         print(f"Memory Writes: {self.session_stats['memory_writes']}")
@@ -438,10 +496,15 @@ class MariusCLI:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Marius CLI Launcher")
-    parser.add_argument("command", nargs="?", choices=["start", "stop", "restart", "status", "doctor", "logs", "chat"], default="chat")
+    parser.add_argument("command", nargs="?", choices=["start", "stop", "restart", "status", "doctor", "logs", "chat"], default=None)
     parser.add_argument("--once", type=str, help="Run a single chat message and exit")
     parser.add_argument("--api", type=str, help="Marius API base URL")
+    parser.add_argument("--follow", action="store_true", help="Follow logs (only for 'logs' command)")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
+
+    if args.debug:
+        DEBUG = True
 
     config = ConfigManager()
     api_base = args.api or os.getenv("MARIUS_API_BASE") or config.get("api_base") or DEFAULT_API_BASE
@@ -450,14 +513,36 @@ if __name__ == "__main__":
     
     if args.once:
         if not cli.client.get_health():
-            cli.start_server()
+            if not cli.start_server():
+                sys.exit(1)
         cli.run_command(args.once)
-    elif args.command == "start": cli.start_server()
-    elif args.command == "stop": cli.stop_server()
+        sys.exit(0)
+    
+    # Handle explicit lifecycle commands
+    if args.command == "start":
+        cli.start_server()
+        sys.exit(0)
+    elif args.command == "stop":
+        cli.stop_server()
+        sys.exit(0)
     elif args.command == "restart":
         cli.stop_server()
         cli.start_server()
-    elif args.command == "status": cli.status_server()
-    elif args.command == "doctor": cli.doctor()
-    elif args.command == "logs": cli.tail_logs()
-    else: cli.repl()
+        sys.exit(0)
+    elif args.command == "status":
+        cli.status_server()
+        sys.exit(0)
+    elif args.command == "doctor":
+        cli.doctor()
+        sys.exit(0)
+    elif args.command == "logs":
+        cli.tail_logs(follow=args.follow)
+        sys.exit(0)
+    elif args.command == "chat":
+        cli.repl()
+        sys.exit(0)
+    
+    # Default behavior: No command means auto-start + REPL
+    if args.command is None:
+        cli.repl()
+        sys.exit(0)

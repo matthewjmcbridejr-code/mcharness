@@ -21,7 +21,7 @@ def test_api_client_health_url():
         mock_get.return_value.status_code = 200
         mock_get.return_value.json.return_value = {"status": "OK"}
         assert client.get_health() is True
-        mock_get.assert_called_once_with("http://localhost:6969/api/mcharness/marius/health", params=None, timeout=5)
+        mock_get.assert_called_once_with("http://localhost:6969/api/mcharness/marius/health", params=None, timeout=2)
 
 def test_config_manager_load_save(tmp_path):
     config_file = tmp_path / "config.json"
