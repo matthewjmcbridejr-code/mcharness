@@ -4,7 +4,7 @@ from typing import List, Optional
 from .projects import get_projects, ProjectCard
 from .memory import save_fact, recall_facts, get_where_left_off, set_where_left_off, get_recent_summaries
 from .tools import get_system_status
-from .router import chat_completion, create_handoff_prompt
+from .router import chat_completion, create_handoff_prompt, get_ollama_diagnostics
 
 router = APIRouter(prefix="/api/mcharness/marius", tags=["marius-core"])
 
@@ -27,12 +27,14 @@ def health():
 @router.get("/status")
 def status():
     # Tools already redacts secrets
-    return get_system_status()
+    sys_status = get_system_status()
+    ollama_diag = get_ollama_diagnostics()
+    return {**sys_status, "model_backend": ollama_diag}
 
 @router.post("/chat")
 def chat(req: ChatRequest):
-    response, provider = chat_completion(req.message, req.model)
-    return {"response": response, "provider": provider}
+    response, provider, model = chat_completion(req.message, req.model)
+    return {"response": response, "provider": provider, "model": model}
 
 @router.post("/memory/remember")
 def remember(req: MemoryRequest):

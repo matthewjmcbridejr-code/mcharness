@@ -13,6 +13,8 @@ os.environ["MARIUS_TELEGRAM_ENABLED"] = "0"
 from src.warden.app import app
 from src.marius.tools import redact_secrets
 
+from unittest.mock import patch, MagicMock
+
 @pytest.fixture(autouse=True)
 def setup_teardown():
     if TEST_DATA_ROOT.exists():
@@ -21,6 +23,35 @@ def setup_teardown():
     yield
     if TEST_DATA_ROOT.exists():
         shutil.rmtree(TEST_DATA_ROOT)
+
+def test_marius_status_diagnostics():
+    client = TestClient(app)
+    with patch("requests.get") as mock_get:
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {"models": [{"name": "llama3.2:3b"}]}
+        
+        response = client.get("/api/mcharness/marius/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert "model_backend" in data
+        diag = data["model_backend"]
+        assert diag["ollama_reachable"] is True
+        assert diag["configured_model"] == "llama3.2:3b"
+        assert "llama3.2:3b" in diag["available_models"]
+
+def test_marius_chat_success():
+    client = TestClient(app)
+    with patch("requests.post") as mock_post:
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "message": {"content": "I am Marius, your assistant."}
+        }
+        
+        response = client.post("/api/mcharness/marius/chat", json={"message": "Who are you?"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["provider"] == "ollama"
+        assert "Marius" in data["response"]
 
 def test_marius_health():
     client = TestClient(app)

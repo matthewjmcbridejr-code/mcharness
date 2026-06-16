@@ -59,3 +59,21 @@ def test_cli_once_mode():
         # Test --once behavior via run_command
         cli.run_command("Who are you?")
         mock_chat.assert_called_once_with("Who are you?")
+
+def test_cli_model_command(capsys):
+    with patch("scripts.marius_chat.ApiClient.get_status") as mock_status:
+        mock_status.return_value = {
+            "model_backend": {
+                "active_provider": "ollama",
+                "ollama_reachable": True,
+                "ollama_url": "http://127.0.0.1:11434",
+                "configured_model": "llama3.2:3b",
+                "available_models": ["llama3.2:3b", "phi3"]
+            }
+        }
+        cli = MariusCLI("http://localhost:8126")
+        cli.run_command("/model")
+        captured = capsys.readouterr()
+        assert "Ollama Reachable: Yes" in captured.out
+        assert "configured model: llama3.2:3b" in captured.out.lower()
+        assert "phi3" in captured.out

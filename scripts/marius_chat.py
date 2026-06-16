@@ -161,12 +161,19 @@ class MariusCLI:
 
     def handle_model(self):
         result = self.client.get_status()
-        if result:
-            # This is a bit of a placeholder as the status doesn't currently return the exact model info 
-            # for the chat provider in a direct way, but we can infer or wait for chat.
-            print("\nModel Status:")
-            print("Provider: Ollama (default)")
-            print("Status: Active if Ollama is reachable.\n")
+        if result and "model_backend" in result:
+            diag = result["model_backend"]
+            print("\n--- Model Backend Status ---")
+            print(f"Provider: {diag.get('active_provider', 'unknown')}")
+            print(f"Ollama Reachable: {'Yes' if diag.get('ollama_reachable') else 'No'}")
+            print(f"Ollama URL: {diag.get('ollama_url', 'N/A')}")
+            print(f"Configured Model: {diag.get('configured_model', 'N/A')}")
+            models = diag.get("available_models", [])
+            if models:
+                print(f"Available Models: {', '.join(models)}")
+            print()
+        elif result:
+            print("\nModel Status: Unknown (Diagnostics missing from status)\n")
         else:
             print("\nModel Status: Unknown (API offline)\n")
 
