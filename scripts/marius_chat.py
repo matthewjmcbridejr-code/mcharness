@@ -4,6 +4,9 @@ import sys
 import requests
 import argparse
 import re
+import json
+import time
+from datetime import datetime
 from typing import Optional, Dict, Any, Tuple, List
 
 # Try to import prompt_toolkit for better REPL experience
@@ -14,13 +17,58 @@ try:
 except ImportError:
     HAS_PROMPT_TOOLKIT = False
 
-DEFAULT_API_BASE = os.getenv("MARIUS_API_BASE", "http://127.0.0.1:8126/api/mcharness/marius")
+DEFAULT_PROBE_URLS = [
+    "http://127.0.0.1:8126/api/mcharness/marius",
+    "http://127.0.0.1:8128/api/mcharness/marius",
+    "http://127.0.0.1:8125/api/mcharness/marius",
+]
+
+CONFIG_PATH = os.path.expanduser("~/.config/marius/config.json")
+HISTORY_PATH = os.path.expanduser("~/.local/share/marius/history.txt")
+
+class ConfigManager:
+    def __init__(self, path: str = CONFIG_PATH):
+        self.path = path
+        self.config = self.load()
+
+    def load(self) -> Dict[str, Any]:
+        if os.path.exists(self.path):
+            try:
+                with open(self.path, "r") as f:
+                    return json.load(f)
+            except Exception:
+                return {}
+        return {}
+
+    def save(self):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        with open(self.path, "w") as f:
+            json.dump(self.config, f, indent=2)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.config.get(key, default)
+
+    def set(self, key: str, value: Any):
+        self.config[key] = value
+        self.save()
 
 class ApiClient:
-    def __init__(self, api_base: str):
-        self.api_base = api_base.rstrip("/")
+    def __init__(self, api_base: Optional[str] = None):
+        self.api_base = api_base.rstrip("/") if api_base else None
+
+    def probe(self, urls: List[str]) -> Optional[str]:
+        for url in urls:
+            try:
+                resp = requests.get(f"{url.rstrip('/')}/health", timeout=1)
+                if resp.status_code == 200:
+                    return url.rstrip("/")
+            except Exception:
+                continue
+        return None
 
     def _request(self, method: str, endpoint: str, data: Optional[Dict[str, Any]] = None, params: Optional[Dict[str, Any]] = None) -> Optional[Any]:
+        if not self.api_base:
+            return None
         url = f"{self.api_base}/{endpoint.lstrip('/')}"
         try:
             if method.upper() == "POST":
@@ -30,15 +78,12 @@ class ApiClient:
             
             resp.raise_for_status()
             return resp.json()
-        except requests.exceptions.ConnectionError:
-            print(f"Error: Could not connect to Marius API at {self.api_base}.")
+        except Exception:
             return None
-        except requests.exceptions.HTTPError as e:
-            print(f"API Error: {e}")
-            return None
-        except Exception as e:
-            print(f"Unexpected error: {e}")
-            return None
+
+    def get_health(self) -> bool:
+        res = self._request("GET", "health")
+        return res is not None and res.get("status") == "OK"
 
     def get_chat(self, message: str) -> Optional[Dict[str, Any]]:
         return self._request("POST", "chat", data={"message": message})
@@ -62,33 +107,65 @@ class ApiClient:
         return self._request("POST", "handoff/agent-prompt", data={"target": target, "context": context})
 
 def parse_command(line: str) -> Tuple[Optional[str], List[str]]:
+    # Natural language triggers
+    if line.lower().startswith(("remember that ", "note that ", "save this ")):
+        trigger_len = len(line.split(maxsplit=2)[:2][0]) + len(line.split(maxsplit=2)[:2][1]) + 2
+        content = line[trigger_len:].strip()
+        return "remember", ["general", content]
+
     if not line.startswith("/"):
         return None, [line]
     
     parts = line.split(maxsplit=1)
-    cmd = parts[0][1:].lower()
+    raw_cmd = parts[0][1:].lower()
     args = parts[1] if len(parts) > 1 else ""
     
+    # Aliases
+    aliases = {
+        "h": "help",
+        "s": "status",
+        "p": "projects",
+        "lo": "leftoff",
+        "r": "recall",
+        "m": "model",
+        "q": "exit",
+        "quit": "exit"
+    }
+    cmd = aliases.get(raw_cmd, raw_cmd)
+    
     if cmd == "remember":
-        # Check for category: content
         match = re.match(r"^([^:]+):\s*(.*)$", args)
         if match:
             return cmd, [match.group(1).strip(), match.group(2).strip()]
         return cmd, ["general", args.strip()]
     
+    if cmd == "recall":
+        return cmd, [args.strip()]
+
     if cmd == "handoff":
         h_parts = args.split(maxsplit=1)
         if len(h_parts) == 2:
             return cmd, [h_parts[0], h_parts[1]]
         return cmd, [args, ""]
+
+    if cmd == "api":
+        return cmd, [args.strip()]
         
     return cmd, [args.strip()]
 
 class MariusCLI:
-    def __init__(self, api_base: str):
+    def __init__(self, api_base: Optional[str] = None):
+        self.config = ConfigManager()
         self.client = ApiClient(api_base)
+        self.session_stats = {
+            "started_at": datetime.now(),
+            "messages_sent": 0,
+            "memory_writes": 0,
+            "last_command": None
+        }
 
     def handle_chat(self, message: str):
+        self.session_stats["messages_sent"] += 1
         result = self.client.get_chat(message)
         if result:
             response = result.get("response", "No response.")
@@ -100,6 +177,8 @@ class MariusCLI:
             if model:
                 footer += f" | model: {model}"
             print(f"[{footer}]\n")
+        else:
+            print("\nError: Could not get chat response. API might be offline.\n")
 
     def handle_status(self):
         result = self.client.get_status()
@@ -111,6 +190,8 @@ class MariusCLI:
             for svc in result.get("services", []):
                 print(f"  - {svc['service']}: {svc['status']}")
             print()
+        else:
+            print("\nError: API offline.\n")
 
     def handle_projects(self):
         result = self.client.get_projects()
@@ -119,14 +200,19 @@ class MariusCLI:
             for p in result:
                 print(f"- {p['name']}: {p['description']}")
             print()
+        else:
+            print("\nError: API offline.\n")
 
     def handle_remember(self, category: str, content: str):
         if not content:
             print("Usage: /remember [category:] <note>")
             return
+        self.session_stats["memory_writes"] += 1
         result = self.client.save_memory(content, category)
         if result:
             print(f"Memory saved under '{category}'.\n")
+        else:
+            print("\nError: API offline.\n")
 
     def handle_recall(self, query: str):
         if not query:
@@ -140,6 +226,8 @@ class MariusCLI:
             if not result:
                 print("No matches found.")
             print()
+        else:
+            print("\nError: API offline.\n")
 
     def handle_leftoff(self):
         result = self.client.get_whereleftoff()
@@ -150,6 +238,8 @@ class MariusCLI:
             for note in result.get("recent_notes", []):
                 print(f"- {note['date']}: {note['content'].strip()}")
             print()
+        else:
+            print("\nError: API offline.\n")
 
     def handle_handoff(self, target: str, context: str):
         if not target:
@@ -158,6 +248,8 @@ class MariusCLI:
         result = self.client.get_handoff(target, context)
         if result:
             print(f"\n{result.get('prompt', 'No prompt generated.')}\n")
+        else:
+            print("\nError: API offline.\n")
 
     def handle_model(self):
         result = self.client.get_status()
@@ -172,12 +264,47 @@ class MariusCLI:
             if models:
                 print(f"Available Models: {', '.join(models)}")
             print()
-        elif result:
-            print("\nModel Status: Unknown (Diagnostics missing from status)\n")
         else:
             print("\nModel Status: Unknown (API offline)\n")
 
+    def handle_api(self, url: str):
+        if not url:
+            print(f"Current API Base: {self.client.api_base}")
+            return
+        self.client.api_base = url.rstrip("/")
+        self.config.set("api_base", self.client.api_base)
+        if self.client.get_health():
+            print(f"API Base updated to {self.client.api_base} (Online)")
+        else:
+            print(f"API Base updated to {self.client.api_base} (Warning: Offline)")
+
+    def handle_config(self):
+        print("\n--- Configuration ---")
+        print(f"Config Path: {self.config.path}")
+        print(f"API Base: {self.client.api_base}")
+        print(f"History Path: {HISTORY_PATH}")
+        print()
+
+    def handle_session(self):
+        print("\n--- Session Notes ---")
+        print(f"API Base: {self.client.api_base}")
+        
+        status = self.client.get_status()
+        if status and "model_backend" in status:
+            diag = status["model_backend"]
+            print(f"Provider: {diag.get('active_provider')}")
+            print(f"Model: {diag.get('configured_model')}")
+        else:
+            print("Provider/Model: Unknown")
+
+        print(f"Started At: {self.session_stats['started_at'].strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Messages Sent: {self.session_stats['messages_sent']}")
+        print(f"Memory Writes: {self.session_stats['memory_writes']}")
+        print(f"Last Command: {self.session_stats['last_command']}")
+        print()
+
     def run_command(self, line: str) -> bool:
+        self.session_stats["last_command"] = line
         cmd, args = parse_command(line)
         if cmd is None:
             self.handle_chat(args[0])
@@ -187,17 +314,19 @@ class MariusCLI:
             return False
         elif cmd == "help":
             print("\nMarius Commands:")
-            print("  /status             - Server & Project health")
-            print("  /projects           - List active project cards")
-            print("  /leftoff           - Get last recorded progress")
+            print("  /status (/s)        - Server & Project health")
+            print("  /projects (/p)      - List active project cards")
+            print("  /leftoff (/lo)      - Get last recorded progress")
             print("  /remember <note>    - Save a durable fact")
-            print("  /remember cat: note - Save under specific category")
-            print("  /recall <query>     - Search memory")
+            print("  /recall (/r) <q>    - Search memory")
             print("  /handoff <target>   - Generate handoff prompt")
-            print("  /model              - Show current model info")
+            print("  /model (/m)         - Show current model info")
+            print("  /api [url]          - View or set API base URL")
+            print("  /config             - View current configuration")
+            print("  /session            - View session statistics")
             print("  /clear              - Clear terminal")
-            print("  /help               - Show this help")
-            print("  /exit               - Quit\n")
+            print("  /help (/h)          - Show this help")
+            print("  /exit (/q)          - Quit\n")
         elif cmd == "status":
             self.handle_status()
         elif cmd == "projects":
@@ -212,21 +341,45 @@ class MariusCLI:
             self.handle_handoff(args[0], args[1])
         elif cmd == "model":
             self.handle_model()
+        elif cmd == "api":
+            self.handle_api(args[0])
+        elif cmd == "config":
+            self.handle_config()
+        elif cmd == "session":
+            self.handle_session()
         elif cmd == "clear":
             os.system('cls' if os.name == 'nt' else 'clear')
         else:
             print(f"Unknown command: /{cmd}. Type /help for available commands.")
         return True
 
-    def repl(self):
+    def show_banner(self):
         print("Marius Resident Agent")
-        print(f"McServer: {self.client.api_base}")
+        if self.client.get_health():
+            print("McServer: online")
+            status = self.client.get_status()
+            if status and "model_backend" in status:
+                diag = status["model_backend"]
+                provider = diag.get("active_provider")
+                model = diag.get("configured_model")
+                print(f"Model: {provider} / {model}")
+                if provider == "fallback":
+                    print("Warning: Operating in fallback mode (Ollama offline)")
+            print("Memory: ready")
+        else:
+            print("McServer: offline")
+            print("Marius API is offline.")
+            print("Start the Warden dev server, then run ./scripts/marius again.")
+            sys.exit(0)
         print("Type /help for commands. Ctrl+C or /exit to quit.\n")
+
+    def repl(self):
+        self.show_banner()
         
         session = None
         if HAS_PROMPT_TOOLKIT:
-            history_file = os.path.expanduser("~/.marius_history")
-            session = PromptSession(history=FileHistory(history_file))
+            os.makedirs(os.path.dirname(HISTORY_PATH), exist_ok=True)
+            session = PromptSession(history=FileHistory(HISTORY_PATH))
 
         while True:
             try:
@@ -247,11 +400,33 @@ class MariusCLI:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Marius CLI Chat Client")
     parser.add_argument("--once", type=str, help="Run a single chat message and exit")
-    parser.add_argument("--api", type=str, default=DEFAULT_API_BASE, help="Marius API base URL")
+    parser.add_argument("--api", type=str, help="Marius API base URL")
     args = parser.parse_args()
 
-    cli = MariusCLI(args.api)
+    config = ConfigManager()
+    
+    # API Resolution Order
+    api_base = args.api
+    if not api_base:
+        api_base = os.getenv("MARIUS_API_BASE")
+    if not api_base:
+        api_base = config.get("api_base")
+    
+    client = ApiClient(api_base)
+    
+    if not api_base:
+        # Auto-probe
+        api_base = client.probe(DEFAULT_PROBE_URLS)
+        if api_base:
+            client.api_base = api_base
+            config.set("api_base", api_base)
+    
     if args.once:
+        if not client.get_health():
+            print("Marius API is offline.")
+            sys.exit(1)
+        cli = MariusCLI(client.api_base)
         cli.run_command(args.once)
     else:
+        cli = MariusCLI(client.api_base)
         cli.repl()
