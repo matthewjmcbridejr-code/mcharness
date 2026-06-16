@@ -16,6 +16,16 @@ See [docs/warden_operator_smoke.md](docs/warden_operator_smoke.md) for details.
 http://127.0.0.1:8125/web/warden/index.html
 ```
 
+## Marius CLI
+
+Marius is a resident terminal assistant with integrated server context.
+
+```bash
+./scripts/marius
+```
+
+See [docs/marius_cli.md](docs/marius_cli.md) for full command list.
+
 ## Services
 
 | Port | Mode | Runner | Notes |

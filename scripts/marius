@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -e
+
+# Resolve the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Use the virtual environment python if it exists, otherwise fall back to python3
+PYTHON_EXEC="${ROOT_DIR}/.venv/bin/python3"
+if [ ! -f "${PYTHON_EXEC}" ]; then
+    PYTHON_EXEC="python3"
+fi
+
+# Set PYTHONPATH to include the src directory
+export PYTHONPATH="${ROOT_DIR}/src:${PYTHONPATH:-}"
+
+# Execute the marius_chat script with all passed arguments
+exec "${PYTHON_EXEC}" "${SCRIPT_DIR}/marius_chat.py" "$@"
