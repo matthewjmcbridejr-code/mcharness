@@ -24,6 +24,7 @@ class ChatRequest(BaseModel):
     model: Optional[str] = None
     history: Optional[List[Dict[str, str]]] = None
     workspace: Optional[WorkspaceContext] = None
+    brain_context: Optional[bool] = None
 
 class ProfileRequest(BaseModel):
     profile: str
@@ -63,7 +64,7 @@ async def chat(req: ChatRequest):
         gateway.forced_model = req.model
     
     workspace_dict = req.workspace.model_dump() if req.workspace else None
-    result = await gateway.chat(req.message, req.history, workspace_dict)
+    result = await gateway.chat(req.message, req.history, workspace_dict, req.brain_context)
     return result
 
 @router.get("/providers")
@@ -99,7 +100,30 @@ async def get_models():
 @router.post("/model/set")
 async def set_model(req: ModelRequest):
     gateway.forced_model = req.model if req.model != "auto" else None
+    gateway.config.set("model", gateway.forced_model)
     return {"status": "ok", "model": gateway.forced_model or "auto"}
+
+@router.get("/model/why")
+async def model_why():
+    available_ollama = await gateway.get_available_ollama_models()
+    provider, actual_model, profile, fallback_reason = await gateway.resolve_model_and_provider()
+    
+    # Check if loaded (Ollama specific)
+    currently_loaded = False
+    # This might require another Ollama API call like /api/ps
+    # For now we'll just check if it's the one we resolved to.
+    
+    return {
+        "config_path": str(gateway.config.path),
+        "config_model": gateway.config.get("model"),
+        "env_model": os.getenv("MARIUS_MODEL") or os.getenv("MARIUS_OLLAMA_MODEL"),
+        "current_profile": gateway.current_profile,
+        "selected_model": gateway.forced_model,
+        "actual_model": actual_model,
+        "installed": actual_model in available_ollama or f"{actual_model}:latest" in available_ollama,
+        "fallback_reason": fallback_reason,
+        "provider": provider
+    }
 
 @router.post("/model/profile")
 async def set_profile(req: ProfileRequest):

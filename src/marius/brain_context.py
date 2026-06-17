@@ -2,7 +2,7 @@ import os
 from typing import List, Dict, Optional, Any
 from .search_provider import LocalJsonlSearchProvider
 
-def build_brain_context_pack(user_message: str, project: Optional[str] = None, limit: int = 5) -> Dict[str, Any]:
+def build_brain_context_pack(user_message: str, project: Optional[str] = None, limit: int = 5, max_chars: int = 2500) -> Dict[str, Any]:
     """
     Search local brain records and project exports for relevant context.
     Returns a structured pack with formatted text for the LLM.
@@ -40,7 +40,6 @@ def build_brain_context_pack(user_message: str, project: Optional[str] = None, l
         }
         
     current_chars = len(lines[0])
-    max_chars = 2500
     
     for r in filtered_results:
         # Format: * [record_id] title — project — summary/snippet
