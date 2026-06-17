@@ -66,7 +66,11 @@ class SearchExporter:
                 
         # Only index selected types or specific files
         # Based on user list: AGENTS.md, README*, docs/**/*.md, docs/**/*.txt, selected src, tests
-        rel_path = file_path.relative_to(self.repo_root)
+        try:
+            rel_path = file_path.relative_to(self.repo_root)
+        except ValueError:
+            return False # Path not in repo root
+
         rel_str = str(rel_path)
         
         if rel_str == "AGENTS.md": return True

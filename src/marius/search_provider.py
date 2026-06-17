@@ -93,7 +93,7 @@ class LocalJsonlSearchProvider(SearchProvider):
                                 "source_type": record.get("source_type"),
                                 "title": record.get("title"),
                                 "snippet": snippet,
-                                "score": score,
+                                "score": float(score),
                                 "record_id": record.get("id")
                             })
                     except Exception:

@@ -42,7 +42,12 @@ else
     echo "Run: gcloud auth application-default login --no-launch-browser"
 fi
 
-echo "== Marius-Brain Foundation Status =="
-if [ -z "${PROJECT_ID}" ]; then
-    echo "FATAL: No project selected."
+echo "== Dependency Check =="
+if [ -d "${REPO_ROOT}/.venv" ]; then
+    if "${REPO_ROOT}/.venv/bin/python" -c "import google.cloud.discoveryengine" 2>/dev/null; then
+        echo "google-cloud-discoveryengine: INSTALLED"
+    else
+        echo "google-cloud-discoveryengine: MISSING"
+        echo "Run: ${REPO_ROOT}/.venv/bin/python -m pip install google-cloud-discoveryengine"
+    fi
 fi
