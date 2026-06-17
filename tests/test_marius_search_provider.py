@@ -21,7 +21,7 @@ def test_local_search_provider_smoke(tmp_path):
     with open(export_file, "w") as f:
         f.write(json.dumps(record) + "\n")
         
-    provider = LocalJsonlSearchProvider(exports_dir=exports_dir)
+    provider = LocalJsonlSearchProvider(exports_dir=exports_dir, brain_data=tmp_path / "records.jsonl")
     
     # Test status
     status = provider.status()
@@ -51,7 +51,7 @@ def test_local_search_ranking(tmp_path):
         for r in records:
             f.write(json.dumps(r) + "\n")
             
-    provider = LocalJsonlSearchProvider(exports_dir=exports_dir)
+    provider = LocalJsonlSearchProvider(exports_dir=exports_dir, brain_data=tmp_path / "records.jsonl")
     results = provider.search("high")
     
     assert len(results) == 1

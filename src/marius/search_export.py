@@ -133,6 +133,44 @@ class SearchExporter:
                         
         return output_file
 
+    def export_brain_records(self, collection_filter: Optional[str] = None) -> Path:
+        """Export records from the local brain records.jsonl file."""
+        from .brain_ingest import BRAIN_DATA
+        
+        suffix = f"_{collection_filter}" if collection_filter else "_all"
+        output_file = self.output_dir / f"marius_brain{suffix}.jsonl"
+        
+        if not BRAIN_DATA.exists():
+            # Return empty file
+            open(output_file, 'w').close()
+            return output_file
+
+        count = 0
+        with open(BRAIN_DATA, "r", encoding="utf-8") as src:
+            with open(output_file, "w", encoding="utf-8") as dst:
+                for line in src:
+                    try:
+                        record = json.loads(line)
+                        if collection_filter and record.get("collection") != collection_filter:
+                            continue
+                        dst.write(line)
+                        count += 1
+                    except Exception:
+                        continue
+        return output_file
+
 def export_project_context(project_name: str, repo_path: str, output_dir: Optional[str] = None) -> Path:
     exporter = SearchExporter(Path(repo_path), Path(output_dir) if output_dir else None)
     return exporter.export_project(project_name)
+
+def rebuild_brain_exports(repo_root: Path, output_dir: Optional[Path] = None) -> List[Path]:
+    exporter = SearchExporter(repo_root, output_dir)
+    files = []
+    # 1. Base project export (warden)
+    files.append(exporter.export_project("warden"))
+    # 2. Brain collection exports
+    files.append(exporter.export_brain_records(None)) # all
+    files.append(exporter.export_brain_records("article"))
+    files.append(exporter.export_brain_records("personal")) # profiles are in here too
+    files.append(exporter.export_brain_records("project"))
+    return files

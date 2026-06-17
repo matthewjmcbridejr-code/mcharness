@@ -190,8 +190,80 @@ async def run_search_query(req: SearchQueryRequest):
     results = provider.search(req.query, req.project, req.limit)
     status = provider.status()
     return {
-        "provider": status.get("provider"),
+        "provider": status.get("actual_provider"),
+        "requested_provider": status.get("requested_provider"),
         "query": req.query,
         "project": req.project,
         "results": results
     }
+
+# --- Brain / Ingest Endpoints ---
+
+class URLIngestRequest(BaseModel):
+    url: str
+    project: str = "research"
+    tags: Optional[List[str]] = None
+
+class FileIngestRequest(BaseModel):
+    path: str
+    project: str = "unknown"
+    tags: Optional[List[str]] = None
+
+class TextIngestRequest(BaseModel):
+    text: str
+    title: str
+    project: str = "personal"
+    tags: Optional[List[str]] = None
+
+@router.get("/brain/status")
+async def get_brain_status():
+    from .search_provider import get_search_provider
+    from .brain_ingest import INBOX_DIR
+    provider = get_search_provider()
+    status = provider.status()
+    
+    inbox_files = [f.name for f in INBOX_DIR.iterdir() if f.is_file()]
+    
+    return {
+        "search": status,
+        "inbox": {
+            "path": str(INBOX_DIR),
+            "file_count": len(inbox_files),
+            "files": inbox_files[:10]
+        }
+    }
+
+@router.post("/brain/ingest/url")
+async def ingest_url(req: URLIngestRequest):
+    from .brain_ingest import BrainIngest
+    bi = BrainIngest()
+    return await bi.add_url(req.url, req.project, req.tags)
+
+@router.post("/brain/ingest/file")
+async def ingest_file(req: FileIngestRequest):
+    from .brain_ingest import BrainIngest
+    bi = BrainIngest()
+    return bi.add_file(req.path, req.project, req.tags)
+
+@router.post("/brain/ingest/text")
+async def ingest_text(req: TextIngestRequest):
+    from .brain_ingest import BrainIngest
+    bi = BrainIngest()
+    return bi.add_text(req.text, req.title, req.project, req.tags)
+
+@router.post("/brain/inbox/scan")
+async def scan_brain_inbox():
+    from .brain_ingest import BrainIngest
+    bi = BrainIngest()
+    return bi.scan_inbox()
+
+@router.post("/brain/profile/generate")
+async def generate_brain_profile():
+    from .brain_ingest import BrainIngest
+    bi = BrainIngest()
+    return bi.ingest_profiles()
+
+@router.post("/brain/sync/google")
+async def sync_brain_google(req: Dict[str, Any] = None):
+    # This will be implemented in sync script or provider
+    return {"status": "ok", "message": "Manual sync via CLI recommended: marius brain sync google --upload"}

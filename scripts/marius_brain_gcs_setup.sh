@@ -25,6 +25,11 @@ echo "Project: ${PROJECT_ID}"
 echo "Bucket:  gs://${BUCKET_NAME}"
 echo "Region:  ${LOCATION}"
 
+if [[ "$*" == *"--upload"* ]]; then
+    echo "Rebuilding safe brain exports..."
+    "${REPO_ROOT}/.venv/bin/python" "${REPO_ROOT}/scripts/rebuild_brain_exports.py"
+fi
+
 if gcloud storage buckets describe "gs://${BUCKET_NAME}" >/dev/null 2>&1; then
     echo "Bucket already exists."
 else
@@ -35,12 +40,15 @@ fi
 
 EXPORTS_DIR="${HOME}/.local/share/marius/brain/exports"
 if [ -d "${EXPORTS_DIR}" ]; then
-    echo "Uploading exports..."
-    gcloud storage cp "${EXPORTS_DIR}"/*.jsonl "gs://${BUCKET_NAME}/exports/"
-    echo "Upload complete."
+    if [[ "$*" == *"--upload"* ]]; then
+        echo "Uploading exports to gs://${BUCKET_NAME}/brain/exports/ ..."
+        gcloud storage cp "${EXPORTS_DIR}"/*.jsonl "gs://${BUCKET_NAME}/brain/exports/"
+        echo "Upload complete."
+    else
+        echo "Dry run: use --upload to sync local brain to GCS."
+    fi
 else
-    echo "No local exports found to upload."
-    echo "Run '/search export warden' in marius chat first."
+    echo "No local exports found."
 fi
 
 echo "Done."

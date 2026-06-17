@@ -169,6 +169,26 @@ class ApiClient:
     def run_search_query(self, query: str, project: Optional[str] = None, limit: int = 5) -> Optional[Dict[str, Any]]:
         return self._request("POST", "search/query", data={"query": query, "project": project, "limit": limit}, timeout=10)
 
+    # --- Brain Endpoints ---
+
+    def get_brain_status(self) -> Optional[Dict[str, Any]]:
+        return self._request("GET", "brain/status", timeout=5)
+
+    def ingest_url(self, url: str, project: str, tags: List[str] = None) -> Optional[Dict[str, Any]]:
+        return self._request("POST", "brain/ingest/url", data={"url": url, "project": project, "tags": tags}, timeout=15)
+
+    def ingest_file(self, path: str, project: str, tags: List[str] = None) -> Optional[Dict[str, Any]]:
+        return self._request("POST", "brain/ingest/file", data={"path": path, "project": project, "tags": tags}, timeout=10)
+
+    def ingest_text(self, text: str, title: str, project: str, tags: List[str] = None) -> Optional[Dict[str, Any]]:
+        return self._request("POST", "brain/ingest/text", data={"text": text, "title": title, "project": project, "tags": tags}, timeout=10)
+
+    def scan_brain_inbox(self) -> Optional[Dict[str, Any]]:
+        return self._request("POST", "brain/inbox/scan", timeout=30)
+
+    def generate_brain_profile(self) -> Optional[Dict[str, Any]]:
+        return self._request("POST", "brain/profile/generate", timeout=10)
+
 def parse_command(line: str) -> Tuple[Optional[str], List[str]]:
     if line.lower().startswith(("remember that ", "note that ", "save this ")):
         parts = line.split(maxsplit=2)
@@ -423,6 +443,10 @@ class MariusCLI:
             print("  /search status      - View brain search status")
             print("  /search export <p>  - Export project for brain index")
             print("  /search query <q>   - Query project brain memory")
+            print("  /brain status       - View personal knowledge status")
+            print("  /brain add-url <U>  - Ingest URL into brain")
+            print("  /brain add-file <F> - Ingest file into brain")
+            print("  /brain inbox scan   - Scan ~/MariusBrain/inbox")
             print("  /providers          - Show model providers")
             print("  /provider <mode>    - Set mode (local|cloud|auto)")
             print("  /models             - Show current model & profiles")
@@ -447,6 +471,7 @@ class MariusCLI:
         elif cmd == "remember": self.handle_remember(args[0], args[1])
         elif cmd == "recall": self.handle_recall(args[0])
         elif cmd == "search": self.handle_search(args[0])
+        elif cmd == "brain": self.handle_brain(args[0])
         elif cmd == "providers": self.handle_providers()
         elif cmd == "provider": self.handle_provider(args[0])
         elif cmd == "models": self.handle_models()
@@ -739,6 +764,182 @@ class MariusCLI:
                 print()
             else: print("Error: API offline.")
 
+    def handle_brain(self, args: str = ""):
+        parts = args.split(maxsplit=1)
+        sub = parts[0].lower() if parts else "status"
+        val = parts[1] if len(parts) > 1 else ""
+
+        if sub == "status":
+            res = self.client.get_brain_status()
+            if res:
+                print(f"\n--- Marius Brain Status ---")
+                s = res.get("search", {})
+                print(f"Provider:      {s.get('actual_provider')}")
+                print(f"Brain Records: {round(s.get('brain_size_bytes', 0) / 1024, 1)} KB")
+                
+                inbox = res.get("inbox", {})
+                print(f"Inbox Path:    {inbox.get('path')}")
+                print(f"Inbox Files:   {inbox.get('file_count')}")
+                if inbox.get("files"):
+                    print("Recent Inbox:")
+                    for f in inbox["files"]:
+                        print(f"  - {f}")
+                print()
+            else: print("Error: API offline.")
+
+        elif sub == "profile":
+            print("Regenerating personal brain profiles...")
+            res = self.client.generate_brain_profile()
+            if res:
+                print(f"Success. Ingested {res.get('count')} profile documents.")
+            else: print("Error: API offline.")
+
+        elif sub == "add-text":
+            title = "Personal Note"
+            project = "personal"
+            tags = []
+            text = val
+            
+            if "--title" in val:
+                t_parts = val.split("--title")
+                text = t_parts[0].strip()
+                rem = t_parts[1].strip()
+                if "--project" in rem:
+                    p_parts = rem.split("--project")
+                    title = p_parts[0].strip()
+                    rem2 = p_parts[1].strip()
+                    if "--tags" in rem2:
+                        tags_parts = rem2.split("--tags")
+                        project = tags_parts[0].strip()
+                        tags = [t.strip() for t in tags_parts[1].split(",")]
+                    else:
+                        project = rem2
+                elif "--tags" in rem:
+                    tags_parts = rem.split("--tags")
+                    title = tags_parts[0].strip()
+                    tags = [t.strip() for t in tags_parts[1].split(",")]
+                else:
+                    title = rem
+            elif "--project" in val:
+                p_parts = val.split("--project")
+                text = p_parts[0].strip()
+                rem = p_parts[1].strip()
+                if "--tags" in rem:
+                    tags_parts = rem.split("--tags")
+                    project = tags_parts[0].strip()
+                    tags = [t.strip() for t in tags_parts[1].split(",")]
+                else:
+                    project = rem
+            elif "--tags" in val:
+                tags_parts = val.split("--tags")
+                text = tags_parts[0].strip()
+                tags = [t.strip() for t in tags_parts[1].split(",")]
+
+            if not text and not sys.stdin.isatty():
+                text = sys.stdin.read().strip()
+
+            if not text:
+                print("Usage: /brain add-text <content> [--title t] [--project p] [--tags t1,t2]")
+                return
+
+            print(f"Ingesting text into {project}...")
+            res = self.client.ingest_text(text, title, project, tags)
+            if res and res.get("ok"):
+                r = res["record"]
+                print(f"Success. Ingested '{r['title']}' into {r['project']}.")
+            else: print(f"Error: {res.get('error') if res else 'API offline'}")
+
+        elif sub == "add-url":
+            if not val:
+                print("Usage: /brain add-url <URL> [--project p] [--tags t1,t2]")
+                return
+            
+            project = "research"
+            tags = []
+            url = val
+            if "--project" in val:
+                parts = val.split("--project")
+                url = parts[0].strip()
+                rem = parts[1].strip()
+                if "--tags" in rem:
+                    t_parts = rem.split("--tags")
+                    project = t_parts[0].strip()
+                    tags = [t.strip() for t in t_parts[1].split(",")]
+                else:
+                    project = rem
+            elif "--tags" in val:
+                parts = val.split("--tags")
+                url = parts[0].strip()
+                tags = [t.strip() for t in parts[1].split(",")]
+
+            print(f"Ingesting URL: {url}...")
+            res = self.client.ingest_url(url, project, tags)
+            if res and res.get("ok"):
+                r = res["record"]
+                print(f"Success. Ingested '{r['title']}' into {r['project']}.")
+            else: print(f"Error: {res.get('error') if res else 'API offline'}")
+
+        elif sub == "add-file":
+            if not val:
+                print("Usage: /brain add-file <path> [--project p] [--tags t1,t2]")
+                return
+            
+            project = "unknown"
+            tags = []
+            path = val
+            if "--project" in val:
+                parts = val.split("--project")
+                path = parts[0].strip()
+                rem = parts[1].strip()
+                if "--tags" in rem:
+                    t_parts = rem.split("--tags")
+                    project = t_parts[0].strip()
+                    tags = [t.strip() for t in t_parts[1].split(",")]
+                else:
+                    project = rem
+            elif "--tags" in val:
+                parts = val.split("--tags")
+                path = parts[0].strip()
+                tags = [t.strip() for t in parts[1].split(",")]
+
+            print(f"Ingesting file: {path}...")
+            res = self.client.ingest_file(path, project, tags)
+            if res and res.get("ok"):
+                r = res["record"]
+                print(f"Success. Ingested '{r['title']}' into {r['project']}.")
+            else: print(f"Error: {res.get('error') if res else 'API offline'}")
+
+        elif sub == "inbox":
+            if "scan" in val:
+                print("Scanning MariusBrain inbox...")
+                res = self.client.scan_brain_inbox()
+                if res:
+                    print(f"Done. Processed: {res['processed']}, Rejected: {res['rejected']}")
+                    for d in res.get("details", []):
+                        status = "OK" if d["ok"] else f"FAILED: {d['error']}"
+                        print(f"  - {d['file']}: {status}")
+                else: print("Error: API offline.")
+            else:
+                print("Usage: /brain inbox scan")
+
+        elif sub == "sync":
+            if "google" in val:
+                print("Syncing brain to Google Cloud (GCS)...")
+                # This would typically call a script or an API that runs the script
+                import subprocess
+                cmd = ["bash", str(self.repo_root / "scripts" / "marius_brain_gcs_setup.sh")]
+                try:
+                    res = subprocess.run(cmd, capture_output=True, text=True)
+                    print(res.stdout)
+                    if res.stderr: print(f"Warnings: {res.stderr}")
+                except Exception as e:
+                    print(f"Failed to run sync script: {e}")
+            else:
+                print("Usage: /brain sync google")
+
+        elif sub == "search":
+            self.handle_search(f"query {val}")
+
     def handle_model_test(self):
         print("\nRunning Model Self-Test...")
         result = self.client.test_model()
@@ -837,7 +1038,7 @@ class MariusCLI:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Marius CLI Launcher")
-    parser.add_argument("command", nargs="?", choices=["start", "stop", "restart", "status", "doctor", "logs", "chat", "model", "modeltest", "providers", "provider", "models", "profile", "bench", "test-drive", "context", "search"], default=None)
+    parser.add_argument("command", nargs="?", choices=["start", "stop", "restart", "status", "doctor", "logs", "chat", "model", "modeltest", "providers", "provider", "models", "profile", "bench", "test-drive", "context", "search", "brain"], default=None)
     parser.add_argument("subcommand", nargs="?", help="Subcommand (e.g., 'set' for model)")
     parser.add_argument("args", nargs="*", help="Arguments for command")
     parser.add_argument("--once", type=str, help="Run a single chat message and exit")
@@ -901,6 +1102,12 @@ if __name__ == "__main__":
             if not cli.start_server():
                 sys.exit(1)
         cli.handle_search(f"{args.subcommand or ''} {' '.join(args.args)}")
+        sys.exit(0)
+    elif args.command == "brain":
+        if not cli.client.get_health():
+            if not cli.start_server():
+                sys.exit(1)
+        cli.handle_brain(f"{args.subcommand or ''} {' '.join(args.args)}")
         sys.exit(0)
     elif args.command == "model":
         if args.subcommand == "set" and args.args:
