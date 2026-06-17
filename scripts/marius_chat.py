@@ -227,7 +227,9 @@ def parse_command(line: str) -> Tuple[Optional[str], List[str]]:
         "prof": "profile",
         "pro": "profile",
         "ctx": "context",
-        "br": "brain"
+        "br": "brain",
+        "t": "think",
+        "d": "deep"
     }
     cmd = aliases.get(raw_cmd, raw_cmd)
     
@@ -417,20 +419,30 @@ class MariusCLI:
             print(f"Recent logs from {LOG_PATH}:")
             subprocess.run(["tail", "-n", "50", str(LOG_PATH)])
 
-    def handle_chat(self, message: str):
+    def handle_chat(self, message: str, brain_override: Optional[bool] = None, trace_mode: bool = False):
         self.session_stats["messages_sent"] += 1
-        
-        # Check for --no-brain override in message (primitive)
-        brain_context = None
-        if "--no-brain" in message:
-            brain_context = False
-            message = message.replace("--no-brain", "").strip()
-        
-        # Env override also respected on client side for easy toggle
-        if os.getenv("MARIUS_BRAIN_CONTEXT") == "0":
-            brain_context = False
 
-        result = self.client.get_chat(message, brain_context=brain_context)
+        # Check for --brain or --no-brain override in message (primitive)
+        # Default is OFF for v3 casual chat unless explicitly enabled
+        brain_enabled = False
+
+        if os.getenv("MARIUS_BRAIN_CONTEXT") == "1":
+            brain_enabled = True
+
+        if brain_override is not None:
+            brain_enabled = brain_override
+
+        if "--no-brain" in message:
+            brain_enabled = False
+            message = message.replace("--no-brain", "").strip()
+        elif "--brain" in message:
+            brain_enabled = True
+            message = message.replace("--brain", "").strip()
+
+        if trace_mode:
+            print(f"[route] pending...")
+
+        result = self.client.get_chat(message, brain_context=brain_enabled)
 
         if result:
             warning = result.get("warning")
@@ -439,13 +451,29 @@ class MariusCLI:
 
             brain_info = result.get("brain_context")
             brain_status = "off"
-            if brain_info and brain_info.get("enabled"):
-                ids = brain_info.get("record_ids", [])
-                if ids:
-                    print(f"[brain context: {len(ids)} records]")
-                brain_status = "on"
 
-            response = result.get("response", "No response.")
+            if trace_mode:
+                provider = result.get("provider", "unknown")
+                actual = result.get("actual", "")
+                profile = result.get("profile", "unknown")
+                print(f"[route] provider={provider} model={actual} profile={profile}")
+
+                if brain_info and brain_info.get("enabled"):
+                    ids = brain_info.get("record_ids", [])
+                    print(f"[brain] records={len(ids)} ids={','.join(ids)}")
+                    brain_status = "on"
+                else:
+                    print(f"[brain] skipped")
+
+                print(f"[model] waiting...")
+            else:
+                if brain_info and brain_info.get("enabled"):
+                    ids = brain_info.get("record_ids", [])
+                    if ids:
+                        print(f"[brain context: {len(ids)} records]")
+                    brain_status = "on"
+
+            response = result.get("response", "")
             provider = result.get("provider", "unknown")
             requested = result.get("requested", "auto")
             actual = result.get("actual", "")
@@ -453,18 +481,26 @@ class MariusCLI:
             profile = result.get("profile", "unknown")
             fallback = result.get("fallback_reason")
 
-            print(f"\nmarius> {response}")
+            if trace_mode:
+                print(f"[done] {elapsed}s\n")
 
-            # Honest Metadata: [provider | requested | actual | profile | brain | time]
-            meta = [f"provider: {provider}"]
-            meta.append(f"requested: {requested}")
-            meta.append(f"actual: {actual}")
-            if fallback: meta.append(f"fallback_reason: {fallback}")
-            meta.append(f"profile: {profile}")
-            meta.append(f"brain: {brain_status}")
-            meta.append(f"{elapsed}s")
+            if not response.strip():
+                print(f"\n[empty model response from {actual}]")
+                print("Hint: This model may be router-only or experiencing issues. Try: /model recommend")
+            else:
+                print(f"\nmarius> {response}")
 
-            print(f"[{' | '.join(meta)}]\n")
+            if not trace_mode:
+                # Honest Metadata: [provider | requested | actual | profile | brain | time]
+                meta = [f"provider: {provider}"]
+                meta.append(f"requested: {requested}")
+                meta.append(f"actual: {actual}")
+                if fallback: meta.append(f"fallback_reason: {fallback}")
+                meta.append(f"profile: {profile}")
+                meta.append(f"brain: {brain_status}")
+                meta.append(f"{elapsed}s")
+
+                print(f"[{' | '.join(meta)}]\n")
         else:
             print("\nError: API offline or request timed out.\n")
     def run_command(self, line: str) -> bool:
@@ -493,6 +529,8 @@ class MariusCLI:
             print("  /brain add-file <F> - Ingest file into brain")
             print("  /brain inbox scan   - Scan ~/MariusBrain/inbox")
             print("  /console            - Visible operator console")
+            print("  /telegram doctor    - Check Telegram bot config")
+            print("  /telegram start     - Start Telegram bridge")
             print("  /providers          - Show model providers")
             print("  /provider <mode>    - Set mode (local|cloud|auto)")
             print("  /models             - Show current model & profiles")
@@ -504,6 +542,8 @@ class MariusCLI:
             print("  /bench recommend    - Run benchmark and show recommendation")
             print("  /context (/ctx)     - Show grounding facts")
             print("  /context reload     - Reload grounding pack")
+            print("  /think <query>      - Run visible trace mode")
+            print("  /deep <query>       - Use brain + deep mode")
             print("  /modeltest          - Run a model self-test")
             print("  /api [url]          - View or set API base URL")
             print("  /config             - View current configuration")
@@ -523,10 +563,17 @@ class MariusCLI:
         elif cmd == "models": self.handle_models()
         elif cmd == "model": self.handle_model(args[0])
         elif cmd == "profile": self.handle_profile(args[0])
+        elif cmd == "think": self.handle_chat(args[0], trace_mode=True)
+        elif cmd == "deep":
+            orig_prof = self.config.get("profile", "fast")
+            self.client.set_profile("deep")
+            self.handle_chat(args[0], brain_override=True, trace_mode=True)
+            self.client.set_profile(orig_prof)
         elif cmd == "bench": self.handle_bench(args[0])
         elif cmd == "context": self.handle_context(args[0])
         elif cmd == "console": self.handle_console()
         elif cmd == "modeltest": self.handle_model_test()
+        elif cmd == "telegram": self.handle_telegram(args[0])
         elif cmd == "test-drive": self.handle_test_drive()
         elif cmd == "api": self.handle_api(args[0])
         elif cmd == "config": self.handle_config()
@@ -534,6 +581,16 @@ class MariusCLI:
         elif cmd == "clear": os.system('cls' if os.name == 'nt' else 'clear')
         else: print(f"Unknown command: /{cmd}. Type /help for available commands.")
         return True
+
+    def handle_telegram(self, args: str = ""):
+        sub = args.split()[0].lower() if args else ""
+        from src.marius.integrations.telegram_bot import doctor, main
+        if sub == "doctor":
+            doctor()
+        elif sub == "start":
+            main()
+        else:
+            print("Usage: /telegram doctor | start")
 
     def handle_status(self):
         result = self.client.get_status()
@@ -648,13 +705,17 @@ class MariusCLI:
             self.handle_model_why()
             return
         elif args == "recommend":
-            self.handle_bench("recommend")
+            self.handle_model_recommend()
+            return
+        elif args.startswith("apply "):
+            bucket = args[6:].strip()
+            self.handle_model_apply(bucket)
             return
         elif args == "apply-recommendation":
             res = self.client.get_recommendation()
             if res and res.get("best_terminal_default"):
                 model = res["best_terminal_default"]
-                print(f"Applying recommended default: {model}")
+                print(f"Applying benchmark recommended default: {model}")
                 self.client.set_model(model)
             else:
                 print("Error: No recommendation available. Run /bench recommend first.")
@@ -675,6 +736,71 @@ class MariusCLI:
             return
         else:
             self.handle_models()
+
+    def handle_model_recommend(self):
+        res = self.client.get_models()
+        if not res:
+            print("Error: API offline.")
+            return
+            
+        available = res.get("available_ollama", [])
+        
+        buckets = {
+            "fast_console": ["llama3.2:1b", "qwen3:0.6b", "gemma3:1b"],
+            "daily_brain": ["qwen2.5-coder:3b", "llama3.2:3b", "qwen3:4b"],
+            "code_security": ["qwen2.5-coder:3b", "qwen2.5-coder:7b", "qwen3:4b", "deepseek-coder-v2:16b"]
+        }
+        
+        print("\n--- Model Recommendations by Bucket ---")
+        
+        for b_name, candidates in buckets.items():
+            found = None
+            for c in candidates:
+                if c in available or f"{c}:latest" in available:
+                    found = c
+                    break
+            
+            print(f"\n{b_name}:")
+            if found:
+                print(f"  Recommended: {found}")
+                print(f"  To apply:    marius model apply {b_name}")
+            else:
+                print(f"  No installed candidates found.")
+                print(f"  Suggested:   ollama pull {candidates[0]}")
+        print()
+
+    def handle_model_apply(self, bucket: str):
+        res = self.client.get_models()
+        if not res:
+            print("Error: API offline.")
+            return
+            
+        available = res.get("available_ollama", [])
+        
+        buckets = {
+            "fast_console": ["llama3.2:1b", "qwen3:0.6b", "gemma3:1b"],
+            "daily_brain": ["qwen2.5-coder:3b", "llama3.2:3b", "qwen3:4b"],
+            "code_security": ["qwen2.5-coder:3b", "qwen2.5-coder:7b", "qwen3:4b", "deepseek-coder-v2:16b"]
+        }
+        
+        if bucket not in buckets:
+            print(f"Unknown bucket '{bucket}'. Choices: {', '.join(buckets.keys())}")
+            return
+            
+        found = None
+        for c in buckets[bucket]:
+            if c in available or f"{c}:latest" in available:
+                found = c
+                break
+                
+        if found:
+            res_set = self.client.set_model(found)
+            if res_set:
+                print(f"Applied {found} from bucket {bucket}.")
+            else:
+                print("Error setting model.")
+        else:
+            print(f"Could not apply {bucket}: no candidates installed.")
 
     def handle_model_why(self):
         result = self.client.get_model_why()
@@ -1122,9 +1248,17 @@ class MariusCLI:
         print(f"API Base updated to {self.client.api_base}")
 
     def handle_console(self):
-        print("\nMarius Operator Console v1")
-        print("Type /exit to return, /help for console commands.\n")
+        print("\nMarius Operator Console v3")
+        print(f"provider: {self.config.get('provider') or 'local'}")
+        print(f"model: {self.config.get('model') or 'auto'}")
+        print(f"profile: {self.config.get('profile') or 'fast'}")
+        print("brain: off")
+        print("mode: console")
+        print("commands: /help /model why /brain <q> /recall <q> /context <q> /think <q> /deep <q> /exit\n")
         
+        # In console mode, we default to brain off unless explicit
+        os.environ["MARIUS_BRAIN_CONTEXT"] = "0"
+
         while True:
             try:
                 line = input("marius-console> ").strip()
@@ -1137,8 +1271,14 @@ class MariusCLI:
                     print("  /model              - Show current model")
                     print("  /model set <name>   - Change model")
                     print("  /model why          - Diagnostics")
-                    print("  /brain on|off       - Toggle brain context")
-                    print("  /fast | /deep       - Set profile")
+                    print("  /model recommend    - Recommendations")
+                    print("  /brain <query>      - Answer with brain context")
+                    print("  /brain on|off       - Toggle brain context globally")
+                    print("  /recall <query>     - Return matching brain records")
+                    print("  /context <query>    - Print context pack only")
+                    print("  /think <query>      - Run visible trace mode")
+                    print("  /deep <query>       - Uses brain + deep mode")
+                    print("  /fast | /deepmode   - Set profile")
                     print("  /status             - Project health")
                     print("  /logs               - View logs")
                     print("  /exit               - Return\n")
@@ -1154,8 +1294,16 @@ class MariusCLI:
                 elif line == "/fast":
                     self.handle_profile("fast")
                     continue
-                elif line == "/deep":
+                elif line == "/deepmode":
                     self.handle_profile("deep")
+                    continue
+
+                cmd, args = parse_command(line)
+                if cmd == "brain":
+                    if args[0]:
+                        self.handle_chat(args[0], brain_override=True)
+                    else:
+                        print("Usage: /brain <query>")
                     continue
                 
                 if not self.run_command(line): break
@@ -1209,7 +1357,7 @@ class MariusCLI:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Marius CLI Launcher")
-    parser.add_argument("command", nargs="?", choices=["start", "stop", "restart", "status", "doctor", "logs", "chat", "model", "modeltest", "providers", "provider", "models", "profile", "bench", "test-drive", "context", "search", "brain", "console"], default=None)
+    parser.add_argument("command", nargs="?", choices=["start", "stop", "restart", "status", "doctor", "logs", "chat", "model", "modeltest", "providers", "provider", "models", "profile", "bench", "test-drive", "context", "search", "brain", "console", "telegram"], default=None)
     parser.add_argument("subcommand", nargs="?", help="Subcommand (e.g., 'set' for model)")
     parser.add_argument("args", nargs="*", help="Arguments for command")
     parser.add_argument("--once", type=str, help="Run a single chat message and exit")
@@ -1308,6 +1456,9 @@ if __name__ == "__main__":
             if not cli.start_server():
                 sys.exit(1)
         cli.handle_console()
+        sys.exit(0)
+    elif args.command == "telegram":
+        cli.handle_telegram(f"{args.subcommand or ''} {' '.join(args.args)}".strip())
         sys.exit(0)
     elif args.command == "logs":
         cli.tail_logs(follow=args.follow)
