@@ -17,3 +17,7 @@ _mctable/checkpoints/*.sqlite
 docs/archive/legacy/src-tauri/target/
 docs/archive/legacy/src-tauri/gen/mcharness.egg-info/
 *.db
+
+# Local Google Cloud SDK install
+google-cloud-sdk/
+google-cloud-cli-linux-x86_64.tar.gz
