@@ -168,6 +168,7 @@ class SearchQueryRequest(BaseModel):
     query: str
     project: Optional[str] = None
     limit: int = 5
+    provider: Optional[str] = None
 
 class SearchExportRequest(BaseModel):
     project: str
@@ -185,8 +186,16 @@ async def run_search_export(req: SearchExportRequest):
 
 @router.post("/search/query")
 async def run_search_query(req: SearchQueryRequest):
-    from .search_provider import get_search_provider
-    provider = get_search_provider()
+    from .search_provider import get_search_provider, LocalJsonlSearchProvider
+    
+    if req.provider == "local":
+        provider = LocalJsonlSearchProvider()
+    elif req.provider == "google":
+        from .google_search_provider import GoogleAgentSearchProvider
+        provider = GoogleAgentSearchProvider()
+    else:
+        provider = get_search_provider()
+        
     results = provider.search(req.query, req.project, req.limit)
     status = provider.status()
     return {
@@ -217,15 +226,20 @@ class TextIngestRequest(BaseModel):
 
 @router.get("/brain/status")
 async def get_brain_status():
-    from .search_provider import get_search_provider
+    from .search_provider import get_search_provider, LocalJsonlSearchProvider
     from .brain_ingest import INBOX_DIR
     provider = get_search_provider()
     status = provider.status()
+    
+    # Always include local stats for brain status
+    local = LocalJsonlSearchProvider()
+    local_status = local.status()
     
     inbox_files = [f.name for f in INBOX_DIR.iterdir() if f.is_file()]
     
     return {
         "search": status,
+        "local": local_status,
         "inbox": {
             "path": str(INBOX_DIR),
             "file_count": len(inbox_files),

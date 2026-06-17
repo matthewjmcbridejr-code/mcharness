@@ -58,7 +58,7 @@ class GoogleAgentSearchProvider(SearchProvider):
         res["google_note"] = "Local JSONL generated. Use scripts/marius_brain_gcs_setup.sh to upload to GCS and scripts/marius_brain_discovery_setup.py --import to index."
         return res
 
-    def search(self, query: str, project: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
+    def search(self, query: str, project: Optional[str] = None, limit: int = 5, collection: Optional[str] = None, tags: List[str] = None) -> List[Dict[str, Any]]:
         if not self.client or not self.project_id or not self.engine_id:
             # If Google was requested but not ready, we return the error record
             reason = self.init_error or "missing configuration (GOOGLE_CLOUD_PROJECT or GOOGLE_AGENT_SEARCH_ENGINE_ID)"
@@ -84,15 +84,29 @@ class GoogleAgentSearchProvider(SearchProvider):
                 serving_config=self.serving_config_id,
             )
             
-            # Note: Discovery Engine usually uses engines/{id}/servingConfigs/{id} 
-            # or dataStores/{id}/servingConfigs/{id}. 
-            # SearchServiceClient.serving_config_path helper usually constructs the dataStore-based one 
-            # if we pass data_store.
+            # Build filter string only if enabled via env
+            filter_enabled = os.getenv("GOOGLE_AGENT_SEARCH_ENABLE_METADATA_FILTERS") == "1"
+            filter_str = ""
+            filter_note = None
             
+            if filter_enabled:
+                filters = []
+                if project:
+                    filters.append(f'project: ANY("{project}")')
+                if collection:
+                    filters.append(f'collection: ANY("{collection}")')
+                if tags:
+                    for tag in tags:
+                        filters.append(f'tags: ANY("{tag}")')
+                filter_str = " AND ".join(filters) if filters else ""
+            elif project or collection or tags:
+                filter_note = "Google metadata filters disabled; project/tags not applied server-side"
+
             request = discoveryengine.SearchRequest(
                 serving_config=serving_config,
                 query=query,
                 page_size=limit,
+                filter=filter_str
             )
 
             pager = self.client.search(request)
@@ -102,28 +116,35 @@ class GoogleAgentSearchProvider(SearchProvider):
                 doc = result.document
                 data = doc.derived_struct_data
                 
-                # Discovery Engine returns a derived_struct_data with snippets
                 snippet = "No snippet available."
                 if "snippets" in data and len(data["snippets"]) > 0:
                     snippet = data["snippets"][0].get("snippet", snippet)
                 elif "extractive_answers" in data and len(data["extractive_answers"]) > 0:
                     snippet = data["extractive_answers"][0].get("content", snippet)
-
-                results.append({
+                
+                res = {
                     "project": project or "google-brain",
+                    "collection": "google",
                     "source_path": data.get("link", doc.name),
                     "source_type": "google_agent_search",
                     "title": data.get("title", doc.id),
+                    "tags": [],
                     "snippet": snippet,
                     "score": 1.0, # Result is already ranked
                     "record_id": doc.id,
                     "resource_name": doc.name,
-                    "provider": "google"
-                })
+                    "provider": "google",
+                    "captured_at": None
+                }
+                if filter_note:
+                    res["filter_note"] = filter_note
+                results.append(res)
             return results
 
         except Exception as e:
             logger.error(f"Google Agent Search failed: {e}")
+            # Fallback to local instead of returning error record if it's a transient failure?
+            # User requirement 4: "Do not silently fallback to local. If Google fails, show exact error."
             return [{
                 "project": "error",
                 "source_path": "n/a",

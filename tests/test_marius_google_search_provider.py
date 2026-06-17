@@ -13,7 +13,7 @@ def test_google_provider_status_detailed(mock_getenv):
         "GOOGLE_AGENT_SEARCH_LOCATION": "global",
         "GOOGLE_AGENT_SEARCH_SERVING_CONFIG": "custom_config"
     }
-    mock_getenv.side_effect = lambda k, default=None: env.get(k, default)
+    mock_getenv.side_effect = env.get
     
     with patch("google.cloud.discoveryengine_v1.SearchServiceClient") as mock_client:
         provider = GoogleAgentSearchProvider()
@@ -30,7 +30,7 @@ def test_google_provider_search_success_label(mock_getenv):
         "GOOGLE_CLOUD_PROJECT": "test-project",
         "GOOGLE_AGENT_SEARCH_ENGINE_ID": "test-engine"
     }
-    mock_getenv.side_effect = lambda k, default=None: env.get(k, default)
+    mock_getenv.side_effect = env.get
     
     with patch("google.cloud.discoveryengine_v1.SearchServiceClient") as mock_client_class:
         mock_client = mock_client_class.return_value
@@ -53,12 +53,57 @@ def test_google_provider_search_success_label(mock_getenv):
         assert "Google Doc" in results[0]["title"]
 
 @patch("src.marius.google_search_provider.os.getenv")
+def test_google_provider_filters_disabled_by_default(mock_getenv):
+    env = {
+        "GOOGLE_CLOUD_PROJECT": "test-project",
+        "GOOGLE_AGENT_SEARCH_ENGINE_ID": "test-engine"
+    }
+    mock_getenv.side_effect = env.get
+    
+    with patch("google.cloud.discoveryengine_v1.SearchServiceClient") as mock_client_class:
+        mock_client = mock_client_class.return_value
+        mock_client.serving_config_path.return_value = "projects/test/locations/global/collections/default_collection/engines/test/servingConfigs/default"
+        mock_client.search.return_value = []
+        
+        provider = GoogleAgentSearchProvider()
+        provider.search("query", project="grademy")
+        
+        # Verify that filter was NOT passed to the client
+        assert mock_client.search.called
+        args, kwargs = mock_client.search.call_args
+        request = args[0]
+        assert request.filter == ""
+
+@patch("src.marius.google_search_provider.os.getenv")
+def test_google_provider_filters_enabled_via_env(mock_getenv):
+    env = {
+        "GOOGLE_CLOUD_PROJECT": "test-project",
+        "GOOGLE_AGENT_SEARCH_ENGINE_ID": "test-engine",
+        "GOOGLE_AGENT_SEARCH_ENABLE_METADATA_FILTERS": "1"
+    }
+    mock_getenv.side_effect = env.get
+    
+    with patch("google.cloud.discoveryengine_v1.SearchServiceClient") as mock_client_class:
+        mock_client = mock_client_class.return_value
+        mock_client.serving_config_path.return_value = "projects/test/locations/global/collections/default_collection/engines/test/servingConfigs/default"
+        mock_client.search.return_value = []
+        
+        provider = GoogleAgentSearchProvider()
+        provider.search("query", project="grademy")
+        
+        # Verify that filter WAS passed to the client
+        assert mock_client.search.called
+        args, kwargs = mock_client.search.call_args
+        request = args[0]
+        assert 'project: ANY("grademy")' in request.filter
+
+@patch("src.marius.google_search_provider.os.getenv")
 def test_google_provider_error_reporting(mock_getenv):
     env = {
         "GOOGLE_CLOUD_PROJECT": "test-project",
         "GOOGLE_AGENT_SEARCH_ENGINE_ID": "test-engine"
     }
-    mock_getenv.side_effect = lambda k, default=None: env.get(k, default)
+    mock_getenv.side_effect = env.get
     
     with patch("google.cloud.discoveryengine_v1.SearchServiceClient") as mock_client_class:
         mock_client = mock_client_class.return_value

@@ -166,8 +166,8 @@ class ApiClient:
     def run_search_export(self, project: str, repo_path: str) -> Optional[Dict[str, Any]]:
         return self._request("POST", "search/export", data={"project": project, "repo_path": repo_path}, timeout=60)
 
-    def run_search_query(self, query: str, project: Optional[str] = None, limit: int = 5) -> Optional[Dict[str, Any]]:
-        return self._request("POST", "search/query", data={"query": query, "project": project, "limit": limit}, timeout=10)
+    def run_search_query(self, query: str, project: Optional[str] = None, limit: int = 5, provider: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        return self._request("POST", "search/query", data={"query": query, "project": project, "limit": limit, "provider": provider}, timeout=10)
 
     # --- Brain Endpoints ---
 
@@ -774,14 +774,23 @@ class MariusCLI:
             if res:
                 print(f"\n--- Marius Brain Status ---")
                 s = res.get("search", {})
-                print(f"Provider:      {s.get('actual_provider')}")
-                print(f"Brain Records: {round(s.get('brain_size_bytes', 0) / 1024, 1)} KB")
+                print(f"Configured Provider:    {s.get('requested_provider')}")
+                print(f"Brain Search Default:   local")
+                
+                local = res.get("local", {})
+                print(f"Local Records Size:     {round(local.get('brain_size_bytes', 0) / 1024, 1)} KB")
+                print(f"Local Records Path:     {local.get('brain_data')}")
                 
                 inbox = res.get("inbox", {})
-                print(f"Inbox Path:    {inbox.get('path')}")
-                print(f"Inbox Files:   {inbox.get('file_count')}")
+                print(f"Inbox Path:             {inbox.get('path')}")
+                print(f"Inbox Files:            {inbox.get('file_count')}")
+                
+                # Check for sync bucket
+                bucket = os.getenv("GOOGLE_AGENT_SEARCH_BUCKET", f"marius-brain-292003335586")
+                print(f"Google Sync Bucket:     gs://{bucket}")
+                
                 if inbox.get("files"):
-                    print("Recent Inbox:")
+                    print("\nRecent Inbox:")
                     for f in inbox["files"]:
                         print(f"  - {f}")
                 print()
@@ -938,7 +947,47 @@ class MariusCLI:
                 print("Usage: /brain sync google")
 
         elif sub == "search":
-            self.handle_search(f"query {val}")
+            if not val:
+                print("Usage: /brain search <query> [--project p] [--provider google|local]")
+                return
+            
+            project = None
+            provider = "local" # Default for brain search
+            query = val
+            
+            if "--provider" in val:
+                q_parts = val.split("--provider")
+                query = q_parts[0].strip()
+                provider = q_parts[1].strip()
+                if "--project" in query:
+                    pq_parts = query.split("--project")
+                    query = pq_parts[0].strip()
+                    project = pq_parts[1].strip()
+            elif "--project" in val:
+                q_parts = val.split("--project")
+                query = q_parts[0].strip()
+                project = q_parts[1].strip()
+
+            print(f"Searching brain (provider: {provider})...")
+            res = self.client.run_search_query(query, project=project, provider=provider)
+            if res:
+                results = res.get("results", [])
+                actual_provider = res.get("provider", "unknown")
+                print(f"\n--- Marius Brain Search Results ('{query}') ---")
+                print(f"Provider: {actual_provider}")
+                print("-" * 30)
+                
+                if not results:
+                    print("No relevant memory found.")
+                for r in results:
+                    p_label = r.get("provider", actual_provider)
+                    print(f"[{r['project']}] {r['title']} (Score: {r['score']}) [provider: {p_label}]")
+                    if r.get("filter_note"):
+                        print(f"  Note: {r['filter_note']}")
+                    print(f"  {r['snippet']}...")
+                    print("-" * 20)
+                print()
+            else: print("Error: API offline.")
 
     def handle_model_test(self):
         print("\nRunning Model Self-Test...")
