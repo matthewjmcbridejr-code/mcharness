@@ -76,6 +76,9 @@ class LocalJsonlSearchProvider(SearchProvider):
                         record = json.loads(line)
                         
                         # Apply filters
+                        if record.get("sensitivity") == "secret_excluded":
+                            continue
+
                         if project and record.get("project") != project and export_file != (self.exports_dir / f"{project}.jsonl"):
                             continue
                         if collection and record.get("collection") != collection:
@@ -102,17 +105,21 @@ class LocalJsonlSearchProvider(SearchProvider):
                             # Create snippet
                             full_text = record.get("text", "")
                             snippet = ""
-                            if query_terms:
-                                first_term = query_terms[0]
-                                idx = full_text.lower().find(first_term)
-                                if idx != -1:
-                                    start = max(0, idx - 50)
-                                    end = min(len(full_text), idx + 150)
-                                    snippet = full_text[start:end].replace("\n", " ")
-                                else:
-                                    snippet = full_text[:200].replace("\n", " ")
+                            
+                            # Find first matching term to anchor snippet
+                            best_term = None
+                            for term in query_terms:
+                                if term in full_text.lower():
+                                    best_term = term
+                                    break
+                            
+                            if best_term:
+                                idx = full_text.lower().find(best_term)
+                                start = max(0, idx - 100)
+                                end = min(len(full_text), idx + 300)
+                                snippet = full_text[start:end].replace("\n", " ")
                             else:
-                                snippet = full_text[:200].replace("\n", " ")
+                                snippet = full_text[:400].replace("\n", " ")
                                 
                             results.append({
                                 "project": record.get("project", "unknown"),

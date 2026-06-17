@@ -247,6 +247,11 @@ async def get_brain_status():
         }
     }
 
+@router.get("/brain/context")
+async def get_brain_context(q: str, project: Optional[str] = None, limit: int = 5):
+    from .brain_context import build_brain_context_pack
+    return {"ok": True, "data": build_brain_context_pack(q, project, limit)}
+
 @router.post("/brain/ingest/url")
 async def ingest_url(req: URLIngestRequest):
     from .brain_ingest import BrainIngest

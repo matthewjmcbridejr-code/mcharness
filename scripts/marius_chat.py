@@ -172,7 +172,13 @@ class ApiClient:
     # --- Brain Endpoints ---
 
     def get_brain_status(self) -> Optional[Dict[str, Any]]:
-        return self._request("GET", "brain/status", timeout=5)
+        res = self._request("GET", "brain/status", timeout=5)
+        if res:
+            res["brain_context_enabled"] = os.getenv("MARIUS_BRAIN_CONTEXT", "1") == "1"
+        return res
+
+    def get_brain_context(self, query: str) -> Optional[Dict[str, Any]]:
+        return self._request("GET", "brain/context", params={"q": query}, timeout=10)
 
     def ingest_url(self, url: str, project: str, tags: List[str] = None) -> Optional[Dict[str, Any]]:
         return self._request("POST", "brain/ingest/url", data={"url": url, "project": project, "tags": tags}, timeout=15)
@@ -214,7 +220,8 @@ def parse_command(line: str) -> Tuple[Optional[str], List[str]]:
         "quit": "exit",
         "prof": "profile",
         "pro": "profile",
-        "ctx": "context"
+        "ctx": "context",
+        "br": "brain"
     }
     cmd = aliases.get(raw_cmd, raw_cmd)
     
@@ -411,7 +418,13 @@ class MariusCLI:
             warning = result.get("warning")
             if warning:
                 print(f"\n[WARNING] {warning}")
-                
+            
+            brain_info = result.get("brain_context")
+            if brain_info and brain_info.get("enabled"):
+                ids = brain_info.get("record_ids", [])
+                if ids:
+                    print(f"[brain context: {len(ids)} records]")
+
             response = result.get("response", "No response.")
             provider = result.get("provider", "unknown")
             model = result.get("model", "")
@@ -444,6 +457,8 @@ class MariusCLI:
             print("  /search export <p>  - Export project for brain index")
             print("  /search query <q>   - Query project brain memory")
             print("  /brain status       - View personal knowledge status")
+            print("  /brain profile      - Ingest curated profile docs")
+            print("  /brain context <q>  - Preview brain context for chat")
             print("  /brain add-url <U>  - Ingest URL into brain")
             print("  /brain add-file <F> - Ingest file into brain")
             print("  /brain inbox scan   - Scan ~/MariusBrain/inbox")
@@ -776,6 +791,7 @@ class MariusCLI:
                 s = res.get("search", {})
                 print(f"Configured Provider:    {s.get('requested_provider')}")
                 print(f"Brain Search Default:   local")
+                print(f"Brain Chat Context:     {'enabled' if res.get('brain_context_enabled') else 'disabled'}")
                 
                 local = res.get("local", {})
                 print(f"Local Records Size:     {round(local.get('brain_size_bytes', 0) / 1024, 1)} KB")
@@ -797,11 +813,22 @@ class MariusCLI:
             else: print("Error: API offline.")
 
         elif sub == "profile":
-            print("Regenerating personal brain profiles...")
+            print("Ingesting curated profile docs...")
             res = self.client.generate_brain_profile()
             if res:
                 print(f"Success. Ingested {res.get('count')} profile documents.")
             else: print("Error: API offline.")
+
+        elif sub == "context":
+            if not val:
+                print("Usage: /brain context <query>")
+                return
+            res = self.client.get_brain_context(val)
+            if res and res.get("ok"):
+                print(f"\n--- Marius Brain Context Preview ---")
+                print(res.get("data", {}).get("context_text"))
+                print()
+            else: print("Error: Could not retrieve context.")
 
         elif sub == "add-text":
             title = "Personal Note"
