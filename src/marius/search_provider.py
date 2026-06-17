@@ -20,6 +20,7 @@ class LocalJsonlSearchProvider(SearchProvider):
         self.exports_dir.mkdir(parents=True, exist_ok=True)
 
     def status(self) -> Dict[str, Any]:
+        requested = os.getenv("MARIUS_SEARCH_PROVIDER", "local").lower()
         exports = []
         if self.exports_dir.exists():
             for f in self.exports_dir.glob("*.jsonl"):
@@ -29,9 +30,12 @@ class LocalJsonlSearchProvider(SearchProvider):
                     "updated_at": Path(f).stat().st_mtime
                 })
         return {
+            "requested_provider": requested,
+            "actual_provider": "local",
             "provider": "local",
             "exports_dir": str(self.exports_dir),
-            "exports": exports
+            "exports": exports,
+            "ready": True
         }
 
     def export(self, project: str, repo_path: str) -> Dict[str, Any]:
@@ -94,7 +98,8 @@ class LocalJsonlSearchProvider(SearchProvider):
                                 "title": record.get("title"),
                                 "snippet": snippet,
                                 "score": float(score),
-                                "record_id": record.get("id")
+                                "record_id": record.get("id"),
+                                "provider": "local fallback" if os.getenv("MARIUS_SEARCH_PROVIDER") == "google" else "local"
                             })
                     except Exception:
                         continue

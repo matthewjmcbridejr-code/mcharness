@@ -1,28 +1,36 @@
 import pytest
+import os
 from unittest.mock import MagicMock, patch
 from src.marius.google_search_provider import GoogleAgentSearchProvider
 
 @patch("src.marius.google_search_provider.os.getenv")
-def test_google_provider_status(mock_getenv):
-    mock_getenv.side_effect = lambda k, default=None: {
+def test_google_provider_status_detailed(mock_getenv):
+    # Setup mock environment
+    env = {
+        "MARIUS_SEARCH_PROVIDER": "google",
         "GOOGLE_CLOUD_PROJECT": "test-project",
-        "GOOGLE_AGENT_SEARCH_ENGINE_ID": "test-engine"
-    }.get(k, default)
+        "GOOGLE_AGENT_SEARCH_ENGINE_ID": "test-engine",
+        "GOOGLE_AGENT_SEARCH_LOCATION": "global",
+        "GOOGLE_AGENT_SEARCH_SERVING_CONFIG": "custom_config"
+    }
+    mock_getenv.side_effect = lambda k, default=None: env.get(k, default)
     
     with patch("google.cloud.discoveryengine_v1.SearchServiceClient") as mock_client:
         provider = GoogleAgentSearchProvider()
         status = provider.status()
-        assert status["provider"] == "google"
-        assert status["project_id"] == "test-project"
+        assert status["requested_provider"] == "google"
+        assert status["actual_provider"] == "google"
         assert status["engine_id"] == "test-engine"
-        assert status["client_installed"] is True
+        assert "custom_config" in status["serving_config_path"]
+        assert status["ready"] is True
 
 @patch("src.marius.google_search_provider.os.getenv")
-def test_google_provider_search_mock(mock_getenv):
-    mock_getenv.side_effect = lambda k, default=None: {
+def test_google_provider_search_success_label(mock_getenv):
+    env = {
         "GOOGLE_CLOUD_PROJECT": "test-project",
         "GOOGLE_AGENT_SEARCH_ENGINE_ID": "test-engine"
-    }.get(k, default)
+    }
+    mock_getenv.side_effect = lambda k, default=None: env.get(k, default)
     
     with patch("google.cloud.discoveryengine_v1.SearchServiceClient") as mock_client_class:
         mock_client = mock_client_class.return_value
@@ -31,29 +39,57 @@ def test_google_provider_search_mock(mock_getenv):
         # Mock search response
         mock_result = MagicMock()
         mock_result.document.id = "doc1"
-        mock_result.document.name = "projects/test-project/.../documents/doc1"
         mock_result.document.derived_struct_data = {
-            "title": "Test Doc",
-            "link": "gs://bucket/test.md",
-            "snippets": [{"snippet": "Test snippet contents"}]
+            "title": "Google Doc",
+            "snippets": [{"snippet": "Google content"}]
         }
-        
-        # Mock pager - it's an iterable of SearchResponse.SearchResult
         mock_client.search.return_value = [mock_result]
         
         provider = GoogleAgentSearchProvider()
-        results = provider.search("test query")
+        results = provider.search("query")
         
         assert len(results) == 1
-        assert results[0]["title"] == "Test Doc"
-        assert results[0]["snippet"] == "Test snippet contents"
-        assert results[0]["project"] == "google-brain"
+        assert results[0]["provider"] == "google"
+        assert "Google Doc" in results[0]["title"]
 
-def test_google_provider_fallback_when_unconfigured():
-    with patch("src.marius.google_search_provider.os.getenv", return_value=None):
+@patch("src.marius.google_search_provider.os.getenv")
+def test_google_provider_error_reporting(mock_getenv):
+    env = {
+        "GOOGLE_CLOUD_PROJECT": "test-project",
+        "GOOGLE_AGENT_SEARCH_ENGINE_ID": "test-engine"
+    }
+    mock_getenv.side_effect = lambda k, default=None: env.get(k, default)
+    
+    with patch("google.cloud.discoveryengine_v1.SearchServiceClient") as mock_client_class:
+        mock_client = mock_client_class.return_value
+        mock_client.serving_config_path.return_value = "projects/test/locations/global/collections/default_collection/engines/test/servingConfigs/default"
+        mock_client.search.side_effect = Exception("Deadline Exceeded")
+        
         provider = GoogleAgentSearchProvider()
-        # Should fallback to local search
-        with patch("src.marius.search_provider.LocalJsonlSearchProvider.search") as mock_local_search:
-            mock_local_search.return_value = [{"title": "Local Result"}]
-            results = provider.search("query")
-            assert results[0]["title"] == "Local Result"
+        results = provider.search("query")
+        
+        assert len(results) == 1
+        assert results[0]["project"] == "error"
+        assert "Deadline Exceeded" in results[0]["snippet"]
+        assert results[0]["provider"] == "local fallback"
+
+@patch("src.marius.google_search_provider.os.getenv")
+def test_google_provider_fallback_reason_visible(mock_getenv):
+    mock_getenv.return_value = None
+    with patch("google.cloud.discoveryengine_v1.SearchServiceClient", side_effect=ImportError()):
+        provider = GoogleAgentSearchProvider()
+        status = provider.status()
+        assert status["ready"] is False
+        assert "package not installed" in status["fallback_reason"]
+
+def test_mctable_search_config_accepted():
+    with patch.dict(os.environ, {
+        "GOOGLE_AGENT_SEARCH_ENGINE_ID": "mctable-search",
+        "GOOGLE_AGENT_SEARCH_DATA_STORE_ID": "mctable-codebase",
+        "GOOGLE_CLOUD_PROJECT": "test-project"
+    }):
+        with patch("google.cloud.discoveryengine_v1.SearchServiceClient"):
+            provider = GoogleAgentSearchProvider()
+            assert provider.engine_id == "mctable-search"
+            assert provider.data_store_id == "mctable-codebase"
+            assert provider.status()["ready"] is True

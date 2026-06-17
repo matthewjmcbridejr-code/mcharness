@@ -670,9 +670,17 @@ class MariusCLI:
             res = self.client.get_search_status()
             if res:
                 print(f"\n--- Brain Search Status ---")
-                print(f"Provider: {res.get('provider')}")
-                if res.get("exports_dir"): print(f"Exports: {res.get('exports_dir')}")
-                if res.get("project_id"): print(f"Project: {res.get('project_id')}")
+                print(f"Requested Provider: {res.get('requested_provider')}")
+                print(f"Actual Provider:    {res.get('actual_provider')}")
+                if res.get("fallback_reason"):
+                    print(f"Fallback Reason:    {res.get('fallback_reason')}")
+                
+                print(f"Engine ID:          {res.get('engine_id', 'N/A')}")
+                print(f"Data Store ID:      {res.get('data_store_id', 'N/A')}")
+                if res.get("serving_config_path"):
+                    print(f"Serving Config:     {res.get('serving_config_path')}")
+                
+                if res.get("exports_dir"): print(f"Local Exports:      {res.get('exports_dir')}")
                 
                 exports = res.get("exports", [])
                 if exports:
@@ -681,7 +689,7 @@ class MariusCLI:
                         size_kb = round(e['size_bytes'] / 1024, 1)
                         print(f"  - {e['project']:<15} {size_kb:>6} KB")
                 
-                print(f"\nReady: {'Yes' if res.get('ready', True) else 'No (config missing)'}")
+                print(f"\nReady: {'Yes' if res.get('ready', True) else 'No'}")
                 print()
             else: print("Error: API offline.")
 
@@ -716,11 +724,16 @@ class MariusCLI:
             res = self.client.run_search_query(query, project=project)
             if res:
                 results = res.get("results", [])
+                actual_provider = res.get("provider", "unknown")
                 print(f"\n--- Brain Search Results ('{query}') ---")
+                print(f"Provider: {actual_provider}")
+                print("-" * 30)
+                
                 if not results:
                     print("No relevant memory found.")
                 for r in results:
-                    print(f"[{r['project']}] {r['title']} (Score: {r['score']})")
+                    p_label = r.get("provider", actual_provider)
+                    print(f"[{r['project']}] {r['title']} (Score: {r['score']}) [provider: {p_label}]")
                     print(f"  {r['snippet']}...")
                     print("-" * 20)
                 print()
