@@ -1,57 +1,53 @@
-# McHarness
+# Warden (McHarness)
 
-McHarness is a local-first agentic harness for supervised AI work.
+**Warden** is the supervised agent control room from **Marius Systems**. **McHarness** is the local-first engine and API namespace underneath.
 
-## What it is
+## Quick proof
 
-McHarness is a local control surface for creating tasks, reviewing worker output, approving or rejecting outcomes, and inspecting persisted logs and checkpoints. The backend truth stays in the FastAPI API, LangGraph workflow, SQLite checkpoint store, fake-worker-only runner, and local MCP layer.
-
-The internal Python module name currently remains `src/marius_desktop` to avoid risky churn during the public export.
-
-## What it is not
-
-- It is not a public SaaS control plane.
-- It is not autonomous.
-- It does not launch real external agents.
-- It does not expose arbitrary shell execution.
-- It is not production-readiness proof.
-
-## Current status
-
-- Backend routes are implemented and verified.
-- LangGraph workflow truth and SQLite checkpointing are enabled.
-- Unknown commands are rejected through both API and MCP.
-- Worker execution is fake-worker-only for the current RC.
-- Unsafe legacy worker-launch routes remain disabled.
-- Captain Mode models supervised agentic work with prompt queues, bounded minions, evidence, hard gates, human review, and scoped commits.
-- The minimal web cockpit exists.
-- The minimal Tauri shell is verified with `cargo check`.
-
-## Quickstart
-
-Read [docs/quickstart.md](docs/quickstart.md) for the minimal local setup.
-
-## Safety model
-
-Read [SECURITY.md](SECURITY.md) for the local-first safety rules and allowlisted commands.
-
-## Cockpit path
-
-Open the cockpit at:
-
-```text
-http://127.0.0.1:8000/web/mctable-studio/cockpit.html
+```bash
+bash scripts/warden_smoke.sh
 ```
 
-## Tauri shell status
+See [docs/warden_operator_smoke.md](docs/warden_operator_smoke.md) for details.
 
-The Tauri shell is a thin local wrapper around the cockpit. It does not add workflow logic or agent launch paths. See [docs/marius_desktop_tauri.md](docs/marius_desktop_tauri.md).
+## UI
 
-## Known limitations
+```text
+http://127.0.0.1:8125/web/warden/index.html
+```
 
-- No real external agent execution.
-- No public worker launch.
-- No live trading.
-- No fabricated screenshots or adoption claims.
-- No public production-readiness claim.
+## Services
 
+| Port | Mode | Runner | Notes |
+|------|------|--------|-------|
+| 8124 | Public | Disabled | Read-mostly preview; Codex not runnable |
+| 8125 | Private | Enabled | Operator-supervised Codex dispatch |
+
+## Agents (honest status)
+
+- **Codex CLI** — runnable only on private 8125 when the tmux/Codex runner flags are enabled
+- **Jules Remote** — connected for planning/status only; not executable yet
+- **Captain** — OpenRouter planning on private service; supervised step loop is manual
+
+## Operator workbench highlights
+
+- Mission Control snapshot API (`/api/mcharness/mission-control/snapshot`)
+- Mission worklog from real plans, runs, and evidence
+- Manual proof gates (approve / block / request more evidence)
+- Run review + markdown export
+- Agent status refresh without starting tasks
+
+## Safety
+
+- No arbitrary shell execution
+- No auto-merge or auto-deploy
+- No autonomous multi-step execution
+- Public 8124 remains runner-disabled
+
+## Docs
+
+- [docs/warden_operator_smoke.md](docs/warden_operator_smoke.md)
+- [docs/warden_mission_control_api.md](docs/warden_mission_control_api.md)
+- [docs/warden_repo_layout.md](docs/warden_repo_layout.md)
+- [docs/quickstart.md](docs/quickstart.md)
+- [SECURITY.md](SECURITY.md)

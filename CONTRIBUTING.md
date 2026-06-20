@@ -1,16 +1,19 @@
 # Contributing
 
-Keep changes small, local, and reviewable.
+## Layout
 
-- Prefer one measurable target per patch.
-- Do not add secrets or deploy config.
-- Do not add real agent launch or arbitrary command execution.
-- Keep the internal module name `src/marius_desktop` unless the change explicitly requires a migration.
-- Run the focused tests for the changed surface before committing.
+- Product code: `src/warden/`
+- Service entry: `src/server/api.py`
+- UI: `web/warden/`
+- Tests: `tests/test_warden_*.py`, `tests/browser/warden-cockpit.spec.js`
 
-## Public repo hygiene
+## API
 
-- Do not stage runtime artifacts.
-- Do not stage `_mctable` checkpoint or worker-run outputs.
-- Do not stage `src-tauri/target` or `src-tauri/gen`.
+Warden UI uses `/api/mcharness/...` only. Do not reintroduce `/api/marius` route mounts without an explicit migration plan.
 
+## Tests
+
+```bash
+pytest -q tests
+npx playwright test tests/browser/warden-cockpit.spec.js --config=playwright.config.js
+```

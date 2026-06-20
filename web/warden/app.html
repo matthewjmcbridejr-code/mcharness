@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Warden | Supervised AI Coding Agents</title>
+  <meta
+    name="description"
+    content="Warden by Marius Systems — supervised control room for AI coding agents. Powered by McHarness."
+  />
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="./app.css" />
+</head>
+<body>
+  <div class="warden-shell" data-testid="warden-shell">
+    <aside class="warden-sidebar" data-testid="warden-sidebar">
+      <div class="sidebar-brand">
+        <div class="warden-brand">
+          <h1 class="warden-title">Warden</h1>
+          <span class="warden-byline" data-testid="warden-byline">by Marius Systems</span>
+        </div>
+        <p class="sidebar-tagline">Supervised agent ops</p>
+      </div>
+
+      <button id="develop-plan-primary" data-testid="develop-plan-primary" data-action="develop-plan" class="btn primary sidebar-primary" type="button">Develop Plan</button>
+
+      <nav class="sidebar-nav" data-testid="warden-nav" aria-label="Warden sections">
+        <button type="button" class="nav-item active" data-section="mission" data-testid="nav-mission">Mission</button>
+        <button type="button" class="nav-item" data-section="agents" data-testid="nav-agents">Agents</button>
+        <button type="button" class="nav-item" data-section="tasks" data-testid="nav-tasks">Tasks</button>
+        <button type="button" class="nav-item" data-section="runs" data-testid="nav-runs">Runs</button>
+        <button type="button" class="nav-item" data-section="evidence" data-testid="nav-evidence">Evidence</button>
+        <button type="button" class="nav-item" data-section="settings" data-testid="nav-settings">Settings</button>
+      </nav>
+
+      <footer class="sidebar-footer">
+        <span class="warden-powered" data-testid="warden-powered">Powered by McHarness</span>
+      </footer>
+    </aside>
+
+    <main class="warden-workspace" data-testid="warden-workspace">
+      <div class="warden-stage">
+        <div class="warden-stage-main">
+      <section id="warden-section-mission" class="workspace-section active" data-section="mission" data-testid="warden-section-mission">
+        <header class="workspace-header">
+          <h2 class="workspace-title">Mission Command</h2>
+        </header>
+
+        <div class="mission-command-panel" data-testid="mission-command">
+          <h3 class="hero-title">What do you want Warden to build?</h3>
+          <p class="hero-subtitle">Captain breaks goals into bounded agent steps. You approve what runs.</p>
+          <div class="mission-command-actions">
+            <button type="button" class="btn primary hero-cta" data-action="develop-plan" data-testid="develop-plan-hero">Develop Plan</button>
+            <button type="button" class="btn" id="use-codex-directly" data-testid="use-codex-directly" style="display:none;">Use Codex Directly</button>
+          </div>
+          <div class="hero-status-row" data-testid="hero-status-row">
+            <span class="hero-status-chip" id="hero-captain-status" data-testid="hero-captain-status">Captain: Not configured</span>
+            <span class="hero-status-chip" id="hero-codex-status" data-testid="hero-codex-status">Codex: Disabled</span>
+            <span class="hero-status-chip" id="hero-jules-status" data-testid="hero-jules-status">Jules: Planning only</span>
+          </div>
+        </div>
+
+        <div class="mission-cards-grid">
+          <div class="mission-card mission-card-wide" data-testid="current-mission-card">
+            <div id="current-mission-empty" data-testid="current-mission-empty">
+              <h3 class="mission-card-title">Current Mission</h3>
+              <p id="current-mission-status" data-testid="current-mission-status" class="mission-card-lead">No active mission yet.</p>
+              <p class="mission-card-copy">Create a plan to start a supervised Warden run.</p>
+              <button type="button" class="btn primary" data-action="develop-plan" data-testid="develop-plan-mission">Develop Plan</button>
+            </div>
+            <div id="current-mission-plan" data-testid="current-mission-plan" style="display:none;">
+              <h3 class="mission-card-title">Current Mission</h3>
+              <div id="current-plan-header" data-testid="current-plan-header" class="mission-card-meta"></div>
+              <div id="captain-plan-steps" data-testid="captain-plan-steps" class="captain-plan-steps-list"></div>
+              <div id="captain-plan-controls" data-testid="captain-plan-controls" class="captain-plan-controls"></div>
+            </div>
+          </div>
+          <div class="mission-card mission-card-timeline" data-testid="mission-timeline-card">
+            <div class="mission-timeline-header">
+              <h3 class="mission-card-title">Mission Timeline</h3>
+              <div id="mission-timeline-filter" data-testid="mission-timeline-filter" class="mission-timeline-filter">
+                <button type="button" class="btn active" data-timeline-filter="all">All</button>
+                <button type="button" class="btn" data-timeline-filter="plans">Plans</button>
+                <button type="button" class="btn" data-timeline-filter="runs">Runs</button>
+                <button type="button" class="btn" data-timeline-filter="evidence">Evidence</button>
+                <button type="button" class="btn" data-timeline-filter="gates">Gates</button>
+              </div>
+            </div>
+            <div id="mission-worklog-list" data-testid="mission-timeline-list" class="mission-timeline-list"></div>
+            <p id="mission-worklog-empty" data-testid="mission-timeline-empty" class="mission-card-copy">No mission activity yet. Create a plan to start the timeline.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="warden-section-agents" class="workspace-section" data-section="agents" data-testid="warden-section-agents">
+        <header class="workspace-header">
+          <div class="workspace-header-row">
+            <div>
+              <h2 class="workspace-title">Agent Library</h2>
+              <p class="workspace-subhead">Connect local CLI agents and remote workers, then dispatch bounded work through Captain.</p>
+            </div>
+            <button type="button" id="refresh-agent-status" data-testid="refresh-agent-status" class="btn">Refresh Status</button>
+          </div>
+        </header>
+
+        <div id="agent-library-cards" data-testid="agent-library-cards" class="agent-library-groups">
+          <section class="agent-group" data-testid="agent-group-ready">
+            <h3 class="agent-group-title">Ready to Run</h3>
+            <div class="agent-group-cards">
+              <div id="codex-card" data-testid="codex-card" class="agent-card">
+                <div class="agent-card-top">
+                  <h3 class="agent-card-title">Codex CLI</h3>
+                  <span id="codex-status-pill" data-testid="codex-status-pill" class="status-pill status-ready">READY</span>
+                </div>
+                <div id="codex-status-line" class="agent-card-status" style="display:none;"></div>
+                <p class="agent-card-copy">Run live coding tasks through Warden’s controlled terminal monitor.</p>
+                <div id="codex-capabilities" class="agent-capability-chips" style="display:none;"></div>
+                <div class="agent-card-actions">
+                  <button id="develop-plan-btn" data-action="develop-plan" class="btn primary" type="button">Develop Plan</button>
+                  <button id="use-codex-btn" class="btn" type="button">Use Agent</button>
+                  <button id="view-agent-codex-btn" data-testid="view-agent-codex" class="btn" type="button" title="Open Codex live monitor" aria-label="View Agent — open Codex live monitor">View Agent</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="agent-group-connected" class="agent-group" data-testid="agent-group-connected" style="display:none;">
+            <h3 class="agent-group-title">Connected / Setup Complete</h3>
+            <div id="connected-agent-cards" class="agent-group-cards"></div>
+          </section>
+        </div>
+
+        <div class="add-agent-section">
+          <button id="add-agent-btn" data-testid="add-agent-btn" class="btn" type="button">Add Agent</button>
+          <p class="add-agent-help" data-testid="add-agent-help">Add CLI or remote agents after configuration and connection checks.</p>
+        </div>
+
+      </section>
+
+      <section id="warden-section-tasks" class="workspace-section" data-section="tasks" data-testid="warden-section-tasks">
+        <header class="workspace-header">
+          <h2 class="workspace-title">Tasks</h2>
+          <p class="workspace-subhead">Captain plan steps and supervised work items.</p>
+        </header>
+        <div class="empty-state-card" data-testid="tasks-empty-state">
+          <h3>No active task plan yet.</h3>
+          <p>Use Develop Plan to create a supervised plan. Captain steps will appear here.</p>
+          <button type="button" class="btn primary" data-action="develop-plan" data-testid="develop-plan-tasks">Develop Plan</button>
+        </div>
+      </section>
+
+      <section id="warden-section-runs" class="workspace-section" data-section="runs" data-testid="warden-section-runs">
+        <header class="workspace-header">
+          <h2 class="workspace-title">Runs</h2>
+          <p class="workspace-subhead">Live and completed agent sessions.</p>
+        </header>
+        <div id="runs-list" data-testid="runs-list" class="history-card-list" style="display:none;"></div>
+        <div class="empty-state-card" data-testid="runs-empty-state">
+          <h3>Runs will show live and completed agent sessions.</h3>
+          <p>Saved Codex sessions and future Jules sessions will appear here.</p>
+          <button type="button" id="runs-open-monitor" class="btn" data-testid="runs-open-monitor" style="display:none;">Open Live Monitor</button>
+        </div>
+      </section>
+
+      <section id="warden-section-evidence" class="workspace-section" data-section="evidence" data-testid="warden-section-evidence">
+        <header class="workspace-header">
+          <h2 class="workspace-title">Evidence</h2>
+          <p class="workspace-subhead">Proof artifacts from supervised agent work.</p>
+        </header>
+        <div id="evidence-type-filter" data-testid="evidence-type-filter" class="evidence-type-filter" style="display:none;">
+          <button type="button" class="btn active" data-evidence-filter="all">All</button>
+          <button type="button" class="btn" data-evidence-filter="transcript">Transcript</button>
+          <button type="button" class="btn" data-evidence-filter="manual">Manual</button>
+          <button type="button" class="btn" data-evidence-filter="test">Test</button>
+        </div>
+        <div id="evidence-list" data-testid="evidence-list" class="history-card-list" style="display:none;"></div>
+        <div class="empty-state-card" data-testid="evidence-empty-state">
+          <h3>Saved outputs, transcripts, proof reports, diffs, screenshots, and PR links will appear here.</h3>
+          <p>When a Codex session is active, use View Agent to review output or save evidence.</p>
+          <button type="button" id="evidence-open-output" class="btn" data-testid="evidence-open-output" style="display:none;">Open Current Output</button>
+        </div>
+      </section>
+
+      <section id="warden-section-settings" class="workspace-section" data-section="settings" data-testid="warden-section-settings">
+        <header class="workspace-header">
+          <h2 class="workspace-title">Settings</h2>
+          <p class="workspace-subhead">Captain planning and service configuration.</p>
+        </header>
+        <div class="settings-grid">
+          <div class="settings-card">
+            <h3>Captain / OpenRouter</h3>
+            <div id="settings-captain-status" data-testid="settings-captain-status" class="settings-value">Loading Captain status...</div>
+            <div id="settings-captain-model" data-testid="settings-captain-model" class="settings-meta"></div>
+            <div id="settings-captain-key-source" data-testid="settings-captain-key-source" class="settings-meta"></div>
+            <button type="button" id="configure-captain-btn" data-testid="configure-captain" class="btn primary">Configure Captain</button>
+          </div>
+          <div class="settings-card">
+            <h3>Agent Registry</h3>
+            <p id="settings-agent-note" data-testid="settings-agent-note" class="settings-meta">Loading agent setup note...</p>
+          </div>
+          <div class="settings-card" data-testid="settings-safety-card">
+            <h3>Safety</h3>
+            <ul class="settings-safety-list" data-testid="settings-safety-list">
+              <li id="settings-public-runner" data-testid="settings-public-runner">Public runner: Disabled on public service</li>
+              <li id="settings-private-runner" data-testid="settings-private-runner">Private runner: Available only on private service</li>
+              <li id="settings-shell-input" data-testid="settings-shell-input">Arbitrary shell input: Disabled</li>
+              <li id="settings-agent-registration" data-testid="settings-agent-registration">Agent registration: Private only</li>
+            </ul>
+          </div>
+          <div class="settings-card">
+            <h3>Codex CLI</h3>
+            <p id="settings-codex-status" data-testid="settings-codex-status" class="settings-meta">Loading Codex status...</p>
+          </div>
+          <div class="settings-card">
+            <h3>Jules Remote</h3>
+            <p id="settings-jules-status" data-testid="settings-jules-status" class="settings-meta">Loading Jules status...</p>
+          </div>
+        </div>
+      </section>
+        </div>
+
+        <aside id="operator-inspector" class="operator-inspector" data-testid="operator-inspector">
+          <div class="inspector-card" data-testid="inspector-next-move">
+            <h3 class="inspector-title">Next Move</h3>
+            <p id="inspector-next-move-copy" data-testid="inspector-next-move-copy" class="inspector-copy">Loading operator guidance...</p>
+            <div class="inspector-actions">
+              <button type="button" class="btn primary" id="inspector-develop-plan" data-action="develop-plan" data-testid="inspector-develop-plan">Develop Plan</button>
+              <button type="button" class="btn" id="inspector-view-codex" data-testid="inspector-view-codex">View Codex</button>
+            </div>
+          </div>
+          <div class="inspector-card" data-testid="control-room-status">
+            <h3 class="inspector-title">Control Room Status</h3>
+            <ul class="control-room-list">
+              <li id="cr-public-runner" data-testid="cr-public-runner">Public runner: Disabled</li>
+              <li id="cr-private-runner" data-testid="cr-private-runner">Private runner: Available on private service</li>
+              <li id="cr-shell-input" data-testid="cr-shell-input">Arbitrary shell input: Disabled</li>
+              <li id="cr-agent-registration" data-testid="cr-agent-registration">Agent registration: Private only</li>
+            </ul>
+          </div>
+          <div class="inspector-card" data-testid="inspector-connected-agents">
+            <h3 class="inspector-title">Connected Agents</h3>
+            <ul class="control-room-list">
+              <li id="inspector-captain-agent" data-testid="inspector-captain-agent">Captain — Not configured</li>
+              <li id="inspector-codex-agent" data-testid="inspector-codex-agent">Codex CLI — Disabled</li>
+              <li id="inspector-jules-agent" data-testid="inspector-jules-agent">Jules Remote — Planning only</li>
+            </ul>
+            <button type="button" id="inspector-refresh-agents" data-testid="inspector-refresh-agents" class="btn" style="margin-top:8px;">Refresh Status</button>
+          </div>
+          <div class="inspector-card" data-testid="inspector-proof-gates">
+            <h3 class="inspector-title">Proof Gates</h3>
+            <div id="inspector-gates-summary" data-testid="inspector-gates-summary" class="inspector-copy">No proof gates yet.</div>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <!-- Add Agent Modal -->
+  <div id="add-agent-modal" data-testid="add-agent-modal" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:none; align-items:center; justify-content:center; z-index:10000;">
+    <div style="background:var(--bg-2); border:1px solid var(--line); padding:16px; width:90%; max-width:620px; border-radius:6px;">
+      <h3 id="add-agent-title" style="margin-top:0;">Add Agent</h3>
+      <div id="add-agent-step-choose" data-testid="add-agent-step-choose">
+        <div style="font-size:0.85em; color:var(--muted); margin-bottom:10px;">Choose an agent to configure and verify. Jules can be connected now; remote execution comes next.</div>
+        <div id="add-agent-template-list" data-testid="add-agent-template-list" style="display:flex; flex-direction:column; gap:8px;"></div>
+      </div>
+      <div id="add-agent-step-config" data-testid="add-agent-step-config" style="display:none;">
+        <div id="add-agent-jules-note" data-testid="add-agent-jules-note" style="font-size:0.82em; color:var(--warn, #f0c66a); margin-bottom:8px;">
+          Jules Remote can be configured and tested now. Planning and status are available; remote execution comes next.
+        </div>
+        <div style="margin:8px 0;">
+          <label for="add-agent-name" style="display:block; font-size:0.85em;">Display name</label>
+          <input id="add-agent-name" data-testid="add-agent-name" style="width:100%; padding:6px;" placeholder="e.g. Jules Remote Worker" />
+        </div>
+        <div style="margin:8px 0;">
+          <label for="add-agent-api-key" style="display:block; font-size:0.85em;">Jules API Key</label>
+          <input id="add-agent-api-key" data-testid="add-agent-api-key" type="password" autocomplete="off" spellcheck="false" style="width:100%; padding:6px;" placeholder="Enter Jules API key" />
+        </div>
+        <div style="margin:8px 0;">
+          <label for="add-agent-repo" style="display:block; font-size:0.85em;">Default repo/source (optional)</label>
+          <select id="add-agent-repo" data-testid="add-agent-repo" style="width:100%; padding:6px;"></select>
+        </div>
+        <div style="margin:8px 0;">
+          <label for="add-agent-branch" style="display:block; font-size:0.85em;">Default branch (optional)</label>
+          <input id="add-agent-branch" data-testid="add-agent-branch" style="width:100%; padding:6px;" placeholder="feat/mcharness-functional-cockpit" />
+        </div>
+        <div style="margin:8px 0;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:0.85em;">
+            <input id="add-agent-require-plan-approval" data-testid="add-agent-require-plan-approval" type="checkbox" checked />
+            Require plan approval
+          </label>
+        </div>
+        <div style="margin:8px 0;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:0.85em;">
+            <input id="add-agent-allow-unverified" data-testid="add-agent-allow-unverified" type="checkbox" />
+            Save as unverified profile if live verification is unavailable
+          </label>
+        </div>
+        <div id="add-agent-test-status" data-testid="add-agent-test-status" style="display:none; font-size:0.82em; margin:6px 0;"></div>
+      </div>
+      <div id="add-agent-error" data-testid="add-agent-error" style="display:none; color:var(--bad); font-size:0.85em; margin:6px 0;"></div>
+      <div id="add-agent-actions" style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+        <button id="add-agent-back" data-testid="add-agent-back" class="btn" type="button" style="display:none;">Back</button>
+        <button id="add-agent-test" data-testid="add-agent-test" class="btn" type="button" style="display:none;">Test Connection</button>
+        <button id="add-agent-save" data-testid="add-agent-save" class="btn primary" type="button" style="display:none;">Save Agent</button>
+        <button id="add-agent-close" data-testid="add-agent-close" class="btn" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Use Agent Modal (simple) -->
+  <div id="use-agent-modal" data-testid="use-agent-modal" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:none; align-items:center; justify-content:center; z-index:10000;">
+    <div style="background:var(--bg-2); border:1px solid var(--line); padding:16px; width:90%; max-width:520px; border-radius:6px;">
+      <h3 style="margin-top:0;">Use Codex CLI</h3>
+      <div style="margin:8px 0;">
+        <label style="display:block; font-size:0.85em;">Repo / worktree</label>
+        <select id="modal-repo-select" style="width:100%; padding:6px;"></select>
+      </div>
+      <div style="margin:8px 0;">
+        <label style="display:block; font-size:0.85em;">Task title</label>
+        <input id="modal-task-title" style="width:100%; padding:6px;" placeholder="e.g. Fix the login bug" />
+      </div>
+      <div style="margin:8px 0;">
+        <label style="display:block; font-size:0.85em;">Prompt / task description</label>
+        <textarea id="modal-prompt" style="width:100%; height:120px; padding:6px;" placeholder="Describe the change or task for Codex..."></textarea>
+      </div>
+      <div id="deploy-disabled-note" style="display:none; color:var(--bad); font-size:0.85em; margin:6px 0;"></div>
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button id="deploy-prompt-btn" class="btn primary" type="button">Deploy Prompt</button>
+        <button id="cancel-use-agent" class="btn" type="button">Cancel</button>
+      </div>
+      <div style="font-size:0.7em; color:var(--muted); margin-top:8px;">Real execution only when private runner flags enabled. Public is safe.</div>
+    </div>
+  </div>
+
+  <!-- Captain Deck Modal -->
+  <div id="captain-deck-modal" data-testid="captain-deck-modal" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.56); display:none; align-items:center; justify-content:center; z-index:10001;">
+    <div style="background:var(--bg-2); border:1px solid var(--line); padding:16px; width:min(94vw, 980px); max-height:92vh; overflow:auto; border-radius:8px;">
+      <h3 style="margin-top:0;">Captain Deck</h3>
+      <div id="captain-config-note" data-testid="captain-config-note" style="font-size:0.85em; color:var(--warn, #f0c66a); margin-bottom:6px;"></div>
+      <div id="captain-settings" data-testid="captain-settings" class="captain-settings" style="border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:10px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:600;">Captain Settings</div>
+            <div id="captain-settings-status" data-testid="captain-settings-status" style="font-size:0.82em; color:var(--muted);"></div>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="captain-set-key" data-testid="captain-set-key" class="btn" type="button">Set OpenRouter Key</button>
+            <button id="captain-remove-key" data-testid="captain-remove-key" class="btn bad" type="button" style="display:none;">Remove Key</button>
+          </div>
+        </div>
+        <div id="captain-settings-note" data-testid="captain-settings-note" style="font-size:0.78em; color:var(--muted); margin-top:6px;"></div>
+        <div id="captain-key-form" data-testid="captain-key-form" style="display:none; margin-top:10px; border-top:1px solid var(--line); padding-top:10px;">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div>
+              <label for="captain-openrouter-key" style="display:block; font-size:0.82em; margin-bottom:4px;">OpenRouter API Key</label>
+              <input id="captain-openrouter-key" data-testid="captain-openrouter-key" type="password" autocomplete="off" spellcheck="false" style="width:100%; padding:8px;" placeholder="sk-or-..." />
+            </div>
+            <div>
+              <label for="captain-openrouter-model" style="display:block; font-size:0.82em; margin-bottom:4px;">Model</label>
+              <input id="captain-openrouter-model" data-testid="captain-openrouter-model" type="text" autocomplete="off" spellcheck="false" style="width:100%; padding:8px;" placeholder="openrouter/auto" />
+            </div>
+          </div>
+          <div id="captain-key-form-note" data-testid="captain-key-form-note" style="font-size:0.78em; color:var(--muted); margin-top:6px;"></div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+            <button id="captain-save-key" data-testid="captain-save-key" class="btn primary" type="button">Save Key</button>
+            <button id="captain-cancel-key" data-testid="captain-cancel-key" class="btn" type="button">Cancel</button>
+          </div>
+        </div>
+      </div>
+      <div id="captain-plan-status" data-testid="captain-plan-status" style="font-size:0.85em; margin-bottom:10px;"></div>
+      <div style="display:grid; grid-template-columns:1.4fr 1fr 1fr; gap:10px;">
+        <div style="grid-column:1 / -1;">
+          <label for="captain-goal" style="display:block; font-size:0.85em; margin-bottom:4px;">Goal</label>
+          <textarea id="captain-goal" data-testid="captain-goal" placeholder="Describe what you want built or changed..." style="width:100%; min-height:118px; padding:8px;"></textarea>
+        </div>
+        <div>
+          <label for="captain-repo-select" style="display:block; font-size:0.85em; margin-bottom:4px;">Repo</label>
+          <select id="captain-repo-select" data-testid="captain-repo-select" style="width:100%; padding:6px;"></select>
+        </div>
+        <div>
+          <label for="captain-agent-select" style="display:block; font-size:0.85em; margin-bottom:4px;">Agent</label>
+          <select id="captain-agent-select" data-testid="captain-agent-select" style="width:100%; padding:6px;"></select>
+          <div id="captain-agent-note" data-testid="captain-agent-note" style="display:none; font-size:0.78em; color:var(--warn, #f0c66a); margin-top:4px;"></div>
+        </div>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+        <button id="captain-create-plan" data-testid="captain-create-plan" class="btn primary" type="button">Create Plan</button>
+        <button id="captain-deploy-first" data-testid="captain-deploy-first" class="btn good" type="button">Deploy Current Step</button>
+        <button id="captain-copy-plan" data-testid="captain-copy-plan" class="btn" type="button">Copy Plan</button>
+        <button id="captain-close" data-testid="captain-close" class="btn" type="button">Close</button>
+      </div>
+      <div id="captain-deploy-note" data-testid="captain-deploy-note" style="display:none; color:var(--bad); font-size:0.85em; margin-top:6px;"></div>
+      <div style="font-size:0.72em; color:var(--muted); margin-top:8px;">Captain creates a bounded plan. Deploy one prompt at a time through the existing Codex runner.</div>
+      <div id="captain-plan-body" data-testid="captain-plan-body" style="margin-top:12px;"></div>
+    </div>
+  </div>
+
+      <!-- Live CLI Monitor Modal (read-only, focused popup for active tmux/Codex session) -->
+      <div id="live-cli-modal" data-testid="live-cli-modal">
+        <div class="modal-content">
+          <h3>Codex Live Monitor</h3>
+          <div id="modal-info" class="monitor-info"></div>
+          <div class="safety-note">Live read-only view. Use the buttons below for safe replies.</div>
+          <div id="modal-autoscroll-indicator" class="muted" data-testid="modal-autoscroll-indicator" style="display:none; font-size:0.78em; margin:4px 0 6px; color: var(--warn, #f0c66a);">Scrolled up — updates paused here</div>
+          <pre id="modal-transcript" data-testid="modal-transcript">Waiting for CLI output...</pre>
+          <div id="quick-reply-panel" data-testid="quick-reply-panel" style="margin:10px 0 6px;">
+            <div style="font-size:0.8em; font-weight:600; margin-bottom:4px;">Quick Reply</div>
+            <div class="muted" style="font-size:0.72em; margin-bottom:6px;">Use for Codex menus and approvals.</div>
+            <div class="button-row">
+              <button id="quick-reply-1" data-quick-reply="1" class="btn" type="button">1</button>
+              <button id="quick-reply-2" data-quick-reply="2" class="btn" type="button">2</button>
+              <button id="quick-reply-3" data-quick-reply="3" class="btn" type="button">3</button>
+              <button id="quick-reply-submit" data-quick-reply="Submit / Continue" class="btn primary" type="button">Submit / Continue</button>
+              <button id="quick-reply-enter" data-quick-reply="Enter" class="btn" type="button">Enter</button>
+              <button id="quick-reply-esc" data-quick-reply="Esc" class="btn" type="button">Esc</button>
+              <button id="quick-reply-ctrl-c" data-quick-reply="Ctrl+C" class="btn bad" type="button">Ctrl+C</button>
+            </div>
+            <div id="quick-reply-status" data-testid="quick-reply-status" class="muted" style="font-size:0.8em; margin-top:6px;"></div>
+          </div>
+          <div id="modal-timestamp" class="muted" style="font-size:0.75em;"></div>
+          <div id="modal-empty" class="empty-state" style="display:none;">No active runner. Start a controlled runner first.</div>
+          <div id="modal-disabled" class="disabled-state" style="display:none;">Controlled runner disabled. Manual mode is available.</div>
+          <div class="muted" style="font-size:0.72em; margin:2px 0 6px;">Output updates automatically. Scroll up to pause following. Jump to Latest resumes.</div>
+          <div class="button-row">
+            <button id="modal-refresh" data-testid="modal-refresh" class="btn" type="button">Refresh</button>
+            <button id="modal-autorefresh" data-testid="modal-autorefresh" class="btn" type="button">Auto-refresh: ON</button>
+            <button id="modal-jump-latest" data-testid="modal-jump-latest" class="btn" type="button">Jump to Latest</button>
+            <button id="modal-expand" data-testid="modal-expand" class="btn" type="button">Bigger View</button>
+            <button id="modal-copy-attach" data-testid="modal-copy-attach" class="btn" type="button" title="Copies the terminal command for this Codex session.">Copy Terminal Command</button>
+            <button id="modal-save-evidence" data-testid="modal-save-evidence" class="btn good" type="button">Save Output</button>
+            <button id="modal-stop" data-testid="modal-stop" class="btn bad" type="button">Stop Codex</button>
+            <button id="modal-close" data-testid="modal-close" class="btn" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+
+  <!-- Run Detail Modal -->
+  <div id="run-detail-modal" data-testid="run-detail-modal" class="history-modal" style="display:none;">
+    <div class="history-modal-content run-detail-review">
+      <h3 id="run-detail-title" data-testid="run-detail-title">Run Detail</h3>
+      <div class="history-modal-section" data-testid="run-detail-summary-section">
+        <h4>Run Summary</h4>
+        <div id="run-detail-meta" data-testid="run-detail-meta" class="history-modal-meta"></div>
+        <div id="run-detail-gate-state" data-testid="run-detail-gate-state" class="history-modal-meta"></div>
+      </div>
+      <div class="history-modal-section" data-testid="run-detail-transcript-section">
+        <h4>Transcript Excerpt</h4>
+        <pre id="run-detail-transcript" data-testid="run-detail-transcript" class="history-modal-pre"></pre>
+      </div>
+      <div class="history-modal-section" data-testid="run-detail-prompt-section">
+        <h4>Prompt Excerpt</h4>
+        <pre id="run-detail-prompt" data-testid="run-detail-prompt" class="history-modal-pre"></pre>
+      </div>
+      <div class="history-modal-section" data-testid="run-detail-evidence-section">
+        <h4>Evidence Records</h4>
+        <ul id="run-detail-evidence" data-testid="run-detail-evidence" class="history-modal-list"></ul>
+      </div>
+      <div class="history-modal-section" data-testid="run-detail-gates-section">
+        <h4>Proof Gates</h4>
+        <div id="run-detail-gates" data-testid="run-detail-gates" class="proof-gate-list"></div>
+      </div>
+      <div class="history-modal-section" data-testid="run-detail-decisions-section">
+        <h4>Decision History</h4>
+        <ul id="run-detail-decisions" data-testid="run-detail-decisions" class="history-modal-list"></ul>
+      </div>
+      <div class="history-modal-section" data-testid="run-detail-next-actions-section">
+        <h4>Next Allowed Manual Action</h4>
+        <div id="run-detail-next-actions" data-testid="run-detail-next-actions" class="run-detail-next-actions"></div>
+      </div>
+      <div class="history-modal-actions">
+        <button type="button" id="run-detail-export" data-testid="run-detail-export" class="btn">Export Report</button>
+        <button type="button" id="run-detail-close" data-testid="run-detail-close" class="btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Evidence Detail Modal -->
+  <div id="evidence-detail-modal" data-testid="evidence-detail-modal" class="history-modal" style="display:none;">
+    <div class="history-modal-content">
+      <h3 id="evidence-detail-title" data-testid="evidence-detail-title">Evidence Detail</h3>
+      <div id="evidence-detail-meta" data-testid="evidence-detail-meta" class="history-modal-meta"></div>
+      <div class="history-modal-section">
+        <h4>Content</h4>
+        <pre id="evidence-detail-content" data-testid="evidence-detail-content" class="history-modal-pre"></pre>
+      </div>
+      <div id="evidence-detail-run" data-testid="evidence-detail-run" class="history-modal-meta"></div>
+      <button type="button" id="evidence-detail-close" data-testid="evidence-detail-close" class="btn">Close</button>
+    </div>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
