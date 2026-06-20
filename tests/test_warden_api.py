@@ -1,6 +1,7 @@
 import json
 import subprocess
 import shutil
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -770,6 +771,7 @@ def test_codex_cli_uses_interactive_tmux_mode_not_exec_wrapper(monkeypatch):
     # patch start to record what command would be used, without real tmux
     recorded = {}
     orig = api_mod._start_codex_runner
+
     def fake_start(state, cwd):
         recorded["status"] = "waiting_for_codex"
         recorded["notes"] = ["interactive launch"]
@@ -777,16 +779,40 @@ def test_codex_cli_uses_interactive_tmux_mode_not_exec_wrapper(monkeypatch):
         state["attach_command"] = "tmux attach -t fake"
         state["notes"].append("codex interactive tmux (not exec < file)")
         return state
+
     monkeypatch.setattr(api_mod, "_start_codex_runner", fake_start)
 
+    def fake_build_agent_prompt_with_memory(original_prompt, **kwargs):
+        enriched_prompt = (
+            "# Warden Memory Context\n\n"
+            "## Known Constraints\n"
+            "- Keep the original task intact.\n\n"
+            "---\n\n"
+            "# User Task\n\n"
+            f"{original_prompt}"
+        )
+        return enriched_prompt, {
+            "memory_count": 1,
+            "memory_ids": ["m-memory-1"],
+            "truncated": False,
+            "scope": "mcharness-public-export",
+            "injected": True,
+        }
+
+    monkeypatch.setattr(api_mod, "build_agent_prompt_with_memory", fake_build_agent_prompt_with_memory)
+
+    prompt = "TASK_PROMPT_HERE\nReturn the single line:\nMCH_CODEX_SUBMIT_PROOF_OK"
+    repo_path = str(Path(__file__).resolve().parents[1])
     s = client.post("/api/mcharness/sessions", json={
         "title": "codex-int", "objective": "o", "plan_instruction": "p",
-        "repo_path": "/root/mcharness-public-export", "agent_lane": "codex_cli"
+        "repo_path": repo_path, "agent_lane": "codex_cli"
     })
     sid = s.json()["session_id"]
 
     st = client.post(f"/api/mcharness/sessions/{sid}/runner/start", json={
-        "lane_id": "codex_cli", "repo_id": "mcharness-public-export"
+        "lane_id": "codex_cli",
+        "repo_id": "mcharness-public-export",
+        "prompt": prompt,
     })
     assert st.status_code == 200
     start_body = st.json()
@@ -804,17 +830,20 @@ def test_codex_cli_uses_interactive_tmux_mode_not_exec_wrapper(monkeypatch):
     monkeypatch.setattr(api_mod, "_append_run_event", lambda *args, **kwargs: None)
 
     # send
-    prompt = "TASK_PROMPT_HERE\nReturn the single line:\nMCH_CODEX_SUBMIT_PROOF_OK"
     send = client.post(f"/api/mcharness/sessions/{sid}/runner/send-prompt", json={"prompt": prompt})
     assert send.status_code == 200
     send_body = send.json()
     assert send_body["status"] == "awaiting_response"
     assert send_body["injected"] is True
     assert calls[:3] == [
-        ("tmux", "send-keys", "-t", tmux_name, "-l", prompt),
+        ("tmux", "send-keys", "-t", tmux_name, "-l", calls[0][5]),
         ("tmux", "send-keys", "-t", tmux_name, "Tab"),
         ("tmux", "send-keys", "-t", tmux_name, "Enter"),
     ]
+    assert calls[0][5].startswith("# Warden Memory Context")
+    assert "Keep the original task intact." in calls[0][5]
+    assert "\n\n---\n\n# User Task\n\n" in calls[0][5]
+    assert calls[0][5].endswith(prompt)
 
     st2 = client.get(f"/api/mcharness/sessions/{sid}/runner/status")
     assert st2.json()["status"] == "awaiting_response"
@@ -1276,13 +1305,34 @@ def _enable_private_run_history(monkeypatch, tmp_path):
 def test_run_history_created_on_private_codex_dispatch(monkeypatch, tmp_path):
     _enable_private_run_history(monkeypatch, tmp_path)
     client = TestClient(app)
+    import src.warden.api as api_mod
+
+    def fake_build_agent_prompt_with_memory(original_prompt, **kwargs):
+        enriched_prompt = (
+            "# Warden Memory Context\n\n"
+            "## Known Constraints\n"
+            "- Preserve the user task after the memory block.\n\n"
+            "---\n\n"
+            "# User Task\n\n"
+            f"{original_prompt}"
+        )
+        return enriched_prompt, {
+            "memory_count": 1,
+            "memory_ids": ["m-memory-1"],
+            "truncated": False,
+            "scope": "mcharness-public-export",
+            "injected": True,
+        }
+
+    monkeypatch.setattr(api_mod, "build_agent_prompt_with_memory", fake_build_agent_prompt_with_memory)
+    repo_path = str(Path(__file__).resolve().parents[1])
     created = client.post(
         "/api/mcharness/sessions",
         json={
             "title": "History smoke",
             "objective": "Prove run history",
             "plan_instruction": "Create a bounded run record.",
-            "repo_path": "/root/mcharness-public-export",
+            "repo_path": repo_path,
             "agent_lane": "manual_paste",
         },
     )
@@ -1313,6 +1363,8 @@ def test_run_history_created_on_private_codex_dispatch(monkeypatch, tmp_path):
     assert run["title"] == "History smoke"
     assert run["agent_id"] == "codex_cli"
     assert run["status"] == "dispatched"
+    assert run["prompt_excerpt"].startswith("# Warden Memory Context")
+    assert "Preserve the user task after the memory block." in run["prompt_excerpt"]
     assert "Inspect the Warden frontend" in run["prompt_excerpt"]
     assert "sk-or-" not in recent.text
 
