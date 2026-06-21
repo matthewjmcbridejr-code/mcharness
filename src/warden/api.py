@@ -115,6 +115,12 @@ from .agent_registry import (
     update_registered_agent,
     update_registered_agent_config,
 )
+from .assistant import (
+    AssistantRequest,
+    assistant_health_payload,
+    build_assistant_context,
+    chat_with_assistant,
+)
 
 router = APIRouter(prefix="/api/marius", tags=["marius-desktop"])
 router.include_router(captain_router)
@@ -401,6 +407,10 @@ class WardenMemoryContextPackRequest(BaseModel):
     task_id: Optional[str] = Field(default=None, max_length=160)
     max_memories: int = Field(default=8, ge=1, le=50)
     max_chars: int = Field(default=6000, ge=256, le=20_000)
+
+
+class WardenAssistantRequest(AssistantRequest):
+    pass
 
 
 class McHarnessRunEvidenceCreateRequest(BaseModel):
@@ -2235,6 +2245,21 @@ def post_warden_memory_context_pack(payload: WardenMemoryContextPackRequest):
         }
     except Exception:
         raise HTTPException(status_code=503, detail="Warden Memory context is unavailable.")
+
+
+@mcharness_router.get("/warden/assistant/health", dependencies=[Depends(_require_private_memory_access)])
+def get_warden_assistant_health():
+    return assistant_health_payload()
+
+
+@mcharness_router.post("/warden/assistant/context", dependencies=[Depends(_require_private_memory_access)])
+def post_warden_assistant_context(payload: WardenAssistantRequest):
+    return build_assistant_context(payload, WORKBENCH_STORE, SAFE_REPO_PATHS)
+
+
+@mcharness_router.post("/warden/assistant/chat", dependencies=[Depends(_require_private_memory_access)])
+def post_warden_assistant_chat(payload: WardenAssistantRequest):
+    return chat_with_assistant(payload, WORKBENCH_STORE, SAFE_REPO_PATHS).model_dump(mode="json")
 
 
 @mcharness_router.post("/agents/marius/handoff/agent-prompt")

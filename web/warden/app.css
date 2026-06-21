@@ -723,6 +723,12 @@ textarea {
   font-size: 0.8rem;
 }
 
+.memory-form-help {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
 .memory-inline-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -796,6 +802,7 @@ textarea {
   border-radius: 10px;
   padding: 12px 14px;
   background: rgba(7, 14, 25, 0.46);
+  overflow: hidden;
 }
 
 .memory-card-top {
@@ -914,6 +921,39 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.assistant-panel {
+  overflow: hidden;
+}
+
+.assistant-toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 14px;
+}
+
+.assistant-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.assistant-toggle input {
+  margin: 0;
+}
+
+.assistant-question {
+  display: grid;
+  gap: 6px;
+}
+
+.assistant-answer {
+  min-height: 180px;
+}
+
 .use-agent-memory-note {
   margin: 8px 0 2px;
   border-left: 2px solid var(--accent);
@@ -933,6 +973,27 @@ textarea {
   .memory-context-controls {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+}
+
+@media (max-width: 420px) {
+  .memory-header,
+  .memory-panel-heading,
+  .memory-form-actions,
+  .assistant-toggle-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .memory-form-row,
+  .memory-inline-form {
+    grid-template-columns: 1fr;
+  }
+
+  .memory-panel,
+  .memory-stat-card {
+    padding-left: 14px;
+    padding-right: 14px;
   }
 }
 
