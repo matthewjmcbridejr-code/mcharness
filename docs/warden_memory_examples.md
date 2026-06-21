@@ -15,8 +15,8 @@ See also: `docs/warden_memory_style.md`
   "kind": "decision",
   "scope": "Warden",
   "project_id": "Warden",
-  "repo_path": "/home/matt/workspaces/warden/mcharness-public-export",
-  "source_ref": "commit:92d47d7",
+  "repo_path": "/path/to/repo",
+  "source_ref": "example:commit-sha",
   "tags": ["decision", "private-runner", "memory"],
   "status": "active",
   "agent_id": "operator",
@@ -31,11 +31,11 @@ See also: `docs/warden_memory_style.md`
 ```json
 {
   "title": "Memory test suite passes on isolated tmp root",
-  "summary": "All 18 tests in tests/test_warden_memory.py pass with MCHARNESS_DATA_ROOT=/tmp/warden-test. Covers ID generation, scope isolation, redaction, context pack ranking, and fail-open dispatch.",
+  "summary": "All 10 tests in tests/test_warden_memory.py pass with MCHARNESS_DATA_ROOT=/tmp/warden-test. Covers ID generation, scope isolation, redaction, context pack ranking, and fail-open dispatch.",
   "kind": "proof",
   "scope": "Warden",
   "project_id": "Warden",
-  "repo_path": "/home/matt/workspaces/warden/mcharness-public-export",
+  "repo_path": "/path/to/repo",
   "source_ref": "test:tests/test_warden_memory.py",
   "tags": ["proof", "test", "memory"],
   "status": "active",
@@ -55,8 +55,8 @@ See also: `docs/warden_memory_style.md`
   "kind": "failure",
   "scope": "Warden",
   "project_id": "Warden",
-  "repo_path": "/home/matt/workspaces/warden/mcharness-public-export",
-  "source_ref": "commit:3414986",
+  "repo_path": "/path/to/repo",
+  "source_ref": "example:commit-sha",
   "tags": ["failure", "memory", "context-pack"],
   "status": "active"
 }
@@ -73,8 +73,8 @@ See also: `docs/warden_memory_style.md`
   "kind": "constraint",
   "scope": "Warden",
   "project_id": "Warden",
-  "repo_path": "/home/matt/workspaces/warden/mcharness-public-export",
-  "source_ref": "commit:92d47d7",
+  "repo_path": "/path/to/repo",
+  "source_ref": "example:commit-sha",
   "tags": ["constraint", "security", "memory", "private-runner"],
   "status": "active"
 }
@@ -91,8 +91,8 @@ See also: `docs/warden_memory_style.md`
   "kind": "handoff",
   "scope": "Warden",
   "project_id": "Warden",
-  "repo_path": "/home/matt/workspaces/warden/mcharness-public-export",
-  "source_ref": "commit:92d47d7",
+  "repo_path": "/path/to/repo",
+  "source_ref": "example:commit-sha",
   "tags": ["handoff", "memory", "v1"],
   "status": "active",
   "notes": "Next: add explicit proof/failure/handoff capture from completed private runs. Jules and Grok injection paths not yet real. Supersede/forget API not yet implemented."
@@ -110,7 +110,7 @@ See also: `docs/warden_memory_style.md`
   "kind": "claim",
   "scope": "Warden",
   "project_id": "Warden",
-  "repo_path": "/home/matt/workspaces/warden/mcharness-public-export",
+  "repo_path": "/path/to/repo",
   "source_ref": "manual",
   "tags": ["claim", "claude-code", "runner-lane"],
   "status": "active"
@@ -125,12 +125,12 @@ See also: `docs/warden_memory_style.md`
 
 ```json
 {
-  "title": "test_runner_sessions: all 12 pass after RUNNER_SESSION_PREFIX refactor",
-  "summary": "pytest tests/test_runner_sessions.py -x -q: 12 passed, 0 failed. Session prefix is mch_run_, blocked names enforced, stale classification works.",
+  "title": "test_runner_sessions: all 10 pass after RUNNER_SESSION_PREFIX refactor",
+  "summary": "pytest tests/test_runner_sessions.py -x -q: 10 passed, 0 failed. Session prefix is mch_run_, blocked names enforced, stale classification works.",
   "kind": "test_result",
   "scope": "Warden",
   "project_id": "Warden",
-  "repo_path": "/home/matt/workspaces/warden/mcharness-public-export",
+  "repo_path": "/path/to/repo",
   "source_ref": "test:tests/test_runner_sessions.py",
   "tags": ["test_result", "runner-sessions", "proof"],
   "status": "active",
@@ -149,7 +149,7 @@ See also: `docs/warden_memory_style.md`
   "kind": "fragile_file",
   "scope": "Warden",
   "project_id": "Warden",
-  "repo_path": "/home/matt/workspaces/warden/mcharness-public-export",
+  "repo_path": "/path/to/repo",
   "source_ref": "manual",
   "tags": ["fragile_file", "frontend", "runner-lane"],
   "status": "active"
@@ -171,8 +171,8 @@ curl -sS http://127.0.0.1:8125/api/mcharness/memories \
     "kind": "proof",
     "scope": "Warden",
     "project_id": "Warden",
-    "repo_path": "/home/matt/workspaces/warden/mcharness-public-export",
-    "source_ref": "commit:abc123",
+    "repo_path": "/path/to/repo",
+    "source_ref": "example:commit-sha",
     "tags": ["proof", "memory"],
     "status": "active"
   }'
