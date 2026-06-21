@@ -73,6 +73,16 @@
       lastContext: null,
       error: "",
     },
+    assistant: {
+      available: false,
+      loading: false,
+      provider: "local-deterministic",
+      googleRagEnabled: false,
+      warnings: [],
+      sources: [],
+      error: "",
+      lastAnswer: "",
+    },
   };
 
   // Helper for API calls (minimal)
@@ -237,6 +247,20 @@
     target.innerHTML = memories.map(memoryCardHtml).join("");
   }
 
+  function renderUseAgentMemoryNote() {
+    const note = document.getElementById("use-agent-memory-note");
+    if (!note) return;
+    if (state.memory.available && state.memory.lastContext && (state.memory.lastContext.memory_count || 0) > 0) {
+      note.textContent = `Memory attached: ${state.memory.lastContext.memory_count} source memory${state.memory.lastContext.memory_count === 1 ? "" : "s"} ready for the next launch.`;
+      return;
+    }
+    if (state.memory.available) {
+      note.textContent = "Memory context will be attached when available.";
+      return;
+    }
+    note.textContent = "Memory attachment requires the private runner service.";
+  }
+
   function setMemoryControlsEnabled(enabled) {
     [
       "memory-search-query",
@@ -282,6 +306,7 @@
       : "No memories yet";
     if (notice) notice.style.display = memoryState.available ? "none" : "block";
     setMemoryControlsEnabled(memoryState.available && !memoryState.loading);
+    renderUseAgentMemoryNote();
   }
 
   async function loadMemory() {
@@ -300,12 +325,12 @@
       memoryState.memories = (listing.memories || [])
         .filter((memory) => memoryMatchesProject(memory, project))
         .slice(0, 20);
-      renderMemoryList("memory-recent-list", memoryState.memories, "No memories yet.");
+      renderMemoryList("memory-recent-list", memoryState.memories, "No memories saved for this project yet.");
     } catch (error) {
       memoryState.available = false;
       memoryState.memories = [];
       memoryState.error = error.message || "Memory unavailable.";
-      renderMemoryList("memory-recent-list", [], "Memory is private-runner-only.");
+      renderMemoryList("memory-recent-list", [], "Memory is private-runner-only on this service.");
       renderMemoryList("memory-search-results", [], "Memory is unavailable on this service.");
     } finally {
       memoryState.loading = false;
@@ -319,7 +344,7 @@
     const cleanQuery = String(query || "").trim().slice(0, 500);
     if (!cleanQuery) {
       state.memory.searchResults = state.memory.memories.slice();
-      renderMemoryList("memory-search-results", state.memory.searchResults, "No memories yet.");
+      renderMemoryList("memory-search-results", state.memory.searchResults, "No memories saved for this project yet.");
       if (status) status.textContent = "";
       return;
     }
@@ -332,7 +357,7 @@
         `${MCH}/memories/search?q=${encodeURIComponent(cleanQuery)}&scope=${encodeURIComponent(project.projectId)}&limit=20`,
       );
       state.memory.searchResults = (data.memories || []).slice(0, 20);
-      renderMemoryList("memory-search-results", state.memory.searchResults, "No matching memories.");
+      renderMemoryList("memory-search-results", state.memory.searchResults, "No matching memories for this query.");
       if (status) status.textContent = `${state.memory.searchResults.length} result${state.memory.searchResults.length === 1 ? "" : "s"}`;
     } catch (error) {
       renderMemoryList("memory-search-results", [], "Memory search unavailable.");
@@ -442,6 +467,155 @@
       if (status) {
         status.className = "memory-form-status error";
         status.textContent = "Memory is private-runner-only.";
+      }
+    }
+    renderUseAgentMemoryNote();
+  }
+
+  function assistantPayload() {
+    const project = currentMemoryProject();
+    const message = document.getElementById("assistant-message");
+    const includeMemory = document.getElementById("assistant-include-memory");
+    const includeProjectContext = document.getElementById("assistant-include-project-context");
+    const includeGoogleRag = document.getElementById("assistant-include-google-rag");
+    return {
+      project_id: project.projectId,
+      repo_path: project.repoPath || null,
+      message: String(message && message.value || "").trim().slice(0, 5000),
+      include_memory: !includeMemory || !!includeMemory.checked,
+      include_project_context: !includeProjectContext || !!includeProjectContext.checked,
+      include_google_rag: !!(includeGoogleRag && includeGoogleRag.checked),
+      max_memories: 5,
+      max_chars: 4000,
+    };
+  }
+
+  function setAssistantControlsEnabled(enabled) {
+    [
+      "assistant-message",
+      "assistant-include-memory",
+      "assistant-include-project-context",
+      "assistant-include-google-rag",
+      "assistant-ask",
+      "assistant-copy",
+      "assistant-refresh",
+    ].forEach((id) => {
+      const element = document.getElementById(id);
+      if (element) element.disabled = !enabled;
+    });
+  }
+
+  function renderAssistant() {
+    const assistant = state.assistant;
+    const status = document.getElementById("assistant-status-value");
+    const detail = document.getElementById("assistant-status-detail");
+    const provider = document.getElementById("assistant-provider-value");
+    const rag = document.getElementById("assistant-rag-value");
+    const notice = document.getElementById("assistant-private-notice");
+    const answer = document.getElementById("assistant-answer");
+    const sources = document.getElementById("assistant-sources");
+    const warnings = document.getElementById("assistant-warnings");
+    if (status) status.textContent = assistant.loading ? "Checking…" : assistant.available ? "enabled" : "Private runner required";
+    if (detail) detail.textContent = assistant.available ? "Private service ready" : "Public service blocks assistant reads";
+    if (provider) provider.textContent = assistant.provider || "local-deterministic";
+    if (rag) rag.textContent = assistant.googleRagEnabled ? "enabled" : "disabled";
+    if (notice) notice.style.display = assistant.available ? "none" : "block";
+    if (answer && assistant.lastAnswer) answer.textContent = redactVisibleMemory(assistant.lastAnswer);
+    if (sources) {
+      sources.textContent = assistant.sources.length
+        ? `Sources: ${assistant.sources.map((source) => redactVisibleMemory(source.ref || source.title || "")).join(", ")}`
+        : "No sources yet.";
+    }
+    if (warnings) {
+      warnings.className = `memory-form-status${assistant.error ? " error" : ""}`;
+      const messages = [];
+      if (assistant.error) messages.push(assistant.error);
+      if (assistant.warnings.length) messages.push(...assistant.warnings);
+      warnings.textContent = messages.join(" ");
+    }
+    setAssistantControlsEnabled(assistant.available && !assistant.loading);
+  }
+
+  async function loadAssistantHealth() {
+    const assistant = state.assistant;
+    assistant.loading = true;
+    assistant.error = "";
+    renderAssistant();
+    try {
+      const data = await requestJson(`${MCH}/warden/assistant/health`);
+      assistant.available = !!data.ok;
+      assistant.provider = data.provider || "local-deterministic";
+      assistant.googleRagEnabled = !!(data.google_rag && data.google_rag.enabled);
+      assistant.warnings = data.google_rag && data.google_rag.warning ? [data.google_rag.warning] : [];
+    } catch (_error) {
+      assistant.available = false;
+      assistant.provider = "local-deterministic";
+      assistant.googleRagEnabled = false;
+      assistant.warnings = [];
+      assistant.error = "Private runner required";
+    } finally {
+      assistant.loading = false;
+      renderAssistant();
+    }
+  }
+
+  async function askAssistant() {
+    const payload = assistantPayload();
+    const status = document.getElementById("assistant-chat-status");
+    if (!payload.message) {
+      if (status) {
+        status.className = "memory-form-status error";
+        status.textContent = "Add a question first.";
+      }
+      return;
+    }
+    if (status) {
+      status.className = "memory-form-status";
+      status.textContent = "Thinking locally…";
+    }
+    try {
+      const data = await requestJson(`${MCH}/warden/assistant/chat`, {
+        method: "POST",
+        body: payload,
+      });
+      state.assistant.lastAnswer = data.answer || "No answer returned.";
+      state.assistant.sources = Array.isArray(data.sources) ? data.sources : [];
+      state.assistant.warnings = Array.isArray(data.warnings) ? data.warnings : [];
+      state.assistant.error = "";
+      renderAssistant();
+      if (status) status.textContent = "";
+    } catch (_error) {
+      state.assistant.error = "Assistant unavailable on this service.";
+      renderAssistant();
+      if (status) {
+        status.className = "memory-form-status error";
+        status.textContent = "Assistant unavailable on this service.";
+      }
+    }
+  }
+
+  async function copyAssistantAnswer() {
+    const answer = String(state.assistant.lastAnswer || "").trim();
+    const status = document.getElementById("assistant-chat-status");
+    if (!answer) {
+      if (status) {
+        status.className = "memory-form-status error";
+        status.textContent = "No answer to copy yet.";
+      }
+      return;
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(answer);
+      }
+      if (status) {
+        status.className = "memory-form-status success";
+        status.textContent = "Answer copied.";
+      }
+    } catch (_error) {
+      if (status) {
+        status.className = "memory-form-status";
+        status.textContent = "Copy is unavailable in this browser.";
       }
     }
   }
@@ -2031,6 +2205,7 @@
       runs: "Runs",
       evidence: "Evidence",
       memory: "Memory",
+      assistant: "Warden Assistant",
       "proof-gates": "Proof Gates",
       "runner-sessions": "Runner Sessions",
       settings: "Settings",
@@ -2051,6 +2226,8 @@
       loadRecentEvidence().catch((e) => console.error(e));
     } else if (state.activeSection === "memory") {
       loadMemory().catch((e) => console.error(e));
+    } else if (state.activeSection === "assistant") {
+      loadAssistantHealth().catch((e) => console.error(e));
     }
   }
 
@@ -3062,6 +3239,18 @@
     const memoryContextBuild = document.getElementById("memory-context-build");
     if (memoryContextBuild) memoryContextBuild.addEventListener("click", () => {
       buildMemoryContextPreview().catch((e) => console.error(e));
+    });
+    const assistantRefresh = document.getElementById("assistant-refresh");
+    if (assistantRefresh) assistantRefresh.addEventListener("click", () => {
+      loadAssistantHealth().catch((e) => console.error(e));
+    });
+    const assistantAsk = document.getElementById("assistant-ask");
+    if (assistantAsk) assistantAsk.addEventListener("click", () => {
+      askAssistant().catch((e) => console.error(e));
+    });
+    const assistantCopy = document.getElementById("assistant-copy");
+    if (assistantCopy) assistantCopy.addEventListener("click", () => {
+      copyAssistantAnswer().catch((e) => console.error(e));
     });
 
     const useCodexDirectly = document.getElementById("use-codex-directly");
