@@ -82,6 +82,8 @@ def test_command_deck_contains_required_portfolio_panels():
         "proof-ledger",
         "relay-timeline",
         "brain-answer",
+        "notion-sync-panel",
+        "Preview Sync",
         "command-deck.js",
     ]
     for snippet in required_snippets:
@@ -89,6 +91,8 @@ def test_command_deck_contains_required_portfolio_panels():
 
     for snippet in [
         "/api/mcharness/warden/command-deck",
+        "/api/mcharness/warden/notion/sync",
+        "previewNotionSync",
         "proof_needed",
         "Verified",
         "Proof Needed",
@@ -114,3 +118,22 @@ def test_command_deck_js_calls_workspace_authority_api():
     script = COMMAND_DECK_JS.read_text(encoding="utf-8")
     assert "/warden/workspaces/warden" in script, "JS must call workspace authority API"
     assert "loadWorkspaceAuthority" in script, "JS must have loadWorkspaceAuthority function"
+
+
+def test_command_deck_has_notion_sync_panel():
+    content = COMMAND_DECK_APP.read_text(encoding="utf-8")
+    script = COMMAND_DECK_JS.read_text(encoding="utf-8")
+    for snippet in [
+        "notion-sync-panel",
+        "Notion Sync",
+        "Dry-run Candidate Preview",
+        "preview-notion-sync",
+    ]:
+        assert snippet in content, f"Missing Notion sync panel snippet: {snippet}"
+    for snippet in [
+        "NOTION_SYNC_BASE",
+        "/api/mcharness/warden/notion/sync",
+        "previewNotionSync",
+        "renderNotionSyncPreview",
+    ]:
+        assert snippet in script, f"Missing Notion sync script snippet: {snippet}"

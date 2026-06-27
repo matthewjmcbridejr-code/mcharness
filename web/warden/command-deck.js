@@ -1,4 +1,5 @@
 const API_BASE = "/api/mcharness/warden/command-deck";
+const NOTION_SYNC_BASE = "/api/mcharness/warden/notion/sync";
 const COLUMNS = [
   ["posted", "Posted"],
   ["claimed", "Claimed"],
@@ -212,8 +213,57 @@ async function seedDemo() {
   try {
     await fetchJson("/demo-seed", { method: "POST", body: JSON.stringify({ title: "Demo Mission", description: "Demonstrate Warden Command Deck dispatch loop.", agent: "codex", priority: "medium" }) });
     await loadDeck();
+    await previewNotionSync();
   } finally {
     $("seed-demo").disabled = false;
+  }
+}
+
+function renderNotionSyncPreview(result = {}) {
+  const summary = $("notion-sync-summary");
+  const results = $("notion-sync-results");
+  if (!summary || !results) return;
+  setText("notion-sync-mode", result.write_enabled ? "Writes Enabled" : "Dry Run");
+  summary.innerHTML = `
+    <div class="sync-stat"><span>Found</span><strong>${esc(result.candidates_found ?? 0)}</strong></div>
+    <div class="sync-stat"><span>Would Create</span><strong>${esc(result.would_create_count ?? 0)}</strong></div>
+    <div class="sync-stat"><span>Would Skip</span><strong>${esc(result.would_skip_count ?? 0)}</strong></div>
+  `;
+  const candidates = list(result.would_create).slice(0, 6);
+  results.innerHTML = candidates.length ? candidates.map((candidate) => `
+    <article class="proof-card notion-candidate">
+      <div class="card-meta">
+        <span class="chip ${esc(candidate.proof_status || "proof_needed")}">${esc(String(candidate.proof_status || "proof_needed").replaceAll("_", " "))}</span>
+        <span class="chip">${esc(candidate.agent || "unassigned")}</span>
+        <span class="chip">${esc(candidate.priority || "medium")}</span>
+      </div>
+      <h3>${esc(candidate.title || "Untitled candidate")}</h3>
+      <p>${esc(candidate.ai_summary || "No summary recorded.")}</p>
+      <p>${esc(safePath(candidate.repo_path || candidate.project || "Warden"))}</p>
+    </article>
+  `).join("") : `<div class="empty-card">No candidate tasks. Command Deck will preview Notion inbox rows after local board tasks exist.</div>`;
+}
+
+async function loadNotionSyncStatus() {
+  try {
+    const status = await fetchJson("/status", { base: NOTION_SYNC_BASE });
+    setText("notion-sync-mode", status.write_enabled ? "Writes Enabled" : "Dry Run");
+  } catch (err) {
+    setText("notion-sync-mode", "Unavailable");
+  }
+}
+
+async function previewNotionSync() {
+  const button = $("preview-notion-sync");
+  if (button) button.disabled = true;
+  try {
+    const result = await fetchJson("/dry-run", { base: NOTION_SYNC_BASE, method: "POST", body: JSON.stringify({ existing_candidates: [] }) });
+    renderNotionSyncPreview(result);
+  } catch (err) {
+    const results = $("notion-sync-results");
+    if (results) results.innerHTML = `<div class="empty-card">${esc(err.message)}</div>`;
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -258,14 +308,17 @@ function setText(id, text) {
   if (el) el.textContent = text;
 }
 
-$("refresh-deck").addEventListener("click", () => { loadDeck(); loadWorkspaceAuthority(); });
+$("refresh-deck").addEventListener("click", () => { loadDeck(); loadWorkspaceAuthority(); previewNotionSync(); });
 $("seed-demo").addEventListener("click", seedDemo);
+$("preview-notion-sync").addEventListener("click", previewNotionSync);
 $("brain-query").addEventListener("change", loadDeck);
 
 loadDeck().catch((error) => {
   $("mission-board").innerHTML = `<div class="empty-card">${esc(error.message)}</div>`;
 });
 loadWorkspaceAuthority().catch(() => {});
+loadNotionSyncStatus().catch(() => {});
+previewNotionSync().catch(() => {});
 
 setInterval(() => {
   loadDeck().catch(() => {});
