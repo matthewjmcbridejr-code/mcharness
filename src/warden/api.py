@@ -3532,6 +3532,7 @@ def post_command_deck_demo_seed(req: Optional[_DemoSeedRequest] = None):
     if req is None:
         req = _DemoSeedRequest()
     import uuid as _uuid
+    from .workspace_authority import get_canonical_repo
     task_id = f"demo-{_uuid.uuid4().hex[:8]}"
     task = {
         "task_id": task_id,
@@ -3539,6 +3540,9 @@ def post_command_deck_demo_seed(req: Optional[_DemoSeedRequest] = None):
         "description": req.description,
         "agent": req.agent,
         "priority": req.priority,
+        "project_id": "warden",
+        "repo_path": get_canonical_repo("warden") or "",
+        "workspace_checked": False,
         "status": "queued",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -3558,21 +3562,30 @@ class _TaskCreateRequest(BaseModel):
     agent: str = "any"
     priority: str = "medium"
     project: str = ""
+    project_id: str = "warden"
     branch: str = ""
+    repo_path: str = ""  # defaults to canonical Warden repo if empty
+    workspace_checked: bool = False
 
 
 @mcharness_router.post("/warden/command-deck/tasks", status_code=201)
 def post_command_deck_task(req: _TaskCreateRequest):
     import uuid as _uuid
+    from .workspace_authority import get_canonical_repo
     task_id = f"wt-{_uuid.uuid4().hex[:8]}"
+    # Default repo_path to canonical for the project
+    repo_path = req.repo_path or get_canonical_repo(req.project_id) or ""
     task = {
         "task_id": task_id,
         "title": req.title,
         "description": req.description,
         "agent": req.agent,
         "priority": req.priority,
-        "project": req.project,
+        "project": req.project or req.project_id,
+        "project_id": req.project_id,
         "branch": req.branch,
+        "repo_path": repo_path,
+        "workspace_checked": req.workspace_checked,
         "status": "queued",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),

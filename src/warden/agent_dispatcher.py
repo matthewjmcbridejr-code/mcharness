@@ -190,6 +190,10 @@ class DispatchResult:
         self.success = success
         self.summary = summary
         self.log_path = log_path
+        # Workspace Authority fields — populated when dispatch is blocked by drift
+        self.workspace_drift: bool = False
+        self.canonical_repo: Optional[str] = None
+        self.next_action: Optional[str] = None
 
 
 class AgentDispatcher:
@@ -223,10 +227,62 @@ class AgentDispatcher:
         allowed = self.config.get("allowed_repo_roots", [])
         return any(str(repo).startswith(root) for root in allowed)
 
+    def _workspace_preflight(self, task: Dict[str, Any], run_id: str) -> Optional[DispatchResult]:
+        """Block dispatch if agent would be operating in a non-canonical worktree."""
+        task_id = task["task_id"]
+        project_id = task.get("project_id") or task.get("project") or "warden"
+        # Prefer repo_path from task; fall back to current process cwd
+        cwd = task.get("repo_path") or task.get("workspace_path") or os.getcwd()
+
+        try:
+            from .workspace_authority import detect_workspace_drift
+            drift = detect_workspace_drift(project_id, cwd=cwd)
+        except Exception as exc:
+            # workspace_authority unavailable — log and allow (don't block on import error)
+            log.warning("workspace_authority unavailable, skipping preflight: %s", exc)
+            return None
+
+        if drift.get("drifted") or not drift.get("safe_to_edit", True):
+            canonical = drift.get("matched_worktree") or cwd
+            try:
+                from .workspace_authority import get_canonical_repo
+                canonical = get_canonical_repo(project_id) or canonical
+            except Exception:
+                pass
+
+            warning_msg = (
+                f"[WorkspaceAuthority] BLOCKED: task {task_id!r} targets {cwd!r} "
+                f"which is not canonical for project {project_id!r}. "
+                f"Use {canonical!r}."
+            )
+            log.warning(warning_msg)
+            _write_activity({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "event": "workspace_drift_blocked",
+                "task_id": task_id,
+                "project_id": project_id,
+                "cwd": cwd,
+                "canonical": canonical,
+                "run_id": run_id,
+                "warning": warning_msg,
+            })
+            result = DispatchResult(task_id, run_id, False, warning_msg)
+            result.canonical_repo = canonical
+            result.workspace_drift = True
+            result.next_action = f"Switch to {canonical!r} before running this task."
+            return result
+
+        return None  # preflight passed
+
     def dispatch_task(self, task: Dict[str, Any], src_path: Path) -> DispatchResult:
         task_id = task["task_id"]
         agent = task.get("agent", "any")
         run_id = str(uuid.uuid4())[:8]
+
+        # Workspace Authority preflight — block non-canonical cwds
+        blocked = self._workspace_preflight(task, run_id)
+        if blocked is not None:
+            return blocked
 
         # Resolve agent
         target_agent: Optional[str] = None

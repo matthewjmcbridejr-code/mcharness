@@ -94,3 +94,23 @@ def test_command_deck_contains_required_portfolio_panels():
         "Proof Needed",
     ]:
         assert snippet in script, f"Missing Command Deck script snippet: {snippet}"
+
+
+def test_command_deck_workspace_authority_panel_exists():
+    content = COMMAND_DECK_APP.read_text(encoding="utf-8")
+    required = [
+        "workspace-authority-panel",
+        "Workspace Authority",
+        "ws-canonical",
+        "ws-scratch-list",
+        "ws-proof-cmds",
+        "Refuse edits from non-canonical worktrees",
+    ]
+    for snippet in required:
+        assert snippet in content, f"Missing Workspace Authority panel snippet: {snippet}"
+
+
+def test_command_deck_js_calls_workspace_authority_api():
+    script = COMMAND_DECK_JS.read_text(encoding="utf-8")
+    assert "/warden/workspaces/warden" in script, "JS must call workspace authority API"
+    assert "loadWorkspaceAuthority" in script, "JS must have loadWorkspaceAuthority function"

@@ -177,3 +177,142 @@ def test_command_not_found_returns_failure(tmp_board, monkeypatch):
     result = dispatcher.dispatch_task(task, path)
     assert not result.success
     assert "not found" in result.summary or "exit" in result.summary
+
+
+# ---------------------------------------------------------------------------
+# Workspace Authority enforcement tests
+# ---------------------------------------------------------------------------
+
+CANONICAL = "/home/matt/workspaces/warden/mcharness-public-export"
+SCRATCH = "/home/matt/Documents/Warden"
+
+_WA_CFG = {
+    "enabled": True,
+    "poll_interval_seconds": 1,
+    "default_timeout_seconds": 30,
+    "log_dir": "/tmp/warden-test-runs",
+    "allowed_repo_roots": [CANONICAL],
+    "agents": {"cl": {"enabled": True, "command_template": ["cl", "--prompt-file", "{prompt_file}"]}},
+}
+
+
+def test_canonical_cwd_passes_preflight(tmp_board, monkeypatch):
+    import src.warden.agent_dispatcher as mod
+    monkeypatch.setattr(mod, "BOARD_ROOT", tmp_board)
+    monkeypatch.setattr(mod, "LOG_DIR", tmp_board.parent / "runs")
+    task = {
+        "task_id": "can-1",
+        "title": "Canonical Task",
+        "description": "desc",
+        "agent": "cl",
+        "project_id": "warden",
+        "repo_path": CANONICAL,
+        "status": "queued",
+    }
+    path = _write_task(tmp_board, "queued", task)
+    dispatcher = AgentDispatcher(config=_WA_CFG, dry_run=True)
+    result = dispatcher.dispatch_task(task, path)
+    # Should NOT be blocked by workspace preflight
+    assert not result.workspace_drift
+
+
+def test_scratch_cwd_blocks_dispatch(tmp_board, monkeypatch):
+    import src.warden.agent_dispatcher as mod
+    monkeypatch.setattr(mod, "BOARD_ROOT", tmp_board)
+    monkeypatch.setattr(mod, "LOG_DIR", tmp_board.parent / "runs")
+    task = {
+        "task_id": "scratch-1",
+        "title": "Scratch Task",
+        "description": "desc",
+        "agent": "cl",
+        "project_id": "warden",
+        "repo_path": SCRATCH,
+        "status": "queued",
+    }
+    path = _write_task(tmp_board, "queued", task)
+    dispatcher = AgentDispatcher(config=_WA_CFG, dry_run=True)
+    result = dispatcher.dispatch_task(task, path)
+    assert not result.success
+    assert result.workspace_drift
+
+
+def test_blocked_result_includes_canonical_repo(tmp_board, monkeypatch):
+    import src.warden.agent_dispatcher as mod
+    monkeypatch.setattr(mod, "BOARD_ROOT", tmp_board)
+    monkeypatch.setattr(mod, "LOG_DIR", tmp_board.parent / "runs")
+    task = {
+        "task_id": "scratch-2",
+        "title": "Bad Path",
+        "description": "desc",
+        "agent": "cl",
+        "project_id": "warden",
+        "repo_path": SCRATCH,
+        "status": "queued",
+    }
+    path = _write_task(tmp_board, "queued", task)
+    dispatcher = AgentDispatcher(config=_WA_CFG, dry_run=True)
+    result = dispatcher.dispatch_task(task, path)
+    assert result.workspace_drift
+    assert result.canonical_repo == CANONICAL
+    assert CANONICAL in (result.next_action or "")
+
+
+def test_no_command_launches_from_scratch_cwd(tmp_board, monkeypatch):
+    """Confirm the blocked result prevents any subprocess from launching."""
+    import src.warden.agent_dispatcher as mod
+    monkeypatch.setattr(mod, "BOARD_ROOT", tmp_board)
+    monkeypatch.setattr(mod, "LOG_DIR", tmp_board.parent / "runs")
+    launched = []
+
+    import subprocess as _sp
+    original_run = _sp.run
+
+    def mock_run(*args, **kwargs):
+        launched.append(args)
+        return original_run(*args, **kwargs)
+
+    monkeypatch.setattr(_sp, "run", mock_run)
+
+    task = {
+        "task_id": "scratch-3",
+        "title": "No Launch",
+        "description": "desc",
+        "agent": "cl",
+        "project_id": "warden",
+        "repo_path": SCRATCH,
+        "status": "queued",
+    }
+    path = _write_task(tmp_board, "queued", task)
+    dispatcher = AgentDispatcher(config=_WA_CFG, dry_run=False)
+    result = dispatcher.dispatch_task(task, path)
+    assert not result.success
+    assert result.workspace_drift
+    # subprocess.run should not have been called for agent command
+    assert not any("cl" in str(a) for a in launched)
+
+
+def test_workspace_drift_writes_activity_event(tmp_board, monkeypatch):
+    import src.warden.agent_dispatcher as mod
+    monkeypatch.setattr(mod, "BOARD_ROOT", tmp_board)
+    monkeypatch.setattr(mod, "LOG_DIR", tmp_board.parent / "runs")
+    task = {
+        "task_id": "scratch-activity",
+        "title": "Activity Event",
+        "description": "desc",
+        "agent": "cl",
+        "project_id": "warden",
+        "repo_path": SCRATCH,
+        "status": "queued",
+    }
+    path = _write_task(tmp_board, "queued", task)
+    dispatcher = AgentDispatcher(config=_WA_CFG, dry_run=True)
+    dispatcher.dispatch_task(task, path)
+    # Activity JSONL should have a workspace_drift_blocked event
+    from datetime import datetime, timezone
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    activity_file = tmp_board / "activity" / date_str / "dispatcher.jsonl"
+    assert activity_file.exists()
+    events = [json.loads(l) for l in activity_file.read_text().splitlines() if l.strip()]
+    drift_events = [e for e in events if e.get("event") == "workspace_drift_blocked"]
+    assert len(drift_events) == 1
+    assert drift_events[0]["task_id"] == "scratch-activity"
