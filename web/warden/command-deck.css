@@ -384,3 +384,50 @@ h2 {
     grid-template-columns: 1fr;
   }
 }
+
+/* Workspace Authority panel */
+.workspace-panel {
+  margin: 0 32px 32px;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 24px;
+  margin-bottom: 16px;
+}
+
+.ws-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.ws-section {
+  margin-top: 12px;
+}
+
+.ws-section ol,
+.ws-section ul {
+  margin: 6px 0 0 16px;
+  padding: 0;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.ws-section li {
+  margin-bottom: 4px;
+}
+
+.ws-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #312e30;
+  color: #f87171;
+  margin-left: 6px;
+}

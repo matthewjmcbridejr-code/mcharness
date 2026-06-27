@@ -3528,7 +3528,9 @@ class _DemoSeedRequest(BaseModel):
 
 
 @mcharness_router.post("/warden/command-deck/demo-seed", status_code=201)
-def post_command_deck_demo_seed(req: _DemoSeedRequest):
+def post_command_deck_demo_seed(req: Optional[_DemoSeedRequest] = None):
+    if req is None:
+        req = _DemoSeedRequest()
     import uuid as _uuid
     task_id = f"demo-{_uuid.uuid4().hex[:8]}"
     task = {
@@ -3726,3 +3728,47 @@ def get_warden_daily_brief():
     from .daily_brief import generate_and_save
     result = generate_and_save()
     return result
+
+
+# ---------------------------------------------------------------------------
+# Workspace Authority endpoints
+# ---------------------------------------------------------------------------
+
+@mcharness_router.get("/warden/workspaces")
+def get_workspaces():
+    from .workspace_authority import list_projects
+    return {"ok": True, "projects": list_projects()}
+
+
+@mcharness_router.get("/warden/workspaces/{project_id}")
+def get_workspace(project_id: str):
+    from .workspace_authority import resolve_project
+    p = resolve_project(project_id)
+    if not p:
+        raise HTTPException(404, f"Unknown project: {project_id!r}")
+    return {"ok": True, "project": p}
+
+
+class _ResolveRequest(BaseModel):
+    project_id: str
+    cwd: Optional[str] = None
+
+
+@mcharness_router.post("/warden/workspaces/resolve")
+def post_workspace_resolve(req: _ResolveRequest):
+    from .workspace_authority import detect_workspace_drift
+    import os as _os2
+    result = detect_workspace_drift(req.project_id, req.cwd or _os2.getcwd())
+    return {"ok": result.get("safe_to_edit", False), **result}
+
+
+class _BootstrapRequest(BaseModel):
+    project_id: str
+    task: str = ""
+    cwd: Optional[str] = None
+
+
+@mcharness_router.post("/warden/workspaces/bootstrap")
+def post_workspace_bootstrap(req: _BootstrapRequest):
+    from .workspace_authority import build_agent_bootstrap
+    return build_agent_bootstrap(req.project_id, task=req.task, cwd=req.cwd)

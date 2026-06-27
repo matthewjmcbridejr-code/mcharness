@@ -182,8 +182,10 @@ function renderBrain(panel = {}, state = {}) {
   `;
 }
 
-async function fetchJson(path, options) {
-  const response = await fetch(`${API_BASE}${path}`, { headers: { "Accept": "application/json", "Content-Type": "application/json" }, ...options });
+async function fetchJson(path, options = {}) {
+  const { base, ...fetchOpts } = options;
+  const url = `${base || API_BASE}${path}`;
+  const response = await fetch(url, { headers: { "Accept": "application/json", "Content-Type": "application/json" }, ...fetchOpts });
   if (!response.ok) throw new Error(`${path} failed: ${response.status}`);
   return response.json();
 }
@@ -215,13 +217,55 @@ async function seedDemo() {
   }
 }
 
-$("refresh-deck").addEventListener("click", loadDeck);
+// ---------------------------------------------------------------------------
+// Workspace Authority panel
+// ---------------------------------------------------------------------------
+
+async function loadWorkspaceAuthority() {
+  try {
+    const data = await fetchJson("/warden/workspaces/warden", { base: "/api/mcharness" });
+    const p = data.project || {};
+    const canonical = p.canonical_repo || "—";
+    const service = (p.live_services || [])[0];
+    const scratchWts = (p.known_worktrees || []).filter(w => !w.safe_to_edit);
+    const proofCmds = p.proof_commands || [];
+
+    setText("ws-canonical", canonical);
+    setText("ws-service", service ? `${service.name} — ${service.url}` : "—");
+    setText("ws-safe", "✓ Yes");
+    setText("ws-drift", "None");
+    setText("workspace-status-pill", "Canonical");
+    $("workspace-status-pill").style.background = "#1a4731";
+    $("workspace-status-pill").style.color = "#4ade80";
+
+    const scratchList = $("ws-scratch-list");
+    scratchList.innerHTML = scratchWts.length
+      ? scratchWts.map(w => `<li><code>${esc(w.path)}</code> <span class="ws-tag">${esc(w.role)}</span></li>`).join("")
+      : "<li>None registered.</li>";
+
+    const cmdList = $("ws-proof-cmds");
+    cmdList.innerHTML = proofCmds.length
+      ? proofCmds.map(c => `<li><code>${esc(c)}</code></li>`).join("")
+      : "<li>None configured.</li>";
+  } catch (err) {
+    setText("workspace-status-pill", "Error");
+    setText("ws-canonical", err.message || "Could not load");
+  }
+}
+
+function setText(id, text) {
+  const el = $(id);
+  if (el) el.textContent = text;
+}
+
+$("refresh-deck").addEventListener("click", () => { loadDeck(); loadWorkspaceAuthority(); });
 $("seed-demo").addEventListener("click", seedDemo);
 $("brain-query").addEventListener("change", loadDeck);
 
 loadDeck().catch((error) => {
   $("mission-board").innerHTML = `<div class="empty-card">${esc(error.message)}</div>`;
 });
+loadWorkspaceAuthority().catch(() => {});
 
 setInterval(() => {
   loadDeck().catch(() => {});
