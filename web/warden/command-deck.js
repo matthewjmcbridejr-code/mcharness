@@ -176,12 +176,151 @@ function renderRelay(relay = []) {
 }
 
 function renderBrain(panel = {}, state = {}) {
-  $("brain-answer").innerHTML = `
-    <p>${esc(panel.summary || "Warden has no command deck context yet.")}</p>
-    <p>Sources: ${list(panel.context_sources).map(esc).join(" · ") || "none"}</p>
-    <p>Current board: ${state.missions?.length || 0} missions, ${state.proofs?.length || 0} proofs, ${state.relay?.length || 0} relays.</p>
-  `;
+  // Legacy: no-op — chat panel owns brain display now
 }
+
+// ---------------------------------------------------------------------------
+// Memory Chat Agent
+// ---------------------------------------------------------------------------
+
+const MEMORY_AGENT_BASE = "/api/mcharness/warden/memory-agent";
+let _chatHistory = [];  // {role, content}[]
+
+function appendChatBubble(role, text, isThinking = false) {
+  const log = $("memory-chat-log");
+  const empty = log.querySelector(".chat-empty");
+  if (empty) empty.remove();
+
+  const div = document.createElement("div");
+  div.className = `chat-bubble ${isThinking ? "thinking" : role}`;
+  div.dataset.role = role;
+  // Render newlines and simple markdown-ish formatting
+  div.innerHTML = isThinking
+    ? esc(text)
+    : formatChatText(text);
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  return div;
+}
+
+function formatChatText(text) {
+  // Basic: escape HTML, then restore newlines and bold
+  return esc(text)
+    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\n/g, "<br>");
+}
+
+function updateContextBar(snapshot = {}) {
+  const bar = $("memory-chat-context");
+  if (!bar) return;
+  const chips = [
+    { key: "commits", label: `git (${snapshot.commits || 0})`, field: "commits" },
+    { key: "shell_commands", label: `shell (${snapshot.shell_commands || 0})`, field: "shell_commands" },
+    { key: "browser_visits", label: `chrome (${snapshot.browser_visits || 0})`, field: "browser_visits" },
+    { key: "board_tasks", label: `board (${snapshot.board_tasks || 0})`, field: "board_tasks" },
+    { key: "memories", label: `memories (${snapshot.memory_count || snapshot.memories || 0})`, field: "memories" },
+  ];
+  bar.innerHTML = chips.map(c =>
+    `<span class="ctx-chip ${(snapshot[c.field] || 0) > 0 ? "has-data" : ""}">${esc(c.label)}</span>`
+  ).join("");
+  if (snapshot.branch) {
+    bar.innerHTML += `<span class="ctx-chip has-data">${esc(snapshot.branch)}</span>`;
+  }
+}
+
+async function sendMemoryChat(message) {
+  if (!message.trim()) return;
+
+  appendChatBubble("user", message);
+  _chatHistory.push({ role: "user", content: message });
+
+  const thinking = appendChatBubble("assistant", "Analyzing your memory sources…", true);
+  const sendBtn = $("brain-send");
+  if (sendBtn) sendBtn.disabled = true;
+
+  try {
+    const resp = await fetch(`${MEMORY_AGENT_BASE}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message,
+        history: _chatHistory.slice(0, -1),  // exclude current message (already sent as `message`)
+        model: null,
+      }),
+    });
+    const data = await resp.json();
+    thinking.remove();
+
+    if (data.ok) {
+      const reply = data.reply || "No answer returned.";
+      appendChatBubble("assistant", reply);
+      _chatHistory.push({ role: "assistant", content: reply });
+
+      // Update status badges
+      const modelBadge = $("brain-model");
+      const srcBadge = $("brain-sources");
+      if (modelBadge) modelBadge.textContent = data.fallback ? "fallback" : (data.model_used || "?");
+      if (srcBadge) srcBadge.textContent = (data.sources || []).join(" · ") || "no sources";
+
+      updateContextBar(data.context_snapshot || {});
+    } else {
+      appendChatBubble("assistant", `Error: ${data.detail || data.error || "Unknown error"}`);
+    }
+  } catch (err) {
+    thinking.remove();
+    appendChatBubble("assistant", `Failed to reach Memory Agent: ${err.message}`);
+  } finally {
+    if (sendBtn) sendBtn.disabled = false;
+  }
+}
+
+async function loadMemoryContext() {
+  try {
+    const ctx = await fetch(`${MEMORY_AGENT_BASE}/context`).then(r => r.json());
+    if (ctx.ok) updateContextBar({
+      ...ctx,
+      commits: (ctx.recent_commits || []).length,
+      shell_commands: (ctx.shell_commands || []).length,
+      browser_visits: (ctx.browser_visits || []).length,
+      board_tasks: (ctx.board_tasks || []).length,
+      memories: ctx.memory_count || 0,
+    });
+  } catch (_) {}
+}
+
+function initMemoryChat() {
+  const log = $("memory-chat-log");
+  if (log && log.children.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "chat-empty";
+    empty.innerHTML = "Ask me anything about your work.<br><small>I can see your git history, shell commands, browser activity, tasks, and stored memories.</small>";
+    log.appendChild(empty);
+  }
+
+  const form = $("memory-chat-form");
+  const input = $("brain-query");
+
+  if (form) {
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const msg = input?.value?.trim();
+      if (!msg) return;
+      if (input) input.value = "";
+      sendMemoryChat(msg);
+    });
+  }
+
+  // Prompt chips
+  document.querySelectorAll(".prompt-chip").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const q = btn.dataset.q;
+      if (input) input.value = "";
+      sendMemoryChat(q);
+    });
+  });
+}
+
 
 async function fetchJson(path, options = {}) {
   const { base, ...fetchOpts } = options;
@@ -308,10 +447,9 @@ function setText(id, text) {
   if (el) el.textContent = text;
 }
 
-$("refresh-deck").addEventListener("click", () => { loadDeck(); loadWorkspaceAuthority(); previewNotionSync(); });
+$("refresh-deck").addEventListener("click", () => { loadDeck(); loadWorkspaceAuthority(); previewNotionSync(); loadMemoryContext(); });
 $("seed-demo").addEventListener("click", seedDemo);
 $("preview-notion-sync").addEventListener("click", previewNotionSync);
-$("brain-query").addEventListener("change", loadDeck);
 
 loadDeck().catch((error) => {
   $("mission-board").innerHTML = `<div class="empty-card">${esc(error.message)}</div>`;
@@ -319,6 +457,8 @@ loadDeck().catch((error) => {
 loadWorkspaceAuthority().catch(() => {});
 loadNotionSyncStatus().catch(() => {});
 previewNotionSync().catch(() => {});
+initMemoryChat();
+loadMemoryContext().catch(() => {});
 
 setInterval(() => {
   loadDeck().catch(() => {});

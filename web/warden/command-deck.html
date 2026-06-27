@@ -56,18 +56,35 @@
         <div id="mission-board" class="mission-board"></div>
       </section>
 
-      <aside class="deck-panel brain-panel">
+      <aside class="deck-panel brain-panel memory-chat-panel">
         <div class="panel-head">
           <div>
-            <p class="eyebrow">Brain Search</p>
+            <p class="eyebrow">Memory Agent</p>
             <h2>Ask Warden</h2>
           </div>
+          <div class="brain-meta">
+            <span id="brain-model" class="badge badge-info" title="LLM model"></span>
+            <span id="brain-sources" class="badge badge-muted" title="Data sources"></span>
+          </div>
         </div>
-        <label class="search-box">
-          <span>Question</span>
-          <input id="brain-query" value="What failed last time on this branch?" />
-        </label>
-        <div id="brain-answer" class="brain-answer"></div>
+        <div id="memory-chat-context" class="memory-context-bar"></div>
+        <div id="memory-chat-log" class="memory-chat-log" role="log" aria-live="polite"></div>
+        <form id="memory-chat-form" class="memory-chat-form" autocomplete="off">
+          <input
+            id="brain-query"
+            class="memory-chat-input"
+            placeholder="What was I working on today? What did I commit? What sites did I visit?"
+            autocomplete="off"
+          />
+          <button type="submit" id="brain-send" class="btn-primary">Send</button>
+        </form>
+        <div class="memory-chat-prompts">
+          <button class="prompt-chip" data-q="What was I working on today?">Today's work</button>
+          <button class="prompt-chip" data-q="What have I committed recently?">Recent commits</button>
+          <button class="prompt-chip" data-q="What sites have I been visiting for research?">Browser activity</button>
+          <button class="prompt-chip" data-q="What tasks are active on my board?">Board tasks</button>
+          <button class="prompt-chip" data-q="Summarize everything I know about the current branch.">Branch summary</button>
+        </div>
       </aside>
     </section>
 

@@ -81,7 +81,7 @@ def test_command_deck_contains_required_portfolio_panels():
         "mission-board",
         "proof-ledger",
         "relay-timeline",
-        "brain-answer",
+        "memory-chat-log",
         "notion-sync-panel",
         "Preview Sync",
         "command-deck.js",

@@ -3863,3 +3863,54 @@ def post_memory_watcher_uninstall_hooks():
     from .memory_watcher import uninstall_git_hooks, CANONICAL_REPO
     removed = uninstall_git_hooks(CANONICAL_REPO)
     return {"ok": True, "removed": removed}
+
+
+# ---------------------------------------------------------------------------
+# Memory Chat Agent
+# ---------------------------------------------------------------------------
+
+class _MemoryChatMessage(BaseModel):
+    role: str = "user"
+    content: str
+
+
+class _MemoryChatRequest(BaseModel):
+    message: str
+    history: list[_MemoryChatMessage] = []
+    model: Optional[str] = None
+
+
+@mcharness_router.post("/warden/memory-agent/chat")
+async def post_memory_agent_chat(req: _MemoryChatRequest):
+    """Chat with the Warden Memory Agent — synthesizes git, shell, browser, tasks, and stored memories."""
+    from .memory_agent import chat as agent_chat
+    history = [{"role": m.role, "content": m.content} for m in req.history]
+    result = agent_chat(message=req.message, history=history, model=req.model)
+    return {
+        "ok": True,
+        "reply": result.reply,
+        "sources": result.sources,
+        "model_used": result.model_used,
+        "context_snapshot": result.context_snapshot,
+        "fallback": result.fallback,
+    }
+
+
+@mcharness_router.get("/warden/memory-agent/context")
+def get_memory_agent_context():
+    """Return a snapshot of current context without LLM — for UI pre-loading."""
+    from .memory_agent import gather_context
+    ctx = gather_context()
+    return {
+        "ok": True,
+        "branch": ctx.current_branch,
+        "recent_commits": ctx.git_log[:8],
+        "shell_commands": ctx.shell_commands[-10:],
+        "browser_visits": ctx.browser_visits[-8:],
+        "board_tasks": [
+            {"status": t.get("status"), "title": t.get("title"), "agent": t.get("agent")}
+            for t in ctx.board_tasks[:6]
+        ],
+        "memory_count": len(ctx.recent_memories),
+        "gathered_at": ctx.gathered_at,
+    }
