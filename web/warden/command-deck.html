@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Warden Command Deck</title>
+  <meta name="description" content="Warden Command Deck — local-first AI workforce control plane." />
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="./command-deck.css" />
+</head>
+<body>
+  <main class="deck-shell">
+    <header class="deck-hero">
+      <div>
+        <p class="eyebrow">Local-first AI workforce control plane</p>
+        <h1>Warden Command Deck</h1>
+        <p class="hero-copy">Local-first AI workforce control plane for shared memory, mission routing, handoffs, proof ledger, and safety gates across Claude, Codex, Gemini, and local agents.</p>
+      </div>
+      <div class="hero-actions">
+        <a class="deck-button" href="./index.html">Control Room</a>
+        <button id="refresh-deck" class="deck-button" type="button">Refresh</button>
+        <button id="seed-demo" class="deck-button primary" type="button">Run Demo Mission</button>
+      </div>
+    </header>
+
+    <section class="status-strip" aria-label="Command Deck status">
+      <div class="stat">
+        <span class="stat-label">Active Missions</span>
+        <strong id="stat-active">0</strong>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Agents Online</span>
+        <strong id="stat-agents">0</strong>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Proofs Recorded</span>
+        <strong id="stat-proofs">0</strong>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Blocked Tasks</span>
+        <strong id="stat-blocked">0</strong>
+      </div>
+    </section>
+
+    <section class="agent-grid" id="agent-grid" aria-label="Agent lanes"></section>
+
+    <section class="deck-grid">
+      <section class="deck-panel mission-panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Live Mission Board</p>
+            <h2>Posted → Verified</h2>
+          </div>
+          <span id="deck-mode" class="mode-pill">Live</span>
+        </div>
+        <div id="mission-board" class="mission-board"></div>
+      </section>
+
+      <aside class="deck-panel brain-panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Brain Search</p>
+            <h2>Ask Warden</h2>
+          </div>
+        </div>
+        <label class="search-box">
+          <span>Question</span>
+          <input id="brain-query" value="What failed last time on this branch?" />
+        </label>
+        <div id="brain-answer" class="brain-answer"></div>
+      </aside>
+    </section>
+
+    <section class="lower-grid">
+      <section class="deck-panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Proof Ledger</p>
+            <h2>Verified Work</h2>
+          </div>
+        </div>
+        <div id="proof-ledger" class="ledger-list"></div>
+      </section>
+
+      <section class="deck-panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Relay Timeline</p>
+            <h2>Agent Handoffs</h2>
+          </div>
+        </div>
+        <div id="relay-timeline" class="timeline-list"></div>
+      </section>
+    </section>
+
+    <footer class="deck-footer">
+      <span id="last-refresh">Connecting…</span>
+      <span>No live systemd units are installed or started from this page.</span>
+    </footer>
+  </main>
+  <script src="./command-deck.js"></script>
+</body>
+</html>

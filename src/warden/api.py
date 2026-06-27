@@ -42,6 +42,8 @@ from .workbench import (
     STORE as WORKBENCH_STORE,
     WorkbenchArtifactCreateRequest,
     WorkbenchEvidenceRecordCreateRequest,
+    WorkbenchMemoryCreateRequest,
+    WorkbenchMemoryRememberRequest,
     WorkbenchRunEventCreateRequest,
     WorkbenchRunProofGateDecisionRequest,
     WorkbenchThreadCreateRequest,
@@ -118,12 +120,16 @@ router = APIRouter(prefix="/api/marius", tags=["marius-desktop"])
 router.include_router(captain_router)
 router.include_router(workbench_router)
 
+from .projects import router as projects_router
+
 mcharness_router = APIRouter(prefix="/api/mcharness", tags=["mcharness"])
+mcharness_router.include_router(projects_router)
 legacy_router = APIRouter(tags=["marius-desktop-legacy"])
 
 SAFE_REPO_PATHS = [
-    Path("/root/hybrid-agent-os"),
-    Path("/root/mcharness-public-export"),
+    Path.home() / "workspaces" / "marius-core" / "hybrid-agent-os",
+    Path.home() / "workspaces" / "warden" / "mcharness-public-export",
+    Path(__file__).resolve().parents[2], # The current repo
 ]
 MCTABLE_ROOT = Path(os.getenv("MCHARNESS_DATA_ROOT", "_mctable"))
 ARTIFACT_BODY_ROOT = MCTABLE_ROOT / "mcharness" / "artifacts"
@@ -379,6 +385,27 @@ class McHarnessRunnerStartRequest(BaseModel):
     created_by: Optional[str] = "operator"
 
 
+class WardenMemoryRecallRequest(BaseModel):
+    query: str = Field(default="")
+    project_id: str = Field(min_length=1, max_length=160)
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class WardenMemoryContextPackRequest(BaseModel):
+    project_id: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$",
+    )
+    repo_path: Optional[str] = Field(default=None, max_length=500)
+    agent: Optional[str] = Field(default=None, max_length=80)
+    prompt: str = Field(default="", max_length=20_000)
+    branch: Optional[str] = Field(default=None, max_length=200)
+    task_id: Optional[str] = Field(default=None, max_length=160)
+    max_memories: int = Field(default=8, ge=1, le=50)
+    max_chars: int = Field(default=6000, ge=256, le=20_000)
+
+
 class McHarnessRunEvidenceCreateRequest(BaseModel):
     type: str = Field(default="transcript", min_length=1)
     title: str = Field(min_length=1)
@@ -495,26 +522,61 @@ class McHarnessCaptainKeyResponse(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+def safe_path_exists(path: Path) -> dict[str, Any]:
+    try:
+        exists = path.exists()
+        return {"exists": exists, "accessible": True, "error": None}
+    except (PermissionError, OSError) as e:
+        return {"exists": False, "accessible": False, "error": str(e)}
+
 def _repo_entries() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for path in SAFE_REPO_PATHS:
+        safe_stat = safe_path_exists(path)
         base = {
             "repo_id": path.name,
             "label": path.name,
             "path": str(path),
-            "exists": path.exists(),
-            "git_dir_present": (path / ".git").exists(),
+            "exists": safe_stat["exists"],
+            "accessible": safe_stat["accessible"],
+            "error": safe_stat["error"],
         }
-        if path.exists() and (path / ".git").exists():
-            git_info = _get_git_status(path)
+        
+        git_dir_exists = False
+        if safe_stat["exists"]:
+            git_stat = safe_path_exists(path / ".git")
+            git_dir_exists = git_stat["exists"]
+            
+        base["git_dir_present"] = git_dir_exists
+
+        if safe_stat["exists"] and git_dir_exists:
+            try:
+                git_info = _get_git_status(path)
+            except Exception as e:
+                git_info = {
+                    "current_branch": None,
+                    "dirty": False,
+                    "changed_files_count": 0,
+                    "last_commit_short": None,
+                    "status_summary": "unavailable",
+                    "safety_notes": [f"git status failed: {e}"],
+                }
         else:
+            notes = []
+            if not safe_stat["accessible"]:
+                notes.append(f"inaccessible: {safe_stat['error']}")
+            elif not safe_stat["exists"]:
+                notes.append("path does not exist")
+            elif not git_dir_exists:
+                notes.append("not a git repo")
+                
             git_info = {
                 "current_branch": None,
                 "dirty": False,
                 "changed_files_count": 0,
                 "last_commit_short": None,
                 "status_summary": "unavailable",
-                "safety_notes": ["path does not exist or is not a git repo"] if not path.exists() else [],
+                "safety_notes": notes,
             }
         base.update(git_info)
         rows.append(base)
@@ -598,6 +660,14 @@ def _run_history_write_enabled() -> bool:
 
 def _run_history_read_enabled() -> bool:
     return _codex_runner_ready()
+
+
+def _require_private_memory_access() -> None:
+    if not _codex_runner_ready():
+        raise HTTPException(
+            status_code=403,
+            detail="Warden Memory is available only on the private runner service.",
+        )
 
 
 def _require_run_history_write(request: Request) -> None:
@@ -989,7 +1059,7 @@ def _execute_codex_dispatch_for_step(
         "session_id": session_id,
         "runner_id": runner_state.get("runner_id"),
         "queue_item_id": queue_item_id,
-        "prompt": prompt,
+        "prompt": runner_state.get("dispatch_prompt") or prompt,
         "runner_state": runner_state,
     }
 
@@ -1081,8 +1151,11 @@ def _lane_entries() -> list[dict[str, Any]]:
 
 def _validate_repo_path(repo_path: str) -> Path:
     for entry in SAFE_REPO_PATHS:
-        if str(entry) == repo_path:
-            if not entry.exists():
+        if str(entry) == repo_path or entry.name == repo_path: # Allow matching by repo_id (name)
+            safe_stat = safe_path_exists(entry)
+            if not safe_stat["accessible"]:
+                raise HTTPException(status_code=400, detail=f"Allowlisted repo path inaccessible ({safe_stat['error']}): {repo_path}")
+            if not safe_stat["exists"]:
                 raise HTTPException(status_code=400, detail=f"Allowlisted repo path does not exist: {repo_path}")
             return entry
     raise HTTPException(status_code=400, detail=f"Repo path is not allowlisted: {repo_path}")
@@ -1361,6 +1434,85 @@ def _resolve_dispatch_prompt(session_id: str, payload: McHarnessRunnerStartReque
     return title, prompt
 
 
+def build_agent_prompt_with_memory(
+    original_prompt: str,
+    *,
+    project_id: str,
+    repo_path: Optional[str] = None,
+    agent: Optional[str] = None,
+    branch: Optional[str] = None,
+    task_id: Optional[str] = None,
+) -> tuple[str, dict[str, Any]]:
+    if original_prompt.startswith("# Warden Memory Context"):
+        return original_prompt, {
+            "memory_count": 0,
+            "memory_ids": [],
+            "truncated": False,
+            "scope": project_id,
+            "injected": False,
+            "already_injected": True,
+        }
+    try:
+        pack = WORKBENCH_STORE.build_memory_context_pack(
+            project_id=project_id,
+            repo_path=repo_path,
+            agent=agent,
+            user_prompt=original_prompt,
+            branch=branch,
+            task_id=task_id,
+        )
+    except Exception:
+        return original_prompt, {
+            "memory_count": 0,
+            "memory_ids": [],
+            "truncated": False,
+            "scope": project_id,
+            "injected": False,
+            "error": "memory_context_unavailable",
+        }
+    context = str(pack.get("context") or "").strip()
+    if not context:
+        return original_prompt, {**pack, "injected": False}
+    prompt = f"{context}\n\n---\n\n# User Task\n\n{original_prompt}"
+    return prompt, {**pack, "injected": True}
+
+
+def _remember_run_memory(
+    *,
+    scope: str,
+    content: str,
+    kind: str,
+    title: str,
+    source_ref: Optional[str] = None,
+    repo_path: Optional[str] = None,
+    branch: Optional[str] = None,
+    task_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+) -> Optional[str]:
+    try:
+        memory = WORKBENCH_STORE.remember_memory(
+            WorkbenchMemoryRememberRequest(
+                scope=scope,
+                content=content[:4000],
+                source="warden",
+                title=title[:160],
+                source_ref=source_ref,
+                tags=list(tags or []),
+                kind=kind,
+                project_id=scope,
+                repo_path=repo_path,
+                branch=branch,
+                task_id=task_id,
+                agent_id=agent_id,
+                compacted=True,
+            )
+        )
+        return memory.memory_id
+    except Exception:
+        return None
+
+
 def _create_warden_run_on_dispatch(
     session_id: str,
     payload: McHarnessRunnerStartRequest,
@@ -1494,6 +1646,9 @@ def _send_prompt_to_codex_runner(session_id: str, prompt_text: str):
     name = state.get("tmux_session_name")
     if not name:
         raise HTTPException(status_code=400, detail="No tmux session for runner")
+    dispatch_prompt = str(state.get("dispatch_prompt") or "")
+    if dispatch_prompt and not prompt_text.startswith("# Warden Memory Context"):
+        prompt_text = dispatch_prompt
     # Use -l for literal text (safe, no shell interp of user prompt).
     # Codex CLI queues the message, then Tab + Enter submits it.
     _safe_cmd(["tmux", "send-keys", "-t", name, "-l", prompt_text], timeout=5.0)
@@ -1910,6 +2065,248 @@ def get_mcharness_agents():
         "agents": [sanitize_agent_profile(agent) for agent in agents],
     }
 
+# --- Marius Agent Wrapper Endpoints ---
+
+@mcharness_router.get("/agents/marius/status")
+def get_marius_agent_status():
+    try:
+        from src.marius.api import status as marius_status
+        return {"ok": True, "data": marius_status()}
+    except ImportError:
+        raise HTTPException(status_code=404, detail="Marius not installed")
+
+@mcharness_router.post("/agents/marius/chat")
+async def marius_agent_chat(request: Request):
+    try:
+        from src.marius.api import chat as marius_chat, ChatRequest
+        payload = await request.json()
+        chat_req = ChatRequest(**payload)
+        res = await marius_chat(chat_req)
+        return {"ok": True, "data": res}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@mcharness_router.get("/agents/marius/models")
+async def get_marius_agent_models():
+    try:
+        from src.marius.api import get_models
+        res = await get_models()
+        return {"ok": True, "data": res}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@mcharness_router.post("/agents/marius/model/set")
+async def set_marius_agent_model(request: Request):
+    try:
+        from src.marius.api import set_model, ModelRequest
+        payload = await request.json()
+        req = ModelRequest(**payload)
+        res = await set_model(req)
+        return {"ok": True, "data": res}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@mcharness_router.post("/agents/marius/model/profile")
+async def set_marius_agent_profile(request: Request):
+    try:
+        from src.marius.api import set_profile, ProfileRequest
+        payload = await request.json()
+        req = ProfileRequest(**payload)
+        res = await set_profile(req)
+        return {"ok": True, "data": res}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@mcharness_router.post("/agents/marius/model/bench")
+async def bench_marius_agent_model(request: Request):
+    try:
+        from src.marius.api import run_benchmark
+        payload = await request.json()
+        res = await run_benchmark(payload)
+        return {"ok": True, "data": res}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@mcharness_router.get("/agents/marius/context")
+async def get_marius_agent_context():
+    try:
+        from src.marius.api import get_context
+        res = await get_context()
+        return {"ok": True, "data": res}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@mcharness_router.get("/agents/marius/memory/recall")
+def get_marius_agent_memory_recall(q: str):
+    try:
+        from src.marius.api import recall as marius_recall
+        res = marius_recall(q)
+        return {"ok": True, "data": res}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@mcharness_router.post("/agents/marius/memory/remember")
+async def post_marius_agent_memory_remember(request: Request):
+    try:
+        from src.marius.api import remember as marius_remember, MemoryRequest
+        payload = await request.json()
+        req = MemoryRequest(**payload)
+        res = marius_remember(req)
+        return {"ok": True, "data": res}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@mcharness_router.get("/memory/health")
+def get_warden_memory_health():
+    from src.warden.brain_vector_store import count as vec_count
+    vec = 0
+    try:
+        vec = vec_count()
+    except Exception:
+        pass
+    memories = WORKBENCH_STORE.list_memories()
+    active = [m for m in memories if m.status != "forgotten"]
+    kinds: dict = {}
+    for m in active:
+        kinds[m.kind] = kinds.get(m.kind, 0) + 1
+    return {
+        "ok": True,
+        "status": "online",
+        "memory_count": len(active),
+        "total_count": len(memories),
+        "vector_count": vec,
+        "kinds": kinds,
+    }
+
+
+@mcharness_router.get("/memories")
+def get_warden_memories(limit: int = 200, kind: Optional[str] = None, scope: Optional[str] = None):
+    memories = WORKBENCH_STORE.list_memories()
+    active = [m for m in memories if m.status != "forgotten"]
+    if kind:
+        active = [m for m in active if m.kind == kind]
+    if scope:
+        active = [m for m in active if (m.project_id or m.scope or "").lower() == scope.lower()]
+    active.sort(key=lambda m: m.updated_at, reverse=True)
+    active = active[:max(1, min(limit, 500))]
+    return {
+        "ok": True,
+        "count": len(active),
+        "memories": [memory.model_dump(mode="json") for memory in active],
+    }
+
+
+@mcharness_router.get("/memories/search")
+@mcharness_router.get("/memories/recall")
+def recall_warden_memories(q: str = "", scope: Optional[str] = None, kind: Optional[str] = None, limit: int = 20):
+    memories = WORKBENCH_STORE.search_memories(q, scope=scope, limit=max(1, min(limit, 100)))
+    if kind:
+        memories = [m for m in memories if m.kind == kind]
+    return {
+        "ok": True,
+        "query": q,
+        "scope": scope,
+        "count": len(memories),
+        "memories": [memory.model_dump(mode="json") for memory in memories],
+    }
+
+
+@mcharness_router.post("/memory/recall")
+def post_recall_warden_memories(payload: WardenMemoryRecallRequest):
+    return recall_warden_memories(payload.query, scope=payload.project_id, limit=payload.limit)
+
+
+class MemoryPatchRequest(BaseModel):
+    status: Optional[str] = None
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    tags: Optional[List[str]] = None
+    notes: Optional[str] = None
+    confidence: Optional[float] = None
+
+
+@mcharness_router.patch("/memories/{memory_id}")
+def patch_warden_memory(memory_id: str, payload: MemoryPatchRequest):
+    path = WORKBENCH_STORE._path("memories", memory_id)
+    if not path.exists():
+        raise HTTPException(404, f"Memory not found: {memory_id}")
+    from src.warden.workbench import WorkbenchMemory, _atomic_write_json, _now
+    memory = WorkbenchMemory(**json.loads(path.read_text()))
+    if payload.status is not None:
+        memory.status = payload.status
+    if payload.title is not None:
+        memory.title = payload.title
+    if payload.summary is not None:
+        memory.summary = payload.summary
+    if payload.tags is not None:
+        memory.tags = payload.tags
+    if payload.notes is not None:
+        memory.notes = payload.notes
+    if payload.confidence is not None:
+        memory.confidence = payload.confidence
+    memory.updated_at = _now()
+    _atomic_write_json(path, memory.model_dump(mode="json"))
+    return {"ok": True, "memory": memory.model_dump(mode="json")}
+
+
+@mcharness_router.post("/memories")
+def create_warden_memory(payload: WorkbenchMemoryCreateRequest):
+    try:
+        memory = WORKBENCH_STORE.create_memory(payload)
+        return {"ok": True, "memory": memory.model_dump(mode="json")}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@mcharness_router.post("/memories/remember")
+@mcharness_router.post("/memory/remember")
+async def remember_warden_memory(request: Request):
+    try:
+        payload = await request.json()
+        if not payload.get("content"):
+            payload["content"] = payload.get("summary") or payload.get("note") or ""
+        req = WorkbenchMemoryRememberRequest(**payload)
+        memory = WORKBENCH_STORE.remember_memory(req)
+        return {"ok": True, "memory": memory.model_dump(mode="json")}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@mcharness_router.post("/memory/context-pack", dependencies=[Depends(_require_private_memory_access)])
+def post_warden_memory_context_pack(payload: WardenMemoryContextPackRequest):
+    if payload.repo_path and ("\x00" in payload.repo_path or "\n" in payload.repo_path):
+        raise HTTPException(status_code=400, detail="Invalid repo_path metadata.")
+    try:
+        return {
+            "ok": True,
+            **WORKBENCH_STORE.build_memory_context_pack(
+                project_id=payload.project_id,
+                repo_path=payload.repo_path,
+                agent=payload.agent,
+                user_prompt=payload.prompt,
+                branch=payload.branch,
+                task_id=payload.task_id,
+                max_memories=payload.max_memories,
+                max_chars=payload.max_chars,
+            ),
+        }
+    except Exception:
+        raise HTTPException(status_code=503, detail="Warden Memory context is unavailable.")
+
+
+@mcharness_router.post("/agents/marius/handoff/agent-prompt")
+async def post_marius_agent_handoff(request: Request):
+    try:
+        from src.marius.api import handoff as marius_handoff, HandoffRequest
+        payload = await request.json()
+        req = HandoffRequest(**payload)
+        res = marius_handoff(req)
+        return {"ok": True, "data": res}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+# --- End Marius Wrapper ---
 
 @mcharness_router.get("/agents/templates")
 def get_mcharness_agent_templates():
@@ -2269,6 +2666,18 @@ def post_mcharness_runner_start(session_id: str, payload: McHarnessRunnerStartRe
     if repo_path is None:
         raise HTTPException(status_code=400, detail=f"Unknown repo_id (must be allowlisted): {payload.repo_id}")
 
+    title, original_prompt = _resolve_dispatch_prompt(session_id, payload)
+    dispatch_prompt, memory_context = build_agent_prompt_with_memory(
+        original_prompt,
+        project_id=payload.repo_id,
+        repo_path=str(repo_path),
+        agent=payload.agent_id or payload.lane_id,
+        branch=payload.branch,
+        task_id=payload.plan_id,
+    )
+    payload.title = title
+    payload.prompt = dispatch_prompt
+
     runner_id = f"run_{uuid.uuid4().hex[:8]}"
     safe_name = _tmux_session_name(session_id, runner_id)
     pid = payload.prompt_artifact_id or payload.queue_item_id or "head"
@@ -2282,6 +2691,8 @@ def post_mcharness_runner_start(session_id: str, payload: McHarnessRunnerStartRe
         "repo_id": payload.repo_id,
         "queue_item_id": payload.queue_item_id,
         "prompt_artifact_id": payload.prompt_artifact_id,
+        "dispatch_prompt": dispatch_prompt,
+        "memory_context": memory_context,
         "status": "starting",
         "tmux_session_name": safe_name,
         "prompt_file_path": prompt_path,
@@ -2316,6 +2727,21 @@ def post_mcharness_runner_start(session_id: str, payload: McHarnessRunnerStartRe
         transcript_path=trans_path,
         status="dispatched",
     )
+    if payload.lane_id == "codex_cli":
+        prompt_memory_id = _remember_run_memory(
+            scope=payload.repo_id,
+            content=original_prompt,
+            kind="agent_prompt",
+            title=f"Agent prompt: {title}",
+            source_ref=f"run://{runner_id}",
+            repo_path=str(repo_path),
+            branch=payload.branch,
+            task_id=payload.plan_id,
+            agent_id=payload.agent_id or "codex_cli",
+            tags=["agent-prompt", "private-runner"],
+        )
+        state["prompt_memory_id"] = prompt_memory_id
+        _save_runner_state(state)
 
     # event for audit/proof
     try:
@@ -2537,6 +2963,28 @@ def post_mcharness_manual_result(session_id: str, payload: McHarnessManualResult
                 verdict=payload.verdict,
             ),
         )
+    repo_path = str(metadata.get("repo_path") or "")
+    scope = Path(repo_path).name if repo_path else "warden"
+    if payload.verdict in {"failed", "blocked"}:
+        memory_kind = "failure"
+        memory_tags = ["failure", payload.verdict]
+    elif payload.test_output:
+        memory_kind = "test_result"
+        memory_tags = ["proof", "test"]
+    else:
+        memory_kind = "agent_result"
+        memory_tags = ["claim", "agent-result"]
+    _remember_run_memory(
+        scope=scope,
+        content=payload.summary,
+        kind=memory_kind,
+        title=f"Run result: {payload.summary[:100]}",
+        source_ref=payload.source_ref or f"run://{run['run_id']}",
+        repo_path=repo_path or None,
+        task_id=payload.assignment_id,
+        agent_id=str(metadata.get("agent_lane") or "manual"),
+        tags=memory_tags,
+    )
     _append_run_event(run["run_id"], "Manual result captured", f"Captured {result_kind} for lane {metadata.get('agent_lane', 'unknown')}.", "success", "evidence")
     return {
         "session_id": session_id,
@@ -2962,3 +3410,319 @@ def get_mcharness_evidence_detail(evidence_id: str):
 @legacy_router.post("/api/mctable/local/dispatch-launch")
 def disabled_legacy_launch_route():
     raise HTTPException(status_code=400, detail="deprecated/disabled legacy launch route")
+
+
+# ---------------------------------------------------------------------------
+# Command Deck endpoints
+# ---------------------------------------------------------------------------
+
+import os as _os
+
+_BOARD_ROOT = Path(_os.getenv("WARDEN_BOARD_ROOT", _os.getenv("MCTABLE_BOARD_ROOT", "~/.local/share/warden/board"))).expanduser()
+_BOARD_TASK_STATUSES = ["queued", "claimed", "running", "needs_review", "failed", "completed", "done"]
+
+
+def _cd_load_tasks(status: str, limit: int = 20):
+    d = _BOARD_ROOT / "tasks" / status
+    if not d.exists():
+        return []
+    tasks = []
+    for f in sorted(d.glob("*.json"), reverse=True)[:limit]:
+        try:
+            tasks.append(json.loads(f.read_text()))
+        except Exception:
+            pass
+    return tasks
+
+
+def _cd_load_proofs(limit: int = 20):
+    """Load recent proof/failure/handoff memories."""
+    try:
+        from .workbench import WorkbenchStore
+        store = WorkbenchStore()
+        mems = store.search_memories("", limit=limit)
+        return [
+            m.model_dump(mode="json")
+            for m in mems
+            if m.kind in ("proof", "failure", "handoff", "decision")
+        ]
+    except Exception:
+        return []
+
+
+def _cd_load_relay(limit: int = 30):
+    """Load recent dispatch/activity events."""
+    events = []
+    act_root = _BOARD_ROOT / "activity"
+    if not act_root.exists():
+        return []
+    for day_dir in sorted(act_root.iterdir(), reverse=True)[:3]:
+        for f in sorted(day_dir.glob("*.jsonl"), reverse=True):
+            try:
+                for line in f.read_text().splitlines():
+                    if line.strip():
+                        events.append(json.loads(line))
+                        if len(events) >= limit:
+                            return events
+            except Exception:
+                pass
+    return events
+
+
+@mcharness_router.get("/warden/command-deck/state")
+def get_command_deck_state():
+    all_tasks = []
+    for status in _BOARD_TASK_STATUSES:
+        for t in _cd_load_tasks(status):
+            t.setdefault("status", status)
+            all_tasks.append(t)
+
+    # Proof gate: flag verified tasks without closeout
+    for t in all_tasks:
+        if t.get("status") in ("completed", "done"):
+            if not t.get("proof_id") and not t.get("proof") and not t.get("failure"):
+                t["proof_gate"] = "proof_needed"
+            else:
+                t["proof_gate"] = "verified"
+        else:
+            t["proof_gate"] = "not_required"
+
+    return {
+        "ok": True,
+        "tasks": all_tasks,
+        "summary": {
+            "queued": sum(1 for t in all_tasks if t.get("status") == "queued"),
+            "running": sum(1 for t in all_tasks if t.get("status") in ("running", "claimed")),
+            "needs_review": sum(1 for t in all_tasks if t.get("status") == "needs_review"),
+            "proof_needed": sum(1 for t in all_tasks if t.get("proof_gate") == "proof_needed"),
+            "failed": sum(1 for t in all_tasks if t.get("status") == "failed"),
+        },
+    }
+
+
+@mcharness_router.get("/warden/command-deck/proofs")
+def get_command_deck_proofs():
+    return {"ok": True, "proofs": _cd_load_proofs(limit=30)}
+
+
+@mcharness_router.get("/warden/command-deck/relay")
+def get_command_deck_relay():
+    return {"ok": True, "events": _cd_load_relay(limit=50)}
+
+
+@mcharness_router.get("/warden/command-deck/events")
+def get_command_deck_events():
+    """SSE-compatible endpoint — returns latest events as JSON for polling."""
+    return {
+        "ok": True,
+        "events": _cd_load_relay(limit=20),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+class _DemoSeedRequest(BaseModel):
+    title: str = "Demo Mission"
+    description: str = "Demonstrate Warden Command Deck dispatch loop."
+    agent: str = "cl"
+    priority: str = "medium"
+
+
+@mcharness_router.post("/warden/command-deck/demo-seed", status_code=201)
+def post_command_deck_demo_seed(req: _DemoSeedRequest):
+    import uuid as _uuid
+    task_id = f"demo-{_uuid.uuid4().hex[:8]}"
+    task = {
+        "task_id": task_id,
+        "title": req.title,
+        "description": req.description,
+        "agent": req.agent,
+        "priority": req.priority,
+        "status": "queued",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "tags": ["demo"],
+    }
+    dest = _BOARD_ROOT / "tasks" / "queued"
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / f"{task_id}.json").write_text(json.dumps(task, indent=2))
+    return {"ok": True, "task": task}
+
+
+# -- Dispatch controls --
+
+class _TaskCreateRequest(BaseModel):
+    title: str
+    description: str = ""
+    agent: str = "any"
+    priority: str = "medium"
+    project: str = ""
+    branch: str = ""
+
+
+@mcharness_router.post("/warden/command-deck/tasks", status_code=201)
+def post_command_deck_task(req: _TaskCreateRequest):
+    import uuid as _uuid
+    task_id = f"wt-{_uuid.uuid4().hex[:8]}"
+    task = {
+        "task_id": task_id,
+        "title": req.title,
+        "description": req.description,
+        "agent": req.agent,
+        "priority": req.priority,
+        "project": req.project,
+        "branch": req.branch,
+        "status": "queued",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    dest = _BOARD_ROOT / "tasks" / "queued"
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / f"{task_id}.json").write_text(json.dumps(task, indent=2))
+    return {"ok": True, "task": task}
+
+
+def _cd_find_task(task_id: str):
+    for status in _BOARD_TASK_STATUSES:
+        f = _BOARD_ROOT / "tasks" / status / f"{task_id}.json"
+        if f.exists():
+            try:
+                return json.loads(f.read_text()), f
+            except Exception:
+                pass
+    return None, None
+
+
+def _cd_move_task(task_id: str, dest_status: str) -> dict:
+    task, src = _cd_find_task(task_id)
+    if not task or not src:
+        raise HTTPException(404, f"Task not found: {task_id}")
+    dest_dir = _BOARD_ROOT / "tasks" / dest_status
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    task["status"] = dest_status
+    task["updated_at"] = datetime.now(timezone.utc).isoformat()
+    (dest_dir / src.name).write_text(json.dumps(task, indent=2))
+    src.unlink(missing_ok=True)
+    return task
+
+
+@mcharness_router.post("/warden/command-deck/tasks/{task_id}/claim")
+def post_cd_task_claim(task_id: str):
+    task = _cd_move_task(task_id, "claimed")
+    return {"ok": True, "task": task}
+
+
+class _ProofBody(BaseModel):
+    summary: str = ""
+    files_changed: list = []
+    commands_run: list = []
+
+
+@mcharness_router.post("/warden/command-deck/tasks/{task_id}/proof")
+def post_cd_task_proof(task_id: str, body: _ProofBody):
+    task, src = _cd_find_task(task_id)
+    if not task or not src:
+        raise HTTPException(404, f"Task not found: {task_id}")
+    task["proof"] = {
+        "summary": body.summary,
+        "files_changed": body.files_changed,
+        "commands_run": body.commands_run,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    task["proof_gate"] = "verified"
+    task["status"] = "completed"
+    task["updated_at"] = datetime.now(timezone.utc).isoformat()
+    dest = _BOARD_ROOT / "tasks" / "completed"
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / src.name).write_text(json.dumps(task, indent=2))
+    src.unlink(missing_ok=True)
+    return {"ok": True, "task": task}
+
+
+class _FailureBody(BaseModel):
+    reason: str = ""
+    blocker: str = ""
+
+
+@mcharness_router.post("/warden/command-deck/tasks/{task_id}/failure")
+def post_cd_task_failure(task_id: str, body: _FailureBody):
+    task, src = _cd_find_task(task_id)
+    if not task or not src:
+        raise HTTPException(404, f"Task not found: {task_id}")
+    task["failure"] = {
+        "reason": body.reason,
+        "blocker": body.blocker,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    task["proof_gate"] = "failed"
+    task["status"] = "failed"
+    task["updated_at"] = datetime.now(timezone.utc).isoformat()
+    dest = _BOARD_ROOT / "tasks" / "failed"
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / src.name).write_text(json.dumps(task, indent=2))
+    src.unlink(missing_ok=True)
+    return {"ok": True, "task": task}
+
+
+class _HandoffBody(BaseModel):
+    to_agent: str
+    note: str = ""
+    next_action: str = ""
+
+
+@mcharness_router.post("/warden/command-deck/tasks/{task_id}/handoff")
+def post_cd_task_handoff(task_id: str, body: _HandoffBody):
+    task, src = _cd_find_task(task_id)
+    if not task or not src:
+        raise HTTPException(404, f"Task not found: {task_id}")
+    task["handoff"] = {
+        "to_agent": body.to_agent,
+        "note": body.note,
+        "next_action": body.next_action,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    task["agent"] = body.to_agent
+    task["status"] = "queued"
+    task["updated_at"] = datetime.now(timezone.utc).isoformat()
+    dest = _BOARD_ROOT / "tasks" / "queued"
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / src.name).write_text(json.dumps(task, indent=2))
+    src.unlink(missing_ok=True)
+    return {"ok": True, "task": task}
+
+
+@mcharness_router.post("/warden/command-deck/tasks/{task_id}/dispatch")
+def post_cd_task_dispatch(task_id: str):
+    from .agent_dispatcher import AgentDispatcher
+    task, src = _cd_find_task(task_id)
+    if not task or not src:
+        raise HTTPException(404, f"Task not found: {task_id}")
+    dispatcher = AgentDispatcher(dry_run=True)
+    result = dispatcher.dispatch_task(task, src)
+    return {
+        "ok": result.success,
+        "task_id": result.task_id,
+        "run_id": result.run_id,
+        "summary": result.summary,
+        "log": str(result.log_path) if result.log_path else None,
+        "dry_run": True,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Daily Brief endpoint
+# ---------------------------------------------------------------------------
+
+@mcharness_router.post("/warden/notion/daily-brief")
+def post_warden_daily_brief():
+    """Generate today's Warden daily brief and save locally."""
+    from .daily_brief import generate_and_save
+    result = generate_and_save()
+    return result
+
+
+@mcharness_router.get("/warden/notion/daily-brief")
+def get_warden_daily_brief():
+    """Return today's brief markdown (generate if not yet created)."""
+    from .daily_brief import generate_and_save
+    result = generate_and_save()
+    return result

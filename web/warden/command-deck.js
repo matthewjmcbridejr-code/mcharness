@@ -1,0 +1,228 @@
+const API_BASE = "/api/mcharness/warden/command-deck";
+const COLUMNS = [
+  ["posted", "Posted"],
+  ["claimed", "Claimed"],
+  ["working", "Working"],
+  ["proof_needed", "Proof Needed"],
+  ["verified", "Verified"],
+  ["blocked", "Blocked"],
+];
+const DEFAULT_AGENTS = [
+  { id: "claude", name: "Claude", role: "Planning", status: "standby", summary: "Turns messy goals into scoped missions and handoffs." },
+  { id: "codex", name: "Codex", role: "Coding", status: "standby", summary: "Implements repo changes, runs checks, and records proof." },
+  { id: "gemini", name: "Gemini", role: "Review", status: "standby", summary: "Reviews architecture, risk, and second-pass reasoning." },
+  { id: "local", name: "Local Agents", role: "Server/Ops", status: "standby", summary: "Handles local models, ingest, services, and safe automation." },
+];
+
+const $ = (id) => document.getElementById(id);
+
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[char]);
+}
+
+function list(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : [];
+}
+
+function safePath(value) {
+  const text = String(value ?? "");
+  return text.replace(/\/home\/[^/\s]+/g, "~").replace(/\/root/g, "~");
+}
+
+function taskStatus(task) {
+  if (task.proof_gate === "proof_needed") return "proof_needed";
+  if (task.proof_gate === "verified" || task.proof || task.proof_id) return "verified";
+  if (task.failure || task.status === "failed") return "blocked";
+  if (task.status === "claimed") return "claimed";
+  if (task.status === "running") return "working";
+  if (task.status === "needs_review") return "proof_needed";
+  if (task.status === "completed" || task.status === "done") return "proof_needed";
+  return "posted";
+}
+
+function normalizeState(state = {}, proofPayload = {}, relayPayload = {}) {
+  const columns = Object.fromEntries(COLUMNS.map(([key]) => [key, []]));
+  let missions = [];
+  if (state.columns) {
+    for (const [key] of COLUMNS) {
+      columns[key] = list(state.columns[key]);
+      missions = missions.concat(columns[key]);
+    }
+  } else {
+    missions = list(state.tasks).map((task) => ({
+      id: task.id || task.task_id,
+      title: task.title || "Untitled mission",
+      summary: task.description || task.summary || task.project || "No summary recorded.",
+      status: taskStatus(task),
+      assigned_agent: task.assigned_agent || task.agent || "Unassigned",
+      source: task.source || "Warden board",
+      branch: task.branch || "",
+      repo: task.repo || task.project || "Warden",
+      files_changed: list(task.files_changed || task.proof?.files_changed),
+      files_inspected: list(task.files_inspected),
+      risk_level: task.risk_level || task.risk || "read_only",
+      proof_required: task.proof_required !== false,
+      proof_gate: task.proof_gate,
+      demo: list(task.tags).includes("demo"),
+    }));
+    for (const mission of missions) columns[mission.status]?.push(mission);
+  }
+  const proofs = list(state.proofs).concat(list(proofPayload.proofs));
+  const relay = list(state.relay).concat(list(state.events), list(relayPayload.relay), list(relayPayload.events));
+  const summary = state.summary || {};
+  return {
+    ...state,
+    agents: list(state.agents).length ? state.agents : DEFAULT_AGENTS,
+    columns,
+    missions,
+    proofs,
+    relay,
+    demo_mode: Boolean(state.demo_mode || missions.some((item) => item.demo)),
+    stats: state.stats || {
+      active_missions: missions.filter((item) => !["verified", "blocked"].includes(item.status)).length,
+      agents_online: DEFAULT_AGENTS.length,
+      proofs_recorded: proofs.length,
+      blocked_tasks: summary.failed ?? columns.blocked.length,
+    },
+    brain_panel: state.brain_panel || {
+      summary: "Command Deck reads Warden board tasks, proof closeouts, and relay events. Seed a demo mission to verify the loop.",
+      context_sources: ["Warden Board", "Proof Ledger", "Relay Timeline"],
+    },
+  };
+}
+
+function renderStats(stats = {}) {
+  $("stat-active").textContent = stats.active_missions ?? 0;
+  $("stat-agents").textContent = stats.agents_online ?? DEFAULT_AGENTS.length;
+  $("stat-proofs").textContent = stats.proofs_recorded ?? 0;
+  $("stat-blocked").textContent = stats.blocked_tasks ?? 0;
+}
+
+function renderAgents(agents = []) {
+  $("agent-grid").innerHTML = agents.map((agent) => `
+    <article class="agent-card">
+      <span class="agent-status">${esc(agent.status || "standby")}</span>
+      <h3>${esc(agent.name)}</h3>
+      <div class="agent-role">${esc(agent.role)}</div>
+      <p>${esc(agent.summary)}</p>
+    </article>
+  `).join("");
+}
+
+function renderMission(mission) {
+  const files = [...list(mission.files_changed), ...list(mission.files_inspected)].slice(0, 3).map(safePath);
+  return `
+    <article class="mission-card">
+      <div class="card-meta">
+        <span class="chip ${esc(mission.status)}">${esc(String(mission.status || "").replaceAll("_", " "))}</span>
+        <span class="chip">${esc(mission.assigned_agent || "Unassigned")}</span>
+      </div>
+      <h3>${esc(mission.title)}</h3>
+      <p>${esc(mission.summary || mission.project || "No summary recorded.")}</p>
+      <div class="card-meta">
+        <span class="chip">${esc(mission.risk_level || "read_only")}</span>
+        <span class="chip">${esc(mission.branch || "no branch")}</span>
+      </div>
+      ${files.length ? `<p>${files.map(esc).join(" · ")}</p>` : ""}
+    </article>
+  `;
+}
+
+function renderBoard(columns = {}) {
+  $("mission-board").innerHTML = COLUMNS.map(([key, label]) => {
+    const missions = columns[key] || [];
+    return `
+      <section class="mission-column">
+        <div class="column-title"><span>${label}</span><span>${missions.length}</span></div>
+        ${missions.length ? missions.map(renderMission).join("") : `<div class="empty-card">No missions</div>`}
+      </section>
+    `;
+  }).join("");
+}
+
+function renderProofs(proofs = []) {
+  $("proof-ledger").innerHTML = proofs.length ? proofs.map((proof) => `
+    <article class="proof-card">
+      <div class="card-meta">
+        <span class="chip verified">${esc(proof.kind || proof.type || "proof")}</span>
+        <span class="chip">${esc(proof.agent || proof.agent_id || "Warden")}</span>
+      </div>
+      <h3>${esc(proof.title || proof.summary || "Proof recorded")}</h3>
+      <p>${esc(proof.summary || proof.notes || proof.content || "Proof closeout recorded.")}</p>
+      ${list(proof.tests_run).length ? `<p>Tests: ${list(proof.tests_run).map(esc).join(" · ")}</p>` : ""}
+    </article>
+  `).join("") : `<div class="empty-card">No proof recorded yet. Missions stay in Proof Needed until evidence exists.</div>`;
+}
+
+function renderRelay(relay = []) {
+  $("relay-timeline").innerHTML = relay.length ? relay.map((item) => `
+    <article class="relay-card">
+      <div class="card-meta">
+        <span class="chip">${esc(item.from_agent || item.agent || "Warden")}</span>
+        <span class="chip">${esc(item.to_agent || item.target_agent || "Agent")}</span>
+      </div>
+      <h3>${esc(item.reason || item.title || item.event || "Relay event")}</h3>
+      <p>${esc(item.context_summary || item.summary || item.note || item.message || "Agent handoff recorded.")}</p>
+      <p>Proof required: ${esc(item.proof_required || "Not specified")}</p>
+    </article>
+  `).join("") : `<div class="empty-card">No handoffs recorded yet.</div>`;
+}
+
+function renderBrain(panel = {}, state = {}) {
+  $("brain-answer").innerHTML = `
+    <p>${esc(panel.summary || "Warden has no command deck context yet.")}</p>
+    <p>Sources: ${list(panel.context_sources).map(esc).join(" · ") || "none"}</p>
+    <p>Current board: ${state.missions?.length || 0} missions, ${state.proofs?.length || 0} proofs, ${state.relay?.length || 0} relays.</p>
+  `;
+}
+
+async function fetchJson(path, options) {
+  const response = await fetch(`${API_BASE}${path}`, { headers: { "Accept": "application/json", "Content-Type": "application/json" }, ...options });
+  if (!response.ok) throw new Error(`${path} failed: ${response.status}`);
+  return response.json();
+}
+
+async function loadDeck() {
+  const [rawState, proofs, relay] = await Promise.all([
+    fetchJson("/state"),
+    fetchJson("/proofs").catch(() => ({ proofs: [] })),
+    fetchJson("/relay").catch(() => ({ events: [] })),
+  ]);
+  const state = normalizeState(rawState, proofs, relay);
+  renderStats(state.stats);
+  renderAgents(state.agents);
+  renderBoard(state.columns);
+  renderProofs(state.proofs);
+  renderRelay(state.relay);
+  renderBrain(state.brain_panel, state);
+  $("deck-mode").textContent = state.demo_mode ? "Demo Data" : "Live";
+  $("last-refresh").textContent = `Last refresh ${new Date().toLocaleTimeString()}`;
+}
+
+async function seedDemo() {
+  $("seed-demo").disabled = true;
+  try {
+    await fetchJson("/demo-seed", { method: "POST", body: JSON.stringify({ title: "Demo Mission", description: "Demonstrate Warden Command Deck dispatch loop.", agent: "codex", priority: "medium" }) });
+    await loadDeck();
+  } finally {
+    $("seed-demo").disabled = false;
+  }
+}
+
+$("refresh-deck").addEventListener("click", loadDeck);
+$("seed-demo").addEventListener("click", seedDemo);
+$("brain-query").addEventListener("change", loadDeck);
+
+loadDeck().catch((error) => {
+  $("mission-board").innerHTML = `<div class="empty-card">${esc(error.message)}</div>`;
+});
+
+setInterval(() => {
+  loadDeck().catch(() => {});
+}, 5000);
