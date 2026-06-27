@@ -3744,6 +3744,37 @@ def get_warden_daily_brief():
 
 
 # ---------------------------------------------------------------------------
+# Notion sync dry-run endpoints
+# ---------------------------------------------------------------------------
+
+class _NotionSyncRequest(BaseModel):
+    existing_candidates: list = []
+
+
+@mcharness_router.get("/warden/notion/sync/status")
+def get_warden_notion_sync_status():
+    """Return redacted Notion sync readiness; never exposes secret values."""
+    from .notion_sync import notion_sync_status
+    return notion_sync_status()
+
+
+@mcharness_router.post("/warden/notion/sync/dry-run")
+def post_warden_notion_sync_dry_run(req: Optional[_NotionSyncRequest] = None):
+    """Preview Warden board tasks that would become Notion inbox candidates."""
+    from .notion_sync import sync_candidates_dry_run
+    existing = req.existing_candidates if req else []
+    return sync_candidates_dry_run(_BOARD_ROOT, existing_candidates=existing)
+
+
+@mcharness_router.post("/warden/notion/sync/write")
+def post_warden_notion_sync_write(req: Optional[_NotionSyncRequest] = None):
+    """Blocked v0 write path; real Notion writes are intentionally disabled."""
+    from .notion_sync import sync_candidates_write
+    existing = req.existing_candidates if req else []
+    return sync_candidates_write(_BOARD_ROOT, existing_candidates=existing)
+
+
+# ---------------------------------------------------------------------------
 # Workspace Authority endpoints
 # ---------------------------------------------------------------------------
 
@@ -3785,3 +3816,50 @@ class _BootstrapRequest(BaseModel):
 def post_workspace_bootstrap(req: _BootstrapRequest):
     from .workspace_authority import build_agent_bootstrap
     return build_agent_bootstrap(req.project_id, task=req.task, cwd=req.cwd)
+
+
+# ---------------------------------------------------------------------------
+# Memory Watcher endpoints
+# ---------------------------------------------------------------------------
+
+@mcharness_router.get("/warden/memory-watcher/status")
+def get_memory_watcher_status():
+    from .memory_watcher import get_watcher_status
+    return {"ok": True, **get_watcher_status()}
+
+
+@mcharness_router.post("/warden/memory-watcher/start")
+def post_memory_watcher_start():
+    from .memory_watcher import start_background_watcher
+    result = start_background_watcher(dry_run=False)
+    return {"ok": True, "result": result}
+
+
+@mcharness_router.post("/warden/memory-watcher/stop")
+def post_memory_watcher_stop():
+    from .memory_watcher import stop_background_watcher
+    result = stop_background_watcher()
+    return {"ok": True, "result": result}
+
+
+@mcharness_router.post("/warden/memory-watcher/collect")
+def post_memory_watcher_collect():
+    """Trigger one immediate collection pass (for testing / manual trigger)."""
+    from .memory_watcher import MemoryWatcher
+    w = MemoryWatcher(dry_run=False)
+    n = w.poll_once()
+    return {"ok": True, "memories_written": n}
+
+
+@mcharness_router.post("/warden/memory-watcher/install-hooks")
+def post_memory_watcher_install_hooks():
+    from .memory_watcher import install_git_hooks, CANONICAL_REPO
+    installed = install_git_hooks(CANONICAL_REPO)
+    return {"ok": True, "installed": installed}
+
+
+@mcharness_router.post("/warden/memory-watcher/uninstall-hooks")
+def post_memory_watcher_uninstall_hooks():
+    from .memory_watcher import uninstall_git_hooks, CANONICAL_REPO
+    removed = uninstall_git_hooks(CANONICAL_REPO)
+    return {"ok": True, "removed": removed}
