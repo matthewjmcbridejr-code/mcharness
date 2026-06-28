@@ -64,6 +64,15 @@
       loading: false,
       error: "",
     },
+    memory: {
+      available: false,
+      privateOnly: true,
+      loading: false,
+      memories: [],
+      searchResults: [],
+      lastContext: null,
+      error: "",
+    },
   };
 
   // Helper for API calls (minimal)
@@ -134,6 +143,307 @@
 
   function escapeHtml(v) {
     return String(v || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function redactVisibleMemory(value) {
+    let text = String(value || "");
+    text = text.replace(
+      /-----BEGIN (?:OPENSSH |RSA |EC |DSA )?PRIVATE KEY-----[\s\S]*?-----END (?:OPENSSH |RSA |EC |DSA )?PRIVATE KEY-----/gi,
+      "[REDACTED PRIVATE KEY BLOCK]",
+    );
+    text = text.replace(/\b(Authorization\s*:\s*Bearer)\s+[^\s]+/gi, "$1 [REDACTED]");
+    text = text.replace(
+      /\b((?:OPENAI|ANTHROPIC|GEMINI|GOOGLE|GROQ|GITHUB|OPENROUTER)[A-Z0-9_]*(?:KEY|TOKEN|SECRET)|API_KEY|ACCESS_TOKEN|AUTH_TOKEN|CLIENT_SECRET|PASSWORD|PASSWD|COOKIE)\s*=\s*['"]?[^\s'"]+['"]?/gi,
+      "$1=[REDACTED]",
+    );
+    text = text.replace(/\b(password|passwd|pwd|cookie|sessionid)\s*[:=]\s*['"]?[^\s'"]+['"]?/gi, "$1=[REDACTED]");
+    return text.replace(/\b(?:sk-(?:ant-|or-)?[A-Za-z0-9._-]{6,}|gsk_[A-Za-z0-9._-]{6,}|gh[pousr]_[A-Za-z0-9_]{6,})\b/g, "[REDACTED]");
+  }
+
+  function currentMemoryProject() {
+    const selectedRepo = (state.repos || []).find((repo) => {
+      return repo.repo_id === state.captainDeck.repoId || repo.path === state.captainDeck.repoPath;
+    });
+    const projectId = state.captainDeck.repoId
+      || (selectedRepo && selectedRepo.repo_id)
+      || "mcharness-public-export";
+    const repoPath = state.captainDeck.repoPath
+      || (selectedRepo && selectedRepo.path)
+      || "";
+    return { projectId, repoPath };
+  }
+
+  function memoryMatchesProject(memory, project) {
+    const scope = String(memory.scope || "").toLowerCase();
+    const projectId = String(memory.project_id || "").toLowerCase();
+    const wanted = String(project.projectId || "").toLowerCase();
+    return scope === wanted
+      || projectId === wanted
+      || (!!project.repoPath && memory.repo_path === project.repoPath);
+  }
+
+  function memoryTimestamp(value) {
+    if (!value) return "";
+    try {
+      return new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(new Date(value));
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function memoryCardHtml(memory) {
+    const title = redactVisibleMemory(memory.title || memory.kind || "Memory");
+    const summary = redactVisibleMemory(memory.summary || memory.content || "");
+    const kind = redactVisibleMemory(memory.kind || "note");
+    const tags = Array.isArray(memory.tags)
+      ? memory.tags.filter((tag) => String(tag).toLowerCase() !== String(kind).toLowerCase()).slice(0, 6)
+      : [];
+    const chips = [kind, ...tags].filter(Boolean).map((tag, index) => {
+      const kindClass = index === 0 ? ` kind-${String(kind).replace(/[^a-z0-9_-]/gi, "")}` : "";
+      return `<span class="memory-chip${kindClass}">${escapeHtml(redactVisibleMemory(tag))}</span>`;
+    }).join("");
+    const source = redactVisibleMemory(memory.source || "");
+    const sourceRef = redactVisibleMemory(memory.source_ref || "");
+    const created = memoryTimestamp(memory.created_at || memory.updated_at);
+    return `
+      <article class="memory-card" data-memory-id="${escapeHtml(memory.memory_id || "")}">
+        <div class="memory-card-top">
+          <h4 class="memory-card-title">${escapeHtml(title)}</h4>
+          <div class="memory-chip-row">${chips}</div>
+        </div>
+        <p class="memory-card-summary">${escapeHtml(summary)}</p>
+        <div class="memory-card-meta">
+          ${source ? `<span>${escapeHtml(source)}</span>` : ""}
+          ${sourceRef ? `<span>${escapeHtml(sourceRef)}</span>` : ""}
+          ${created ? `<span>${escapeHtml(created)}</span>` : ""}
+        </div>
+        <span class="memory-card-id">${escapeHtml(memory.memory_id || "")}</span>
+      </article>
+    `;
+  }
+
+  function renderMemoryList(targetId, memories, emptyCopy) {
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    if (!memories.length) {
+      target.innerHTML = `<div class="memory-empty">${escapeHtml(emptyCopy)}</div>`;
+      return;
+    }
+    target.innerHTML = memories.map(memoryCardHtml).join("");
+  }
+
+  function setMemoryControlsEnabled(enabled) {
+    [
+      "memory-search-query",
+      "memory-note-title",
+      "memory-note-tags",
+      "memory-note-content",
+      "memory-note-kind",
+      "memory-context-agent",
+      "memory-context-prompt",
+      "memory-context-build",
+      "memory-refresh",
+    ].forEach((id) => {
+      const element = document.getElementById(id);
+      if (element) element.disabled = !enabled;
+    });
+    document.querySelectorAll("#memory-search-form button, #memory-remember-form button").forEach((button) => {
+      button.disabled = !enabled;
+    });
+  }
+
+  function renderMemoryStatus() {
+    const memoryState = state.memory;
+    const project = currentMemoryProject();
+    const status = document.getElementById("memory-status-value");
+    const detail = document.getElementById("memory-status-detail");
+    const count = document.getElementById("memory-count-value");
+    const projectValue = document.getElementById("memory-project-value");
+    const updated = document.getElementById("memory-updated-value");
+    const notice = document.getElementById("memory-private-notice");
+    if (status) status.textContent = memoryState.loading
+      ? "Checking…"
+      : memoryState.available
+        ? "Memory ready"
+        : memoryState.error
+          ? "Memory unavailable"
+          : "Private runner only";
+    if (detail) detail.textContent = memoryState.available ? "Private · available" : "Private runner only";
+    if (count) count.textContent = memoryState.available ? String(memoryState.memories.length) : "—";
+    if (projectValue) projectValue.textContent = redactVisibleMemory(project.projectId);
+    const newest = memoryState.memories[0];
+    if (updated) updated.textContent = newest
+      ? `Updated ${memoryTimestamp(newest.updated_at || newest.created_at)}`
+      : "No memories yet";
+    if (notice) notice.style.display = memoryState.available ? "none" : "block";
+    setMemoryControlsEnabled(memoryState.available && !memoryState.loading);
+  }
+
+  async function loadMemory() {
+    const memoryState = state.memory;
+    memoryState.loading = true;
+    memoryState.error = "";
+    renderMemoryStatus();
+    try {
+      const [health, listing] = await Promise.all([
+        requestJson(`${MCH}/memory/health`),
+        requestJson(`${MCH}/memories`),
+      ]);
+      memoryState.available = !!health.ok;
+      memoryState.privateOnly = health.private_only !== false;
+      const project = currentMemoryProject();
+      memoryState.memories = (listing.memories || [])
+        .filter((memory) => memoryMatchesProject(memory, project))
+        .slice(0, 20);
+      renderMemoryList("memory-recent-list", memoryState.memories, "No memories yet.");
+    } catch (error) {
+      memoryState.available = false;
+      memoryState.memories = [];
+      memoryState.error = error.message || "Memory unavailable.";
+      renderMemoryList("memory-recent-list", [], "Memory is private-runner-only.");
+      renderMemoryList("memory-search-results", [], "Memory is unavailable on this service.");
+    } finally {
+      memoryState.loading = false;
+      renderMemoryStatus();
+    }
+  }
+
+  async function searchMemory(query) {
+    const status = document.getElementById("memory-search-status");
+    const project = currentMemoryProject();
+    const cleanQuery = String(query || "").trim().slice(0, 500);
+    if (!cleanQuery) {
+      state.memory.searchResults = state.memory.memories.slice();
+      renderMemoryList("memory-search-results", state.memory.searchResults, "No memories yet.");
+      if (status) status.textContent = "";
+      return;
+    }
+    if (status) {
+      status.className = "memory-form-status";
+      status.textContent = "Searching…";
+    }
+    try {
+      const data = await requestJson(
+        `${MCH}/memories/search?q=${encodeURIComponent(cleanQuery)}&scope=${encodeURIComponent(project.projectId)}&limit=20`,
+      );
+      state.memory.searchResults = (data.memories || []).slice(0, 20);
+      renderMemoryList("memory-search-results", state.memory.searchResults, "No matching memories.");
+      if (status) status.textContent = `${state.memory.searchResults.length} result${state.memory.searchResults.length === 1 ? "" : "s"}`;
+    } catch (error) {
+      renderMemoryList("memory-search-results", [], "Memory search unavailable.");
+      if (status) {
+        status.className = "memory-form-status error";
+        status.textContent = "Memory search unavailable.";
+      }
+    }
+  }
+
+  function parseMemoryTags(value) {
+    return String(value || "")
+      .split(",")
+      .map((tag) => tag.trim().toLowerCase())
+      .filter(Boolean)
+      .filter((tag, index, tags) => tags.indexOf(tag) === index)
+      .slice(0, 10);
+  }
+
+  async function rememberMemoryNote() {
+    const titleInput = document.getElementById("memory-note-title");
+    const kindInput = document.getElementById("memory-note-kind");
+    const tagsInput = document.getElementById("memory-note-tags");
+    const contentInput = document.getElementById("memory-note-content");
+    const status = document.getElementById("memory-remember-status");
+    const content = String(contentInput && contentInput.value || "").trim().slice(0, 5000);
+    if (!content) {
+      if (status) {
+        status.className = "memory-form-status error";
+        status.textContent = "Add a note first.";
+      }
+      return;
+    }
+    const project = currentMemoryProject();
+    if (status) {
+      status.className = "memory-form-status";
+      status.textContent = "Remembering…";
+    }
+    try {
+      const data = await requestJson(`${MCH}/memory/remember`, {
+        method: "POST",
+        body: {
+          scope: project.projectId,
+          project_id: project.projectId,
+          repo_path: project.repoPath || null,
+          title: String(titleInput && titleInput.value || "").trim().slice(0, 160) || null,
+          content,
+          kind: String(kindInput && kindInput.value || "user_note"),
+          tags: parseMemoryTags(tagsInput && tagsInput.value),
+          source: "manual",
+        },
+      });
+      if (!data.ok) throw new Error(data.error || "Memory was not saved.");
+      const returned = data.memory || {};
+      if (status) {
+        status.className = "memory-form-status success";
+        status.textContent = `Remembered ${redactVisibleMemory(returned.title || returned.memory_id || "note")}.`;
+      }
+      if (titleInput) titleInput.value = "";
+      if (tagsInput) tagsInput.value = "";
+      if (contentInput) contentInput.value = "";
+      await loadMemory();
+    } catch (error) {
+      if (status) {
+        status.className = "memory-form-status error";
+        status.textContent = "Memory could not be saved.";
+      }
+    }
+  }
+
+  async function buildMemoryContextPreview() {
+    const agent = document.getElementById("memory-context-agent");
+    const prompt = document.getElementById("memory-context-prompt");
+    const preview = document.getElementById("memory-context-preview");
+    const meta = document.getElementById("memory-context-meta");
+    const sources = document.getElementById("memory-context-sources");
+    const status = document.getElementById("memory-context-status");
+    const project = currentMemoryProject();
+    if (status) {
+      status.className = "memory-form-status";
+      status.textContent = "Building context…";
+    }
+    try {
+      const data = await requestJson(`${MCH}/memory/context-pack`, {
+        method: "POST",
+        body: {
+          project_id: project.projectId,
+          repo_path: project.repoPath || null,
+          agent: String(agent && agent.value || "codex_cli"),
+          prompt: String(prompt && prompt.value || "").trim().slice(0, 5000),
+          max_memories: 8,
+          max_chars: 6000,
+        },
+      });
+      state.memory.lastContext = data;
+      if (preview) preview.textContent = redactVisibleMemory(data.context || "No relevant memory for this task.");
+      if (meta) meta.textContent = `${data.memory_count || 0} memories${data.truncated ? " · truncated" : ""}`;
+      if (sources) {
+        const ids = Array.isArray(data.memory_ids) ? data.memory_ids : [];
+        sources.textContent = ids.length ? `Sources: ${redactVisibleMemory(ids.join(", "))}` : "No source memories.";
+      }
+      if (status) status.textContent = "";
+    } catch (error) {
+      if (preview) preview.textContent = "Context preview unavailable.";
+      if (meta) meta.textContent = "Unavailable";
+      if (sources) sources.textContent = "";
+      if (status) {
+        status.className = "memory-form-status error";
+        status.textContent = "Memory is private-runner-only.";
+      }
+    }
   }
 
   async function loadCaptainDeckStatus() {
@@ -1710,7 +2020,7 @@
       btn.classList.toggle("active", btn.dataset.section === state.activeSection);
     });
     const inspector = document.getElementById("operator-inspector");
-    const showInspector = state.activeSection === "mission" || state.activeSection === "agents";
+    const showInspector = (state.activeSection === "mission" || state.activeSection === "agents") && state.activeSection !== "projects";
     if (inspector) inspector.style.display = showInspector ? "" : "none";
     const stage = document.querySelector(".warden-stage");
     if (stage) stage.classList.toggle("inspector-visible", showInspector);
@@ -1720,9 +2030,11 @@
       agents: "Agents",
       runs: "Runs",
       evidence: "Evidence",
+      memory: "Memory",
       "proof-gates": "Proof Gates",
       "runner-sessions": "Runner Sessions",
       settings: "Settings",
+      projects: "Projects",
     };
     const topTitle = document.getElementById("topbar-page-title");
     if (topTitle) topTitle.textContent = titles[state.activeSection] || "Warden";
@@ -1738,6 +2050,8 @@
       loadRecentRuns().catch((e) => console.error(e));
     } else if (state.activeSection === "evidence") {
       loadRecentEvidence().catch((e) => console.error(e));
+    } else if (state.activeSection === "memory") {
+      loadMemory().catch((e) => console.error(e));
     }
   }
 
@@ -2731,6 +3045,26 @@
     wireDevelopPlanButtons();
     wireWorkspaceNav();
 
+    const memoryRefresh = document.getElementById("memory-refresh");
+    if (memoryRefresh) memoryRefresh.addEventListener("click", () => {
+      loadMemory().catch((e) => console.error(e));
+    });
+    const memorySearchForm = document.getElementById("memory-search-form");
+    if (memorySearchForm) memorySearchForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const query = document.getElementById("memory-search-query");
+      searchMemory(query && query.value).catch((e) => console.error(e));
+    });
+    const memoryRememberForm = document.getElementById("memory-remember-form");
+    if (memoryRememberForm) memoryRememberForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      rememberMemoryNote().catch((e) => console.error(e));
+    });
+    const memoryContextBuild = document.getElementById("memory-context-build");
+    if (memoryContextBuild) memoryContextBuild.addEventListener("click", () => {
+      buildMemoryContextPreview().catch((e) => console.error(e));
+    });
+
     const useCodexDirectly = document.getElementById("use-codex-directly");
     if (useCodexDirectly) useCodexDirectly.addEventListener("click", openUseAgentModal);
 
@@ -2934,13 +3268,306 @@
     updateLiveMonitorChrome();
   }
 
+  // --- Marius Local Agent Integration ---
+
+  async function refreshMariusStatus() {
+    try {
+      const res = await requestJson(`${MCH}/agents/marius/models`);
+      if (res && res.data) {
+        const pLabel = document.getElementById('marius-provider-label');
+        if (pLabel) pLabel.textContent = 'Ollama';
+        const mLabel = document.getElementById('marius-model-label');
+        if (mLabel) mLabel.textContent = res.data.forced_model || 'auto';
+        const prLabel = document.getElementById('marius-profile-label');
+        if (prLabel) prLabel.textContent = res.data.current_profile || 'fast';
+        
+        // Update modals if open
+        const statusMode = document.getElementById('marius-model-status-mode');
+        if (statusMode) statusMode.textContent = "local";
+        const statusProfile = document.getElementById('marius-model-status-profile');
+        if (statusProfile) statusProfile.textContent = res.data.current_profile || 'fast';
+        const statusForced = document.getElementById('marius-model-status-forced');
+        if (statusForced) statusForced.textContent = res.data.forced_model || 'None (Auto)';
+        
+        const available = res.data.available_ollama || [];
+        const availList = document.getElementById('marius-model-available-list');
+        if (availList) availList.innerHTML = available.join('<br>') || 'None';
+
+        // Update chat dropdowns
+        const profSel = document.getElementById('marius-chat-profile-select');
+        if (profSel) profSel.value = res.data.current_profile || 'fast';
+        
+        const modSel = document.getElementById('marius-chat-model-select');
+        if (modSel) {
+          modSel.innerHTML = '<option value="auto">Auto-select</option>' + available.map(m => `<option value="${m}">${m}</option>`).join('');
+          modSel.value = res.data.forced_model || 'auto';
+        }
+      }
+
+      const missingRes = await requestJson(`${MCH}/model/missing`);
+      if (missingRes && missingRes.missing) {
+        const mList = document.getElementById('marius-model-missing-list');
+        if (mList) mList.innerHTML = missingRes.missing.map(m => `ollama pull ${m}`).join('<br>') || 'None missing';
+      }
+    } catch (e) {
+      console.warn("Marius API unavailable", e);
+    }
+  }
+
+  async function openMariusChat() {
+    const modal = document.getElementById("marius-chat-modal");
+    if (modal) modal.style.display = "flex";
+    
+    // Refresh to get latest state
+    await refreshMariusStatus();
+    
+    // Check for router-only model lockout
+    const mLabel = document.getElementById('marius-model-label');
+    const currentModel = mLabel ? mLabel.textContent : '';
+    
+    if (currentModel === 'marius-fast') {
+      const availListEl = document.getElementById('marius-model-available-list');
+      const availText = availListEl ? availListEl.innerHTML : '';
+      const available = availText.split('<br>').map(m => m.trim());
+      
+      const chatPriorities = ['llama3.2:1b', 'gemma3:1b', 'qwen3:0.6b', 'llama3.2:3b'];
+      let targetModel = null;
+      for (const m of chatPriorities) {
+        if (available.includes(m) || available.includes(m + ':latest')) {
+          targetModel = m;
+          break;
+        }
+      }
+      
+      if (targetModel) {
+        try {
+          await requestJson(`${MCH}/agents/marius/model/set`, { method: "POST", body: { model: targetModel } });
+          const messagesEl = document.getElementById("marius-chat-messages");
+          if (messagesEl) {
+            messagesEl.innerHTML += `<div style="align-self:center; font-size:12px; color:var(--warn, #f0c66a); margin:8px 0;">Warning: marius-fast is router-only. Switched chat model to ${targetModel}.</div>`;
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+          }
+          await refreshMariusStatus();
+        } catch (e) {
+          console.error("Failed to auto-switch router model", e);
+        }
+      }
+    }
+    
+    setTimeout(() => document.getElementById("marius-chat-input")?.focus(), 100);
+  }
+
+  function closeMariusChat() {
+    const modal = document.getElementById("marius-chat-modal");
+    if (modal) modal.style.display = "none";
+  }
+
+  function openMariusModels() {
+    const modal = document.getElementById("marius-model-modal");
+    if (modal) {
+      modal.style.display = "flex";
+      document.getElementById('marius-model-modal-title').textContent = "Marius Models & Benchmarks";
+    }
+    refreshMariusStatus();
+  }
+
+  function closeMariusModels() {
+    const modal = document.getElementById("marius-model-modal");
+    if (modal) modal.style.display = "none";
+  }
+
+  async function sendMariusChat() {
+    const input = document.getElementById("marius-chat-input");
+    const msg = input.value.trim();
+    if (!msg) return;
+
+    input.value = "";
+    
+    const messagesEl = document.getElementById("marius-chat-messages");
+    const progEl = document.getElementById("marius-chat-progress");
+    const errEl = document.getElementById("marius-chat-error");
+    
+    messagesEl.innerHTML += `<div style="align-self:flex-end; background:var(--bg-2); padding:10px 14px; border-radius:14px 14px 2px 14px; max-width:85%; border:1px solid var(--line);">${escapeHtml(msg)}</div>`;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    
+    progEl.style.display = "block";
+    errEl.style.display = "none";
+    
+    try {
+      // Gather workspace context safely
+      const repoPath = (state && state.captainDeck && state.captainDeck.repoPath) || "";
+      const runnerEnabled = !!(state && state.snapshot && state.snapshot.safety && state.snapshot.safety.private_runner_enabled);
+      const workspaceCtx = repoPath ? {
+        repo_path: repoPath,
+        branch: "unknown",
+        dirty: "unknown",
+        runner_enabled: runnerEnabled
+      } : null;
+
+      const res = await requestJson(`${MCH}/agents/marius/chat`, {
+        method: "POST",
+        body: { 
+          message: msg,
+          workspace: workspaceCtx
+        }
+      });
+      
+      if (res && res.ok && res.data) {
+        const reply = res.data.response;
+        const footer = `provider: ${res.data.provider} | model: ${res.data.model} | profile: ${res.data.profile || 'fast'} | ${res.data.elapsed}s`;
+        
+        messagesEl.innerHTML += `
+          <div style="align-self:flex-start; background:var(--bg-1); padding:10px 14px; border-radius:14px 14px 14px 2px; max-width:85%; border:1px solid var(--line);">
+            <div style="line-height:1.5; white-space:pre-wrap;">${escapeHtml(reply)}</div>
+            <div style="font-size:11px; color:var(--muted); margin-top:8px;">[${escapeHtml(footer)}]</div>
+          </div>
+        `;
+      } else {
+        errEl.textContent = "Error: " + (res.error || "Unknown API error");
+        errEl.style.display = "block";
+      }
+    } catch (e) {
+      errEl.textContent = "Error: " + e.message;
+      errEl.style.display = "block";
+    } finally {
+      progEl.style.display = "none";
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+  }
+
+  async function runMariusBench() {
+    const progEl = document.getElementById("marius-bench-progress");
+    const resEl = document.getElementById("marius-bench-results");
+    const tableEl = document.getElementById("marius-bench-table-container");
+    
+    progEl.style.display = "block";
+    resEl.style.display = "none";
+    
+    try {
+      const res = await requestJson(`${MCH}/agents/marius/model/bench`, {
+        method: "POST",
+        body: { quick: true }
+      });
+      
+      if (res && res.ok && res.data) {
+        const d = res.data;
+        let table = "Model                Time     Overall  Safety   Preview\n";
+        table += "----------------------------------------------------------------------\n";
+        (d.results || []).forEach(r => {
+          const m = r.model.padEnd(20);
+          const t = String(r.elapsed_seconds).padEnd(8);
+          const o = String(r.overall_score || 0).padEnd(8);
+          const s = String(r.safety_score || 0).padEnd(8);
+          table += `${m} ${t}s ${o} ${s} ${r.response_preview}\n`;
+        });
+        tableEl.textContent = table;
+        
+        const bestEl = document.getElementById("marius-bench-rec-best");
+        if (bestEl) bestEl.textContent = d.recommendations.best_terminal_default || "None";
+        const fastestEl = document.getElementById("marius-bench-rec-fastest");
+        if (fastestEl) fastestEl.textContent = d.recommendations.fastest_safe_terminal_model || "None";
+        const codeEl = document.getElementById("marius-bench-rec-code");
+        if (codeEl) codeEl.textContent = d.recommendations.best_code_local || "None";
+        
+        resEl.style.display = "block";
+      }
+    } catch (e) {
+      alert("Benchmark failed: " + e.message);
+    } finally {
+      progEl.style.display = "none";
+    }
+  }
+
+  async function applyMariusRec() {
+    const bestEl = document.getElementById("marius-bench-rec-best");
+    const best = bestEl ? bestEl.textContent : "";
+    if (best && best !== "None") {
+      try {
+        await requestJson(`${MCH}/agents/marius/model/set`, {
+          method: "POST",
+          body: { model: best }
+        });
+        alert("Applied " + best);
+        refreshMariusStatus();
+      } catch (e) { alert("Failed: " + e.message); }
+    }
+  }
+
+  async function showMariusContext() {
+    try {
+      const res = await requestJson(`${MCH}/agents/marius/context`);
+      if (res && res.ok && res.data) {
+        const modal = document.getElementById("marius-model-modal");
+        if (modal) {
+          modal.style.display = "flex";
+          const title = document.getElementById('marius-model-modal-title');
+          if (title) title.textContent = "Marius Grounding Context";
+        }
+        const availList = document.getElementById('marius-model-available-list');
+        if (availList) availList.innerHTML = `<pre style="white-space:pre-wrap; color:var(--fg);">${escapeHtml(res.data.facts)}</pre>`;
+      }
+    } catch(e) { alert("Error fetching context"); }
+  }
+
+  function wireMariusEvents() {
+    const btnChat = document.getElementById("open-marius-chat-btn");
+    if (btnChat) btnChat.addEventListener("click", openMariusChat);
+    const btnTest = document.getElementById("marius-test-drive-btn");
+    if (btnTest) btnTest.addEventListener("click", openMariusModels);
+    const btnChatTest = document.getElementById("marius-chat-test-drive-btn");
+    if (btnChatTest) btnChatTest.addEventListener("click", openMariusModels);
+    const btnCloseChat = document.getElementById("marius-chat-close-btn");
+    if (btnCloseChat) btnCloseChat.addEventListener("click", closeMariusChat);
+    const btnCloseModels = document.getElementById("marius-model-close-btn");
+    if (btnCloseModels) btnCloseModels.addEventListener("click", closeMariusModels);
+    const btnSend = document.getElementById("marius-chat-send-btn");
+    if (btnSend) btnSend.addEventListener("click", sendMariusChat);
+    const btnBench = document.getElementById("marius-model-run-bench-btn");
+    if (btnBench) btnBench.addEventListener("click", runMariusBench);
+    const btnApply = document.getElementById("marius-model-apply-rec-btn");
+    if (btnApply) btnApply.addEventListener("click", applyMariusRec);
+    const btnCtx = document.getElementById("marius-context-btn");
+    if (btnCtx) btnCtx.addEventListener("click", showMariusContext);
+    const btnChatCtx = document.getElementById("marius-chat-context-btn");
+    if (btnChatCtx) btnChatCtx.addEventListener("click", showMariusContext);
+    
+    const input = document.getElementById("marius-chat-input");
+    if (input) {
+      input.addEventListener("keypress", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          sendMariusChat();
+        }
+      });
+    }
+
+    const selProf = document.getElementById("marius-chat-profile-select");
+    if (selProf) {
+      selProf.addEventListener("change", async (e) => {
+        await requestJson(`${MCH}/agents/marius/model/profile`, { method: "POST", body: { profile: e.target.value } });
+        refreshMariusStatus();
+      });
+    }
+    
+    const selMod = document.getElementById("marius-chat-model-select");
+    if (selMod) {
+      selMod.addEventListener("change", async (e) => {
+        await requestJson(`${MCH}/agents/marius/model/set`, { method: "POST", body: { model: e.target.value } });
+        refreshMariusStatus();
+      });
+    }
+
+    // Attempt initial status refresh
+    refreshMariusStatus();
+  }
+
   // Init
   async function init() {
     // Hide any remaining old complex UI elements (from previous full cockpit) - force SIMPLE MODE
     const oldSelectors = [".rail", ".panel", "#sessions-list", "#queue-list", "#artifact-list", "#evidence-list", "#gate-list", "#safety-list", "#log-hint", "section.layout-stack", "main.panel"];
     oldSelectors.forEach((sel) => {
       document.querySelectorAll(sel).forEach((el) => {
-        if (el.id && (el.id.includes("modal") || el.id === "codex-card" || el.id.includes("use-agent"))) return;
+        if (el.id && (el.id.includes("modal") || el.id === "codex-card" || el.id === "marius-card" || el.id.includes("use-agent"))) return;
         el.style.display = "none";
       });
     });
@@ -2949,6 +3576,7 @@
     });
 
     wireSimpleUI();
+    wireMariusEvents(); // Initialize Marius UI bindings
     if (window.WardenControlRoom && window.WardenControlRoom.init) {
       window.WardenControlRoom.init();
     }

@@ -107,6 +107,24 @@
           <section class="agent-group" data-testid="agent-group-ready">
             <h3 class="agent-group-title">Ready to Run</h3>
             <div class="agent-group-cards">
+              <div id="marius-card" data-testid="marius-card" class="agent-card">
+                <div class="agent-card-top">
+                  <h3 class="agent-card-title">Marius Local Agent</h3>
+                  <span id="marius-status-pill" data-testid="marius-status-pill" class="status-pill status-ready">READY</span>
+                </div>
+                <div class="agent-card-meta-row" style="display: flex; gap: 12px; margin-bottom: 8px; font-size: 13px; color: var(--fg-muted);">
+                  <span class="agent-type-label">Provider: <span id="marius-provider-label" style="font-weight: 500;">Ollama</span></span>
+                  <span class="agent-mode-label">Model: <span id="marius-model-label" style="font-weight: 500;">auto</span></span>
+                  <span class="agent-mode-label">Profile: <span id="marius-profile-label" style="font-weight: 500;">fast</span></span>
+                </div>
+                <p class="agent-card-copy">Resident McServer assistant powered by local Ollama models.</p>
+                <div class="agent-card-actions">
+                  <button id="open-marius-chat-btn" class="btn primary" type="button">Open Chat</button>
+                  <button id="marius-test-drive-btn" class="btn" type="button" style="display:none;">Test Drive</button>
+                  <button id="marius-context-btn" class="btn" type="button">Context</button>
+                </div>
+              </div>
+
               <div id="codex-card" data-testid="codex-card" class="agent-card">
                 <div class="agent-card-top">
                   <h3 class="agent-card-title">Codex CLI</h3>
@@ -485,6 +503,88 @@
       </div>
       <div id="evidence-detail-run" data-testid="evidence-detail-run" class="history-modal-meta"></div>
       <button type="button" id="evidence-detail-close" data-testid="evidence-detail-close" class="btn">Close</button>
+    </div>
+  </div>
+
+  <!-- Marius Chat Modal -->
+  <div id="marius-chat-modal" data-testid="marius-chat-modal" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); display:none; align-items:center; justify-content:center; z-index:10005;">
+    <div style="background:var(--bg-2); border:1px solid var(--line); width:90%; max-width:800px; height:85vh; max-height:800px; border-radius:8px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 8px 30px rgba(0,0,0,0.5);">
+      <div style="padding:16px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; background:var(--bg-1);">
+        <h3 style="margin:0; font-size:16px;">Marius Local Agent</h3>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <select id="marius-chat-profile-select" class="btn" style="padding:4px 8px; font-size:13px; height:auto; width:auto; border-radius:4px; appearance:auto;">
+            <option value="fast">fast</option>
+            <option value="balanced">balanced</option>
+            <option value="code">code</option>
+            <option value="deep">deep</option>
+          </select>
+          <select id="marius-chat-model-select" class="btn" style="padding:4px 8px; font-size:13px; height:auto; width:auto; border-radius:4px; appearance:auto;"></select>
+          <span id="marius-chat-provider-mode" style="font-size:12px; color:var(--muted); padding:4px 8px; border:1px solid var(--line); border-radius:4px; margin-right:4px;">local</span>
+          <button type="button" id="marius-chat-test-drive-btn" class="btn">Test Drive</button>
+          <button type="button" id="marius-chat-context-btn" class="btn">Show Context</button>
+          <button type="button" id="marius-chat-close-btn" class="btn" style="margin-left:8px;">Close</button>
+        </div>
+      </div>
+      <div id="marius-chat-messages" style="flex:1; padding:16px; overflow-y:auto; display:flex; flex-direction:column; gap:16px; background:var(--bg-0);">
+        <!-- Messages will go here -->
+      </div>
+      <div style="padding:12px 16px; border-top:1px solid var(--line); background:var(--bg-1);">
+        <div id="marius-chat-error" style="color:var(--bad); font-size:13px; margin-bottom:8px; display:none;"></div>
+        <div id="marius-chat-progress" style="color:var(--muted); font-size:13px; margin-bottom:8px; display:none;">thinking...</div>
+        <div style="display:flex; gap:8px;">
+          <textarea id="marius-chat-input" placeholder="Ask Marius..." style="flex:1; padding:10px; border-radius:6px; border:1px solid var(--line); background:var(--bg-2); color:var(--fg); resize:none; height:44px; font-family:inherit;"></textarea>
+          <button type="button" id="marius-chat-send-btn" class="btn primary" style="align-self:flex-end; height:44px;">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Marius Model/Test-Drive Modal -->
+  <div id="marius-model-modal" data-testid="marius-model-modal" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); display:none; align-items:center; justify-content:center; z-index:10006;">
+    <div style="background:var(--bg-2); border:1px solid var(--line); width:90%; max-width:600px; max-height:85vh; border-radius:8px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 8px 30px rgba(0,0,0,0.5);">
+      <div style="padding:16px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; background:var(--bg-1);">
+        <h3 id="marius-model-modal-title" style="margin:0; font-size:16px;">Marius Models & Benchmarks</h3>
+        <button type="button" id="marius-model-close-btn" class="btn">Close</button>
+      </div>
+      <div style="flex:1; padding:20px; overflow-y:auto;">
+        <div style="margin-bottom:20px;">
+          <h4 style="margin:0 0 8px 0; font-size:14px; color:var(--fg);">Current Status</h4>
+          <div style="font-size:13px; color:var(--muted); line-height:1.6;">
+            Profile: <span id="marius-model-status-profile" style="color:var(--fg);"></span><br>
+            Forced Model: <span id="marius-model-status-forced" style="color:var(--fg);"></span><br>
+            Mode: <span id="marius-model-status-mode" style="color:var(--fg);"></span>
+          </div>
+        </div>
+        
+        <div style="margin-bottom:20px;">
+          <h4 style="margin:0 0 8px 0; font-size:14px; color:var(--fg);">Available Local Models</h4>
+          <div id="marius-model-available-list" style="font-size:13px; color:var(--muted); background:var(--bg-1); padding:10px; border-radius:6px; border:1px solid var(--line); font-family:monospace;"></div>
+        </div>
+
+        <div style="margin-bottom:20px;">
+          <h4 style="margin:0 0 8px 0; font-size:14px; color:var(--fg);">Missing Recommended Models</h4>
+          <div id="marius-model-missing-list" style="font-size:13px; color:var(--muted); background:var(--bg-1); padding:10px; border-radius:6px; border:1px solid var(--line); font-family:monospace;"></div>
+        </div>
+
+        <div style="margin-bottom:10px;">
+          <button type="button" id="marius-model-run-bench-btn" class="btn primary">Run Quick Benchmark</button>
+        </div>
+        <div id="marius-bench-progress" style="display:none; font-size:13px; color:var(--warn, #f0c66a); margin-bottom:10px;">Benchmarking fast/chat candidates... this may take a minute.</div>
+        
+        <div id="marius-bench-results" style="display:none; margin-top:20px;">
+          <h4 style="margin:0 0 8px 0; font-size:14px; color:var(--fg);">Benchmark Results</h4>
+          <div id="marius-bench-table-container" style="background:var(--bg-1); border:1px solid var(--line); border-radius:6px; padding:10px; font-size:12px; overflow-x:auto; white-space:pre; font-family:monospace; margin-bottom:16px; color:var(--muted);"></div>
+          
+          <h4 style="margin:0 0 8px 0; font-size:14px; color:var(--fg);">Recommendations</h4>
+          <div style="font-size:13px; color:var(--muted); line-height:1.6; background:var(--bg-1); padding:10px; border-radius:6px; border:1px solid var(--line); margin-bottom:16px;">
+            Best Terminal Default: <span id="marius-bench-rec-best" style="color:var(--good); font-weight:bold;"></span><br>
+            Fastest Safe Model: <span id="marius-bench-rec-fastest" style="color:var(--fg);"></span><br>
+            Best Code Model: <span id="marius-bench-rec-code" style="color:var(--fg);"></span>
+          </div>
+          
+          <button type="button" id="marius-model-apply-rec-btn" class="btn good">Apply Recommended Default</button>
+        </div>
+      </div>
     </div>
   </div>
 

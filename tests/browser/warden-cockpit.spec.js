@@ -2384,3 +2384,148 @@ test("runner cleanup dry-run uses confirm false on private mock", async ({ page 
   await page.locator("[data-testid='rail-runner-confirm']").click();
   await expect(page.locator("[data-testid='cleanup-confirm-modal']")).toBeVisible();
 });
+
+test("Memory cockpit lists, searches, remembers, previews, and redacts", async ({ page }) => {
+  const memories = [
+    {
+      memory_id: "m-decision-1",
+      scope: "mcharness-public-export",
+      project_id: "mcharness-public-export",
+      title: "Private memory decision",
+      summary: "Keep Authorization: Bearer browser.fake.token behind the private runner.",
+      source: "warden",
+      source_ref: "run://run_1",
+      tags: ["decision", "private-runner"],
+      kind: "decision",
+      status: "active",
+      created_at: "2026-06-20T10:00:00Z",
+      updated_at: "2026-06-20T10:00:00Z",
+    },
+    {
+      memory_id: "m-failure-1",
+      scope: "mcharness-public-export",
+      project_id: "mcharness-public-export",
+      title: "Prior failure",
+      summary: "The first context preview was unbounded.",
+      source: "test",
+      tags: ["failure"],
+      kind: "failure",
+      status: "active",
+      created_at: "2026-06-20T09:00:00Z",
+      updated_at: "2026-06-20T09:00:00Z",
+    },
+  ];
+  let rememberBody = null;
+
+  await page.route("**/api/mcharness/**", async (route) => {
+    const url = new URL(route.request().url());
+    const method = route.request().method();
+    if (url.pathname.endsWith("/memory/health")) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, private_only: true, memory_count: memories.length }) });
+      return;
+    }
+    if (url.pathname.endsWith("/memories/search")) {
+      const query = (url.searchParams.get("q") || "").toLowerCase();
+      const results = memories.filter((memory) => `${memory.title} ${memory.summary}`.toLowerCase().includes(query));
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, memories: results, count: results.length }) });
+      return;
+    }
+    if (url.pathname.endsWith("/memories") && method === "GET") {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, memories, count: memories.length }) });
+      return;
+    }
+    if (url.pathname.endsWith("/memory/remember") && method === "POST") {
+      rememberBody = route.request().postDataJSON();
+      const memory = {
+        memory_id: "m-handoff-1",
+        ...rememberBody,
+        summary: rememberBody.content,
+        source_ref: "manual://ui",
+        created_at: "2026-06-20T11:00:00Z",
+        updated_at: "2026-06-20T11:00:00Z",
+      };
+      memories.unshift(memory);
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, memory }) });
+      return;
+    }
+    if (url.pathname.endsWith("/memory/context-pack") && method === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          context: "# Warden Memory Context\n\n## Known Constraints\n- Authorization: Bearer preview.secret.value",
+          memory_count: 2,
+          memory_ids: ["m-decision-1", "m-failure-1"],
+          truncated: false,
+          scope: "mcharness-public-export",
+        }),
+      });
+      return;
+    }
+    if (url.pathname.endsWith("/agent-lanes")) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ lanes: [] }) });
+      return;
+    }
+    if (url.pathname.endsWith("/health")) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ tmux_runner_enabled: true, codex_runner_enabled: true }) });
+      return;
+    }
+    if (await fulfillAgentRegistryRoute(route, { method, pathname: url.pathname })) return;
+    if (await fulfillControlRoomRoutes(route, {
+      snapshot: idleMissionSnapshot({ service_mode: "private" }),
+      runner: { ...idleRunnerSessions(), service_mode: "private" },
+    })) return;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({}) });
+  });
+
+  await page.goto("/web/warden/index.html");
+  await page.locator("[data-testid='nav-memory']").click();
+  await expect(page.locator("[data-testid='warden-section-memory']")).toHaveClass(/active/);
+  await expect(page.locator("[data-testid='memory-status-value']")).toContainText("Memory ready");
+  await expect(page.locator("[data-testid='memory-recent-list']")).toContainText("Private memory decision");
+  await expect(page.locator("[data-testid='memory-recent-list']")).toContainText("[REDACTED]");
+  await expect(page.locator("[data-testid='memory-recent-list']")).not.toContainText("browser.fake.token");
+
+  await page.locator("[data-testid='memory-search-query']").fill("failure");
+  await page.locator("[data-testid='memory-search-submit']").click();
+  await expect(page.locator("[data-testid='memory-search-results']")).toContainText("Prior failure");
+
+  await page.locator("[data-testid='memory-note-title']").fill("Next handoff");
+  await page.locator("[data-testid='memory-note-kind']").selectOption("handoff");
+  await page.locator("[data-testid='memory-note-tags']").fill("handoff, api");
+  await page.locator("[data-testid='memory-note-content']").fill("Verify the Memory cockpit before the next run.");
+  await page.locator("[data-testid='memory-remember-submit']").click();
+  await expect(page.locator("[data-testid='memory-remember-status']")).toContainText("Remembered");
+  expect(rememberBody.kind).toBe("handoff");
+  expect(rememberBody.tags).toEqual(["handoff", "api"]);
+  expect(rememberBody.content).toBe("Verify the Memory cockpit before the next run.");
+
+  await page.locator("[data-testid='memory-context-prompt']").fill("Prepare the next private runner task.");
+  await page.locator("[data-testid='memory-context-build']").click();
+  await expect(page.locator("[data-testid='memory-context-preview']")).toContainText("# Warden Memory Context");
+  await expect(page.locator("[data-testid='memory-context-preview']")).toContainText("[REDACTED]");
+  await expect(page.locator("[data-testid='memory-context-preview']")).not.toContainText("preview.secret.value");
+  await expect(page.locator("[data-testid='memory-context-meta']")).toContainText("2 memories");
+  await expect(page.locator("[data-testid='memory-context-sources']")).toContainText("m-decision-1");
+});
+
+test("Memory cockpit disables controls on the public service", async ({ page }) => {
+  await page.route("**/api/mcharness/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.includes("/memory") || url.pathname.endsWith("/memories")) {
+      await route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ detail: "Warden Memory is available only on the private runner service." }) });
+      return;
+    }
+    if (await fulfillControlRoomRoutes(route)) return;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({}) });
+  });
+
+  await page.goto("/web/warden/index.html");
+  await page.locator("[data-testid='nav-memory']").click();
+  await expect(page.locator("[data-testid='memory-private-notice']")).toBeVisible();
+  await expect(page.locator("[data-testid='memory-private-notice']")).toContainText("Memory is private-runner-only.");
+  await expect(page.locator("[data-testid='memory-search-submit']")).toBeDisabled();
+  await expect(page.locator("[data-testid='memory-remember-submit']")).toBeDisabled();
+  await expect(page.locator("[data-testid='memory-context-build']")).toBeDisabled();
+});

@@ -21,6 +21,46 @@ WORKBENCH_ROOT = MCTABLE_ROOT / "workbench"
 FILE_LOCK = threading.Lock()
 
 SAFE_SLUG = r"^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$"
+MEMORY_KINDS = Literal[
+    "fact",
+    "decision",
+    "failure",
+    "blocked_attempt",
+    "proof",
+    "claim",
+    "handoff",
+    "constraint",
+    "test_result",
+    "agent_prompt",
+    "agent_result",
+    "user_note",
+    "repo_context",
+    "fragile_file",
+    "acceptance_test",
+]
+MEMORY_STATUSES = Literal["active", "superseded", "stale", "forgotten"]
+MAX_MEMORY_CONTENT_CHARS = 12_000
+DEFAULT_CONTEXT_MAX_MEMORIES = 8
+DEFAULT_CONTEXT_MAX_CHARS = 6_000
+
+_PRIVATE_KEY_BLOCK_RE = re.compile(
+    r"-----BEGIN (?:OPENSSH |RSA |EC |DSA )?PRIVATE KEY-----.*?"
+    r"-----END (?:OPENSSH |RSA |EC |DSA )?PRIVATE KEY-----",
+    re.IGNORECASE | re.DOTALL,
+)
+_SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?im)\b("
+    r"(?:OPENAI|ANTHROPIC|GEMINI|GOOGLE|GROQ|GITHUB|OPENROUTER|AWS|AZURE)[A-Z0-9_]*(?:KEY|TOKEN|SECRET)"
+    r"|API_KEY|ACCESS_TOKEN|AUTH_TOKEN|CLIENT_SECRET|PASSWORD|PASSWD|COOKIE"
+    r")\s*=\s*(?P<quote>['\"]?)[^\s'\"\r\n]+(?P=quote)"
+)
+_AUTH_HEADER_RE = re.compile(r"(?im)\b(Authorization\s*:\s*Bearer)\s+[^\s\r\n]+")
+_PASSWORD_FIELD_RE = re.compile(
+    r"(?im)\b(password|passwd|pwd|cookie|sessionid)\s*[:=]\s*(?P<quote>['\"]?)[^\s'\"\r\n]+(?P=quote)"
+)
+_TOKEN_RE = re.compile(
+    r"\b(?:sk-(?:ant-|or-)?[A-Za-z0-9._-]{6,}|gsk_[A-Za-z0-9._-]{6,}|gh[pousr]_[A-Za-z0-9_]{6,})\b"
+)
 
 
 class WorkbenchError(ValueError):
@@ -86,6 +126,18 @@ class WorkbenchMemory(BaseModel):
     scope: str
     summary: str
     source: str
+    title: Optional[str] = None
+    source_ref: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
+    kind: MEMORY_KINDS = "user_note"
+    status: MEMORY_STATUSES = "active"
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    project_id: Optional[str] = None
+    repo_path: Optional[str] = None
+    branch: Optional[str] = None
+    task_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     compacted: bool = False
     notes: Optional[str] = None
     created_at: datetime
@@ -186,10 +238,43 @@ class WorkbenchSkillCreateRequest(BaseModel):
 
 
 class WorkbenchMemoryCreateRequest(BaseModel):
-    memory_id: str = Field(pattern=SAFE_SLUG)
+    memory_id: Optional[str] = Field(default=None, pattern=SAFE_SLUG)
     scope: str = Field(min_length=1)
     summary: str = Field(min_length=1)
     source: str = Field(min_length=1)
+    title: Optional[str] = None
+    source_ref: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
+    kind: MEMORY_KINDS = "user_note"
+    status: MEMORY_STATUSES = "active"
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    project_id: Optional[str] = None
+    repo_path: Optional[str] = None
+    branch: Optional[str] = None
+    task_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    compacted: bool = False
+    notes: Optional[str] = None
+
+
+class WorkbenchMemoryRememberRequest(BaseModel):
+    memory_id: Optional[str] = Field(default=None, pattern=SAFE_SLUG)
+    scope: str = Field(default="warden", min_length=1)
+    content: str = Field(min_length=1)
+    source: str = Field(default="warden")
+    title: Optional[str] = None
+    source_ref: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
+    kind: MEMORY_KINDS = "user_note"
+    status: MEMORY_STATUSES = "active"
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    project_id: Optional[str] = None
+    repo_path: Optional[str] = None
+    branch: Optional[str] = None
+    task_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     compacted: bool = False
     notes: Optional[str] = None
 
@@ -400,6 +485,50 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def redact_memory_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value)
+    text = _PRIVATE_KEY_BLOCK_RE.sub("[REDACTED PRIVATE KEY BLOCK]", text)
+    text = _AUTH_HEADER_RE.sub(r"\1 [REDACTED]", text)
+    text = _SECRET_ASSIGNMENT_RE.sub(lambda match: f"{match.group(1)}=[REDACTED]", text)
+    text = _PASSWORD_FIELD_RE.sub(lambda match: f"{match.group(1)}=[REDACTED]", text)
+    return _TOKEN_RE.sub("[REDACTED]", text)
+
+
+def _bounded_memory_text(value: Optional[str], limit: int = MAX_MEMORY_CONTENT_CHARS) -> Optional[str]:
+    redacted = redact_memory_text(value)
+    if redacted is None:
+        return None
+    return redacted.strip()[:limit]
+
+
+def _safe_memory_tags(tags: list[str]) -> list[str]:
+    clean: list[str] = []
+    for raw_tag in tags[:32]:
+        tag = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(raw_tag).strip().lower()).strip("-.")
+        if tag and tag not in clean:
+            clean.append(tag[:64])
+    return clean
+
+
+def _safe_memory_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    safe: dict[str, Any] = {}
+    for key, value in list(metadata.items())[:32]:
+        safe_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(key))[:64]
+        if not safe_key:
+            continue
+        if isinstance(value, str):
+            safe[safe_key] = _bounded_memory_text(value, 1000)
+        elif value is None or isinstance(value, (bool, int, float)):
+            safe[safe_key] = value
+        elif isinstance(value, list):
+            safe[safe_key] = [
+                _bounded_memory_text(str(item), 250) for item in value[:20]
+            ]
+    return safe
+
+
 def _safe_id(value: str, field: str) -> str:
     if not re.match(SAFE_SLUG, value):
         raise WorkbenchError(f"invalid {field}: {value}")
@@ -465,6 +594,12 @@ class WorkbenchStore:
     def _generate_record_id(self, prefix: str, field: str) -> str:
         candidate = f"{prefix}_{uuid.uuid4().hex[:8]}"
         return _safe_id(candidate, field)
+
+    def _generate_memory_id(self, title: str) -> str:
+        prefix = re.sub(r"[^A-Za-z0-9_-]+", "-", title.lower()).strip("-_")
+        prefix = prefix[:24] or "memory"
+        candidate = f"m-{prefix}-{uuid.uuid4().hex[:6]}"
+        return _safe_id(candidate, "memory_id")
 
     def _message_path(self, thread_id: str) -> Path:
         return self.root / "messages" / f"{thread_id}.jsonl"
@@ -1057,23 +1192,236 @@ class WorkbenchStore:
         rows.sort(key=lambda item: item.updated_at, reverse=True)
         return rows
 
+    def _memory_search_text(self, memory: WorkbenchMemory) -> str:
+        return " ".join(
+            [
+                memory.memory_id,
+                memory.scope,
+                memory.title or "",
+                memory.summary,
+                memory.source,
+                memory.source_ref or "",
+                " ".join(memory.tags),
+                memory.kind,
+                memory.status,
+                memory.project_id or "",
+                memory.repo_path or "",
+                memory.branch or "",
+                memory.task_id or "",
+                memory.agent_id or "",
+                memory.notes or "",
+            ]
+        ).lower()
+
+    def search_memories(
+        self,
+        query: str,
+        *,
+        scope: Optional[str] = None,
+        limit: int = 20,
+    ) -> list[WorkbenchMemory]:
+        self.ensure_layout()
+        query = query.strip().lower()
+        rows = self.list_memories()
+        if scope:
+            rows = [memory for memory in rows if memory.scope.lower() == scope.strip().lower()]
+        rows = [memory for memory in rows if memory.status != "forgotten"]
+        if not query:
+            return rows[:limit]
+
+        scored: list[tuple[int, float, str, WorkbenchMemory]] = []
+        terms = [term for term in re.split(r"\s+", query) if term]
+        for memory in rows:
+            haystack = self._memory_search_text(memory)
+            if query in haystack:
+                score = 100 + haystack.count(query)
+            else:
+                score = sum(10 for term in terms if term in haystack)
+            if score > 0:
+                scored.append((score, memory.updated_at.timestamp(), memory.memory_id, memory))
+        scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
+        return [memory for _, _, _, memory in scored[:limit]]
+
     def create_memory(self, payload: WorkbenchMemoryCreateRequest) -> WorkbenchMemory:
         self.ensure_layout()
-        _safe_id(payload.memory_id, "memory_id")
-        if self._path("memories", payload.memory_id).exists():
-            raise WorkbenchError(f"memory already exists: {payload.memory_id}")
+        summary = _bounded_memory_text(payload.summary)
+        if not summary:
+            raise WorkbenchError("memory summary is required.")
+        memory_id = payload.memory_id or self._generate_memory_id(summary)
+        _safe_id(memory_id, "memory_id")
+        if self._path("memories", memory_id).exists():
+            raise WorkbenchError(f"memory already exists: {memory_id}")
+        scope = _bounded_memory_text(payload.scope, 160)
+        if not scope:
+            raise WorkbenchError("memory scope is required.")
+        title = _bounded_memory_text(payload.title or summary[:80], 160)
         memory = WorkbenchMemory(
-            memory_id=payload.memory_id,
-            scope=payload.scope,
-            summary=payload.summary,
-            source=payload.source,
+            memory_id=memory_id,
+            scope=scope,
+            summary=summary,
+            source=_bounded_memory_text(payload.source, 80) or "warden",
+            title=title,
+            source_ref=_bounded_memory_text(payload.source_ref, 500),
+            tags=_safe_memory_tags(payload.tags),
+            kind=payload.kind,
+            status=payload.status,
+            confidence=payload.confidence,
+            project_id=_bounded_memory_text(payload.project_id, 160),
+            repo_path=_bounded_memory_text(payload.repo_path, 500),
+            branch=_bounded_memory_text(payload.branch, 200),
+            task_id=_bounded_memory_text(payload.task_id, 160),
+            agent_id=_bounded_memory_text(payload.agent_id, 80),
+            metadata=_safe_memory_metadata(payload.metadata),
             compacted=payload.compacted,
-            notes=payload.notes,
+            notes=_bounded_memory_text(payload.notes, 2000),
             created_at=_now(),
             updated_at=_now(),
         )
         _atomic_write_json(self._path("memories", memory.memory_id), memory.model_dump(mode="json"))
         return memory
+
+    def remember_memory(self, payload: WorkbenchMemoryRememberRequest) -> WorkbenchMemory:
+        self.ensure_layout()
+        summary = payload.content.strip()
+        memory_id = payload.memory_id or self._generate_memory_id(summary)
+        create_payload = WorkbenchMemoryCreateRequest(
+            memory_id=memory_id,
+            scope=payload.scope,
+            summary=summary,
+            source=payload.source,
+            title=payload.title or summary[:80],
+            source_ref=payload.source_ref,
+            tags=list(payload.tags),
+            kind=payload.kind,
+            status=payload.status,
+            confidence=payload.confidence,
+            project_id=payload.project_id,
+            repo_path=payload.repo_path,
+            branch=payload.branch,
+            task_id=payload.task_id,
+            agent_id=payload.agent_id,
+            metadata=dict(payload.metadata),
+            compacted=payload.compacted,
+            notes=payload.notes,
+        )
+        return self.create_memory(create_payload)
+
+    def build_memory_context_pack(
+        self,
+        *,
+        project_id: str,
+        repo_path: Optional[str] = None,
+        agent: Optional[str] = None,
+        user_prompt: str = "",
+        branch: Optional[str] = None,
+        task_id: Optional[str] = None,
+        max_memories: int = DEFAULT_CONTEXT_MAX_MEMORIES,
+        max_chars: int = DEFAULT_CONTEXT_MAX_CHARS,
+    ) -> dict[str, Any]:
+        scope = project_id.strip()
+        max_memories = max(1, min(int(max_memories), 50))
+        max_chars = max(256, min(int(max_chars), 20_000))
+        query_terms = {
+            term
+            for term in re.findall(r"[a-z0-9_.-]{3,}", (user_prompt or "").lower())
+        }
+        priority = {
+            "constraint": 90,
+            "decision": 85,
+            "failure": 80,
+            "blocked_attempt": 78,
+            "proof": 75,
+            "test_result": 72,
+            "fragile_file": 70,
+            "acceptance_test": 68,
+            "handoff": 65,
+            "claim": 55,
+        }
+        ranked: list[tuple[int, float, str, WorkbenchMemory]] = []
+        for memory in self.list_memories():
+            if memory.status != "active":
+                continue
+            scope_matches = memory.scope.lower() == scope.lower()
+            project_matches = bool(memory.project_id and memory.project_id.lower() == scope.lower())
+            repo_matches = bool(repo_path and memory.repo_path and memory.repo_path == repo_path)
+            if not (scope_matches or project_matches or repo_matches):
+                continue
+            haystack = self._memory_search_text(memory)
+            query_score = sum(8 for term in query_terms if term in haystack)
+            agent_score = 5 if agent and memory.agent_id and memory.agent_id.lower() == agent.lower() else 0
+            task_score = 5 if task_id and memory.task_id == task_id else 0
+            branch_score = 3 if branch and memory.branch == branch else 0
+            score = priority.get(memory.kind, 40) + query_score + agent_score + task_score + branch_score
+            ranked.append((score, memory.updated_at.timestamp(), memory.memory_id, memory))
+        ranked.sort(key=lambda item: (-item[0], -item[1], item[2]))
+        selected = [item[3] for item in ranked[:max_memories]]
+        if not selected:
+            return {
+                "context": "",
+                "memory_count": 0,
+                "memory_ids": [],
+                "truncated": False,
+                "scope": scope,
+            }
+
+        section_for_kind = {
+            "decision": "Relevant Decisions",
+            "failure": "Prior Failures / Avoid",
+            "blocked_attempt": "Prior Failures / Avoid",
+            "proof": "Proven State",
+            "test_result": "Proven State",
+            "claim": "Claimed But Unproven",
+            "constraint": "Known Constraints",
+            "fragile_file": "Fragile Files / Hot Spots",
+            "acceptance_test": "Suggested Acceptance Tests",
+            "handoff": "Handoff / Next Step",
+        }
+        sections: dict[str, list[str]] = {}
+        for memory in selected:
+            heading = section_for_kind.get(memory.kind, "Relevant Project Context")
+            summary = _bounded_memory_text(memory.summary, 800) or ""
+            sections.setdefault(heading, []).append(
+                f"- [{memory.memory_id}] {memory.title or memory.kind}: {summary}"
+            )
+
+        lines = [
+            "# Warden Memory Context",
+            "",
+            "## Project / Repo",
+            f"- Project: {redact_memory_text(scope)}",
+        ]
+        if repo_path:
+            lines.append(f"- Repo: {redact_memory_text(repo_path)}")
+        if branch:
+            lines.append(f"- Branch: {redact_memory_text(branch)}")
+        for heading in [
+            "Relevant Decisions",
+            "Prior Failures / Avoid",
+            "Proven State",
+            "Claimed But Unproven",
+            "Known Constraints",
+            "Fragile Files / Hot Spots",
+            "Suggested Acceptance Tests",
+            "Handoff / Next Step",
+            "Relevant Project Context",
+        ]:
+            entries = sections.get(heading)
+            if entries:
+                lines.extend(["", f"## {heading}", *entries])
+        lines.extend(["", "## Source Memories"])
+        lines.extend(f"- {memory.memory_id}: {memory.title or memory.kind}" for memory in selected)
+        context = redact_memory_text("\n".join(lines).strip()) or ""
+        truncated = len(context) > max_chars
+        if truncated:
+            suffix = "\n\n[Warden Memory context truncated]"
+            context = context[: max(0, max_chars - len(suffix))].rstrip() + suffix
+        return {
+            "context": context,
+            "memory_count": len(selected),
+            "memory_ids": [memory.memory_id for memory in selected],
+            "truncated": truncated,
+            "scope": scope,
+        }
 
     def list_artifacts(self) -> list[WorkbenchArtifact]:
         self.ensure_layout()
