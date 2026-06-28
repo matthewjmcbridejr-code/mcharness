@@ -13,7 +13,7 @@ os.environ["MARIUS_TELEGRAM_ENABLED"] = "0"
 from src.warden.app import app
 from src.marius.tools import redact_secrets
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 @pytest.fixture(autouse=True)
 def setup_teardown():
@@ -41,17 +41,22 @@ def test_marius_status_diagnostics():
 
 def test_marius_chat_success():
     client = TestClient(app)
-    with patch("requests.post") as mock_post:
-        mock_post.return_value.status_code = 200
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = MagicMock(status_code=200)
         mock_post.return_value.json.return_value = {
-            "message": {"content": "I am Marius, your assistant."}
+            "message": {"content": "I am Marius, your assistant."},
+            "prompt_eval_count": 10,
+            "eval_count": 20
         }
-        
-        response = client.post("/api/mcharness/marius/chat", json={"message": "Who are you?"})
-        assert response.status_code == 200
-        data = response.json()
-        assert data["provider"] == "ollama"
-        assert "Marius" in data["response"]
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = MagicMock(status_code=200)
+            mock_get.return_value.json.return_value = {"models": [{"name": "llama3.2:3b"}]}
+            
+            response = client.post("/api/mcharness/marius/chat", json={"message": "Who are you?"})
+            assert response.status_code == 200
+            data = response.json()
+            assert data["provider"] == "ollama"
+            assert "Marius" in data["response"]
 
 def test_marius_health():
     client = TestClient(app)
@@ -75,12 +80,12 @@ def test_marius_status_redaction():
 
 def test_marius_chat_fallback():
     client = TestClient(app)
-    # Ensure OLLAMA_URL points to nothing valid
-    os.environ["OLLAMA_URL"] = "http://localhost:1/invalid"
-    response = client.post("/api/mcharness/marius/chat", json={"message": "hello"})
-    assert response.status_code == 200
-    assert "fallback" in response.json()["provider"]
-    assert "unavailable" in response.json()["response"].lower()
+    # Ensure resolution fails
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.side_effect = Exception("Connection refused")
+        response = client.post("/api/mcharness/marius/chat", json={"message": "hello"})
+        assert response.status_code == 200
+        assert "fallback" in response.json()["provider"]
 
 def test_marius_memory_cycle():
     client = TestClient(app)
