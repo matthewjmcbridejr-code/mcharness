@@ -114,8 +114,8 @@ def test_once_and_repl_use_same_path():
         
         # Test --once path
         cli.run_command("hello once")
-        mock_get_chat.assert_called_with("hello once")
-        
+        mock_get_chat.assert_called_with("hello once", brain_context=False)
+
         # Test REPL path
         cli.run_command("hello repl")
-        mock_get_chat.assert_called_with("hello repl")
+        mock_get_chat.assert_called_with("hello repl", brain_context=False)

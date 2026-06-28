@@ -1520,6 +1520,7 @@ def _create_warden_run_on_dispatch(
     runner_id: str,
     transcript_path: str,
     status: str = "dispatched",
+    original_prompt: Optional[str] = None,
 ) -> dict[str, Any] | None:
     if payload.lane_id != "codex_cli" or not _run_history_write_enabled():
         return None
@@ -1539,6 +1540,7 @@ def _create_warden_run_on_dispatch(
         transcript_path=transcript_path,
         created_by=payload.created_by or "operator",
         service_mode=_service_mode_label(),
+        original_prompt=original_prompt,
     )
 
 
@@ -1647,7 +1649,7 @@ def _send_prompt_to_codex_runner(session_id: str, prompt_text: str):
     if not name:
         raise HTTPException(status_code=400, detail="No tmux session for runner")
     dispatch_prompt = str(state.get("dispatch_prompt") or "")
-    if dispatch_prompt and not prompt_text.startswith("# Warden Memory Context"):
+    if dispatch_prompt and not prompt_text:
         prompt_text = dispatch_prompt
     # Use -l for literal text (safe, no shell interp of user prompt).
     # Codex CLI queues the message, then Tab + Enter submits it.
@@ -2726,6 +2728,7 @@ def post_mcharness_runner_start(session_id: str, payload: McHarnessRunnerStartRe
         runner_id=runner_id,
         transcript_path=trans_path,
         status="dispatched",
+        original_prompt=original_prompt,
     )
     if payload.lane_id == "codex_cli":
         prompt_memory_id = _remember_run_memory(

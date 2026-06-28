@@ -41,17 +41,17 @@ def test_marius_status_diagnostics():
 
 def test_marius_chat_success():
     client = TestClient(app)
-    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-        mock_post.return_value = MagicMock(status_code=200)
-        mock_post.return_value.json.return_value = {
-            "message": {"content": "I am Marius, your assistant."},
-            "prompt_eval_count": 10,
-            "eval_count": 20
-        }
-        with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
-            mock_get.return_value = MagicMock(status_code=200)
-            mock_get.return_value.json.return_value = {"models": [{"name": "llama3.2:3b"}]}
-            
+    from src.marius.model_profiles import get_profile
+    profile = get_profile("fast")
+    complete_result = {
+        "choices": [{"message": {"content": "I am Marius, your assistant."}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
+    }
+    with patch("src.marius.provider_gateway.ProviderGateway.resolve_model_and_provider", new_callable=AsyncMock) as mock_resolve:
+        mock_resolve.return_value = ("ollama", "llama3.2:3b", profile, None)
+        with patch("src.marius.providers.ollama.OllamaProvider.complete", new_callable=AsyncMock) as mock_complete:
+            mock_complete.return_value = complete_result
+
             response = client.post("/api/mcharness/marius/chat", json={"message": "Who are you?"})
             assert response.status_code == 200
             data = response.json()

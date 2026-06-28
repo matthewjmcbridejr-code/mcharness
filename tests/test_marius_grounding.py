@@ -43,7 +43,7 @@ async def test_anti_hallucination_rule_injection():
 def test_grounding_pack_file_loading():
     # Test that it loads AGENTS.md if present
     gp = GroundingPack()
-    assert "McServer Agent Rules" in gp.facts
+    assert "Warden Agent Notes" in gp.facts
     assert "FROM AGENTS.md" in gp.facts
 
 @pytest.mark.anyio
